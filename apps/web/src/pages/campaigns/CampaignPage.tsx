@@ -68,8 +68,10 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
             </div>
             {member.isOwner ? <RoleBadge label="Owner" tone="accent" /> : null}
             <RoleBadge label={member.role} tone={member.role === 'director' ? 'accent' : 'dim'} />
-            {roster.viewer.isOwner && !member.isOwner ? (
+            {roster.viewer.isOwner ? (
               <span className="flex gap-2">
+                {/* Any active member can take the screen — including the owner
+                    reclaiming it after handing director to someone else. */}
                 {member.role !== 'director' ? (
                   <Button
                     size="sm"
@@ -80,30 +82,34 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
                     Make Director
                   </Button>
                 ) : null}
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => {
-                    if (window.confirm(`Remove ${member.displayName} from the campaign?`))
-                      moderate(() => removeMember({ campaignId, targetUserId: member.userId }));
-                  }}
-                >
-                  Remove
-                </Button>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Block ${member.displayName}? They won't be able to request to join again.`,
-                      )
-                    )
-                      moderate(() => blockUser({ campaignId, targetUserId: member.userId }));
-                  }}
-                >
-                  Block
-                </Button>
+                {!member.isOwner ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => {
+                        if (window.confirm(`Remove ${member.displayName} from the campaign?`))
+                          moderate(() => removeMember({ campaignId, targetUserId: member.userId }));
+                      }}
+                    >
+                      Remove
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Block ${member.displayName}? They won't be able to request to join again.`,
+                          )
+                        )
+                          moderate(() => blockUser({ campaignId, targetUserId: member.userId }));
+                      }}
+                    >
+                      Block
+                    </Button>
+                  </>
+                ) : null}
               </span>
             ) : null}
           </li>

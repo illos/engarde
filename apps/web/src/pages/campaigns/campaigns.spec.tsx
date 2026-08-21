@@ -181,6 +181,35 @@ describe('CampaignPage', () => {
     });
   });
 
+  test('an owner who handed off director can reclaim it from their own row', () => {
+    setQuery(api.campaigns.listRoster, {
+      viewer: { role: 'player' as const, isOwner: true },
+      members: [
+        { userId: userA, displayName: 'Rhian', handle: 'rhian', role: 'player', isOwner: true },
+        { userId: userB, displayName: 'Bren', handle: 'bren', role: 'director', isOwner: false },
+      ],
+      pending: [],
+      blocked: [],
+    });
+    setQuery(api.campaigns.getSettings, {
+      campaignId,
+      name: 'The Iron Vow',
+      description: '',
+      visibility: 'private',
+      joinCode: 'ABCD2345',
+    });
+    render(<CampaignPage campaignId={campaignId} />);
+    // One Make Director button: the owner's own row (Bren already holds it).
+    fireEvent.click(screen.getByRole('button', { name: 'Make Director' }));
+    expect(spyFor(api.campaigns.setDirector)).toHaveBeenCalledWith({
+      campaignId,
+      targetUserId: userA,
+    });
+    // Remove/Block never render on the owner's own row.
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Block' })).toHaveLength(1);
+  });
+
   test('a plain member sees the roster and leave, not the owner console', () => {
     setQuery(api.campaigns.listRoster, {
       viewer: { role: 'player' as const, isOwner: false },

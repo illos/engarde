@@ -291,6 +291,16 @@ describe('campaigns', () => {
     expect(roster.members).toContainEqual(
       expect.objectContaining({ userId: owner.userId, role: 'player', isOwner: true }),
     );
+
+    // The owner is an active member like any other: they can take it back.
+    await owner.client.mutation(api.campaigns.setDirector, {
+      campaignId,
+      targetUserId: owner.userId,
+    });
+    const reclaimed = await owner.client.query(api.campaigns.listRoster, { campaignId });
+    expect(reclaimed.members.filter((entry) => entry.role === 'director')).toEqual([
+      expect.objectContaining({ userId: owner.userId }),
+    ]);
   });
 
   test('the director leaving, being removed, or being blocked reverts the role to the owner', async () => {
