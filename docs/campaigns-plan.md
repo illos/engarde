@@ -215,20 +215,21 @@ succeeds · setDirector swap keeps invariant 1 · director leave/remove reverts
 to owner · non-owner calling each owner mutation is rejected · `joinCode`
 absent from preview/directory/roster payloads · regenerate kills the old code.
 
-## Open questions (flagged, with recommendations — not blockers)
+## Decided (confirmed by the user, 2026-08-21)
 
 1. **Owner as player.** After `setDirector(other)`, the owner's role is
-   `player` while retaining owner authority. Recommended and assumed above;
-   the alternative (owner always director) contradicts "only one director at
-   a time" whenever anyone else takes the screen.
-2. **What a blocked user sees.** Recommended: `requestToJoin` fails with the
-   same generic "Unable to send request" a closed campaign would give, and the
-   join screen shows no special state. Accepts a small it-didn't-work signal
-   rather than shadow-pending complexity — consistent with the friend-group
-   trust model.
-3. **Kick/leave/unblock** are not in the original spec but are included above
-   as necessary completions of the lifecycle. Confirm or trim.
-4. **Directory ordering/search** — start with recency-ordered pagination;
+   `player` while retaining owner authority — "only one director at a time"
+   forces this whenever anyone else takes the screen.
+2. **What a blocked user sees.** `requestToJoin` fails with the same generic
+   "Unable to send request" a closed campaign would give; the join screen
+   shows no special state. A small it-didn't-work signal is accepted over
+   shadow-pending complexity — consistent with the friend-group trust model.
+3. **Kick (`removeMember`), leave (`leaveCampaign`), and `unblockUser` are
+   in scope** as specced above — confirmed completions of the lifecycle.
+
+## Open questions (not blockers)
+
+1. **Directory ordering/search** — start with recency-ordered pagination;
    search/filters arrive with the later join-screen facts (setting, rating).
 
 ## Supersessions of `user-accounts-plan.md` §"Campaigns and membership"
