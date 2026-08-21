@@ -1,10 +1,11 @@
+/// <reference types="vite/client" />
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
-import { api } from '../convex/_generated/api';
-import { DEFAULT_INSTANCE_NAME } from '../convex/instance';
-import schema from '../convex/schema';
+import { api } from './_generated/api';
+import { DEFAULT_INSTANCE_NAME } from './instance';
+import schema from './schema';
 
-const modules = import.meta.glob('../convex/**/*.ts');
+const modules = import.meta.glob('./**/*.ts');
 
 describe('instance settings', () => {
   test('getName falls back to the default instance name when unset', async () => {
