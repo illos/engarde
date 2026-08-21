@@ -1,5 +1,6 @@
 import { useAuthActions } from '@convex-dev/auth/react';
 import { api } from '@engarde/backend/convex/_generated/api';
+import { Link } from '@tanstack/react-router';
 import { AuthLoading, Authenticated, Unauthenticated, useMutation, useQuery } from 'convex/react';
 import { type FormEvent, useState } from 'react';
 import { convexUrl } from '../backend';
@@ -212,10 +213,29 @@ function PasswordForm() {
 function Account() {
   const profile = useQuery(api.profiles.current);
   if (profile === undefined) return <p className="text-text-dim">Loading your account…</p>;
-  return profile === null ? (
-    <ProfileForm mode="onboarding" />
-  ) : (
-    <ProfileForm mode="edit" profile={profile} />
+  if (profile === null) return <ProfileForm mode="onboarding" />;
+  return (
+    <>
+      <nav className="grid gap-3 sm:grid-cols-2">
+        <Link to="/campaigns" className="group block">
+          <div className="h-full border border-line bg-ink-1 p-5 transition-colors group-hover:border-accent">
+            <h2 className="text-2xl">Your campaigns</h2>
+            <p className="mt-1 text-sm text-text-dim">
+              Open a table you're part of, create one, or join with a code.
+            </p>
+          </div>
+        </Link>
+        <Link to="/directory" className="group block">
+          <div className="h-full border border-line bg-ink-1 p-5 transition-colors group-hover:border-accent">
+            <h2 className="text-2xl">Campaign directory</h2>
+            <p className="mt-1 text-sm text-text-dim">
+              Browse public campaigns looking for players.
+            </p>
+          </div>
+        </Link>
+      </nav>
+      <ProfileForm mode="edit" profile={profile} />
+    </>
   );
 }
 
