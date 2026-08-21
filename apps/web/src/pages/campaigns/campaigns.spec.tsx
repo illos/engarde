@@ -79,6 +79,7 @@ describe('JoinScreen', () => {
     description: 'Oaths and consequences',
     ownerName: 'Rhian',
     memberCount: 3,
+    joinability: 'open' as const,
     viewerStatus: 'none' as const,
   };
 
@@ -102,6 +103,14 @@ describe('JoinScreen', () => {
     expect(spyFor(api.campaigns.cancelJoinRequest)).toHaveBeenCalledWith({
       campaignId,
     });
+  });
+
+  test('a closed campaign shows a disabled affordance instead of the join button', () => {
+    setQuery(api.campaigns.getJoinPreview, { ...preview, joinability: 'closed' });
+    render(<JoinScreen code="ABCD2345" />);
+    const closed = screen.getByRole('button', { name: 'Closed to new members' });
+    expect((closed as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Join this Campaign' })).toBeNull();
   });
 
   test('a failed lookup renders not-found instead of crashing', () => {
@@ -161,6 +170,7 @@ describe('CampaignPage', () => {
       name: 'The Iron Vow',
       description: '',
       visibility: 'private',
+      joinability: 'open',
       joinCode: 'ABCD2345',
     });
     render(<CampaignPage campaignId={campaignId} />);
@@ -196,6 +206,7 @@ describe('CampaignPage', () => {
       name: 'The Iron Vow',
       description: '',
       visibility: 'private',
+      joinability: 'open',
       joinCode: 'ABCD2345',
     });
     render(<CampaignPage campaignId={campaignId} />);
@@ -234,6 +245,7 @@ describe('DirectoryPage', () => {
           description: 'Drop-in friendly',
           ownerName: 'Rhian',
           memberCount: 4,
+          joinability: 'open',
         },
       ],
       status: 'Exhausted',

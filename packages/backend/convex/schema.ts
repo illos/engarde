@@ -38,6 +38,7 @@ export default defineSchema({
     description: v.string(),
     ownerId: v.id('users'),
     visibility: v.union(v.literal('public'), v.literal('private')),
+    joinability: v.union(v.literal('open'), v.literal('closed')),
     joinCode: v.string(),
     joinCodeRotatedAt: v.number(),
     createdAt: v.number(),

@@ -16,6 +16,7 @@ const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const JOIN_CODE_LENGTH = 8;
 
 const visibilityValidator = v.union(v.literal('public'), v.literal('private'));
+const joinabilityValidator = v.union(v.literal('open'), v.literal('closed'));
 const roleValidator = v.union(v.literal('player'), v.literal('director'));
 
 const joinPreviewView = v.object({
@@ -24,6 +25,7 @@ const joinPreviewView = v.object({
   description: v.string(),
   ownerName: v.string(),
   memberCount: v.number(),
+  joinability: joinabilityValidator,
   viewerStatus: v.union(v.literal('none'), v.literal('pending'), v.literal('active')),
 });
 
@@ -33,6 +35,7 @@ const directoryEntryView = v.object({
   description: v.string(),
   ownerName: v.string(),
   memberCount: v.number(),
+  joinability: joinabilityValidator,
 });
 
 const myCampaignCardView = v.object({
@@ -64,6 +67,7 @@ const settingsView = v.object({
   name: v.string(),
   description: v.string(),
   visibility: visibilityValidator,
+  joinability: joinabilityValidator,
   joinCode: v.string(),
 });
 
@@ -160,6 +164,7 @@ async function buildPreview(
   description: string;
   ownerName: string;
   memberCount: number;
+  joinability: 'open' | 'closed';
   viewerStatus: 'none' | 'pending' | 'active';
 }> {
   const membership = await getMembership(ctx, campaign._id, viewerId);
@@ -172,6 +177,7 @@ async function buildPreview(
     description: campaign.description,
     ownerName: await ownerDisplayName(ctx, campaign.ownerId),
     memberCount: (await activeMembers(ctx, campaign._id)).length,
+    joinability: campaign.joinability,
     viewerStatus,
   };
 }
@@ -220,6 +226,7 @@ export const create = mutation({
       description: validateDescription(args.description),
       ownerId: profile.userId,
       visibility: 'private',
+      joinability: 'open',
       joinCode: await generateJoinCode(ctx),
       joinCodeRotatedAt: now,
       createdAt: now,
@@ -262,6 +269,16 @@ export const setVisibility = mutation({
   },
 });
 
+export const setJoinability = mutation({
+  args: { campaignId: v.id('campaigns'), joinability: joinabilityValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { campaign } = await requireOwner(ctx, args.campaignId);
+    await ctx.db.patch(campaign._id, { joinability: args.joinability, updatedAt: Date.now() });
+    return null;
+  },
+});
+
 export const regenerateJoinCode = mutation({
   args: { campaignId: v.id('campaigns') },
   returns: v.string(),
@@ -284,6 +301,7 @@ export const getSettings = query({
       name: campaign.name,
       description: campaign.description,
       visibility: campaign.visibility,
+      joinability: campaign.joinability,
       joinCode: campaign.joinCode,
     };
   },
@@ -326,6 +344,7 @@ export const listDirectory = query({
           description: campaign.description,
           ownerName: await ownerDisplayName(ctx, campaign.ownerId),
           memberCount: (await activeMembers(ctx, campaign._id)).length,
+          joinability: campaign.joinability,
         })),
       ),
     };
@@ -444,6 +463,11 @@ export const requestToJoin = mutation({
     const profile = await requireProfile(ctx);
     const campaign = await resolveJoinTarget(ctx, profile.userId, args);
     const membership = await getMembership(ctx, campaign._id, profile.userId);
+    if (membership?.status === 'active') return 'active';
+    // Closed checked before blocked: a blocked user gets the same message as
+    // everyone else while the door is shut, leaking nothing.
+    if (campaign.joinability === 'closed')
+      throw new ConvexError('This campaign is not accepting new members');
     if (membership?.status === 'blocked') throw new ConvexError(REQUEST_FAILED);
     if (membership) return membership.status;
     const now = Date.now();

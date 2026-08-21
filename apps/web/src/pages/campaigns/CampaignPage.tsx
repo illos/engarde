@@ -197,10 +197,12 @@ function BlockedSection({
 function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
   const settings = useQuery(api.campaigns.getSettings, { campaignId });
   const setVisibility = useMutation(api.campaigns.setVisibility);
+  const setJoinability = useMutation(api.campaigns.setJoinability);
   const regenerate = useMutation(api.campaigns.regenerateJoinCode);
   if (settings === undefined) return null;
   const shareLink = `${window.location.origin}/join/${settings.joinCode}`;
   const isPublic = settings.visibility === 'public';
+  const isOpen = settings.joinability === 'open';
   return (
     <section className="border border-line bg-ink-1 p-4">
       <h2 className="text-xl">Campaign settings</h2>
@@ -217,15 +219,35 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
             {isPublic ? 'Make private' : 'List publicly'}
           </Button>
         </dd>
-        <dt className="type-label text-xs text-text-mute">Share code</dt>
-        <dd>
+        <dt className="type-label text-xs text-text-mute">Joining</dt>
+        <dd className="flex items-center gap-3">
+          <RoleBadge label={settings.joinability} tone={isOpen ? 'victory' : 'dim'} />
+          <Button
+            size="sm"
+            onClick={() => setJoinability({ campaignId, joinability: isOpen ? 'closed' : 'open' })}
+          >
+            {isOpen ? 'Close joining' : 'Reopen joining'}
+          </Button>
+        </dd>
+        <dt className={`type-label text-xs text-text-mute ${isOpen ? '' : 'opacity-50'}`}>
+          Share code
+        </dt>
+        <dd className={isOpen ? '' : 'pointer-events-none opacity-50'}>
           <CopyPill value={settings.joinCode} label="share code" />
         </dd>
-        <dt className="type-label text-xs text-text-mute">Share link</dt>
-        <dd className="min-w-0">
+        <dt className={`type-label text-xs text-text-mute ${isOpen ? '' : 'opacity-50'}`}>
+          Share link
+        </dt>
+        <dd className={`min-w-0 ${isOpen ? '' : 'pointer-events-none opacity-50'}`}>
           <CopyPill value={shareLink} label="share link" />
         </dd>
       </dl>
+      {!isOpen ? (
+        <p className="mt-3 text-sm text-text-dim">
+          Joining is closed — the code, link, and directory listing won't accept new requests until
+          you reopen it.
+        </p>
+      ) : null}
       <div className="mt-4 border-t border-line-soft pt-4">
         <Button
           size="sm"

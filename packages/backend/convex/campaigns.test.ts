@@ -230,6 +230,8 @@ describe('campaigns', () => {
         member.client.mutation(api.campaigns.setVisibility, { campaignId, visibility: 'public' }),
       () => member.client.mutation(api.campaigns.regenerateJoinCode, { campaignId }),
       () =>
+        member.client.mutation(api.campaigns.setJoinability, { campaignId, joinability: 'closed' }),
+      () =>
         member.client.mutation(api.campaigns.updateSettings, {
           campaignId,
           name: 'Hijacked',
@@ -381,6 +383,57 @@ describe('campaigns', () => {
     expect(
       (await joiner.client.query(api.campaigns.getJoinPreview, { code: newCode })).campaignId,
     ).toBe(campaignId);
+  });
+
+  test('closing joinability disables all three routes, hides nothing else, and is reversible', async () => {
+    const t = convexTest(schema, modules);
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const early = await addPlayer(t, 'early@example.test', 'early_user');
+    const late = await addPlayer(t, 'late@example.test', 'late_user');
+    const blocked = await addPlayer(t, 'blocked@example.test', 'blocked_user');
+    const { campaignId, joinCode } = await makeCampaign(owner.client);
+    await owner.client.mutation(api.campaigns.setVisibility, { campaignId, visibility: 'public' });
+
+    expect((await owner.client.query(api.campaigns.getSettings, { campaignId })).joinability).toBe(
+      'open',
+    );
+    await early.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
+    await blocked.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
+    await owner.client.mutation(api.campaigns.blockUser, {
+      campaignId,
+      targetUserId: blocked.userId,
+    });
+
+    await owner.client.mutation(api.campaigns.setJoinability, {
+      campaignId,
+      joinability: 'closed',
+    });
+
+    // Both request routes refuse with the closed message — including for the
+    // blocked user, who stays indistinguishable from anyone else.
+    await expect(
+      late.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
+    ).rejects.toThrow('not accepting new members');
+    await expect(late.client.mutation(api.campaigns.requestToJoin, { campaignId })).rejects.toThrow(
+      'not accepting new members',
+    );
+    await expect(
+      blocked.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
+    ).rejects.toThrow('not accepting new members');
+
+    // The preview still resolves (grayed in the UI, not hidden) and carries
+    // the flag; the pre-existing pending request survives and is approvable.
+    const previewClosed = await late.client.query(api.campaigns.getJoinPreview, { code: joinCode });
+    expect(previewClosed.joinability).toBe('closed');
+    await owner.client.mutation(api.campaigns.approveRequest, {
+      campaignId,
+      targetUserId: early.userId,
+    });
+
+    await owner.client.mutation(api.campaigns.setJoinability, { campaignId, joinability: 'open' });
+    expect(await late.client.mutation(api.campaigns.requestToJoin, { code: joinCode })).toBe(
+      'pending',
+    );
   });
 
   test('join-target resolution requires exactly one of code and campaignId', async () => {

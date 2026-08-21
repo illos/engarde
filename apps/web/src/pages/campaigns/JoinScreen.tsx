@@ -59,6 +59,7 @@ function JoinCard(target: JoinTarget) {
       <JoinActions
         target={target}
         viewerStatus={preview.viewerStatus}
+        joinability={preview.joinability}
         campaignId={preview.campaignId}
       />
     </div>
@@ -68,10 +69,12 @@ function JoinCard(target: JoinTarget) {
 function JoinActions({
   target,
   viewerStatus,
+  joinability,
   campaignId,
 }: {
   target: JoinTarget;
   viewerStatus: 'none' | 'pending' | 'active';
+  joinability: 'open' | 'closed';
   campaignId: Id<'campaigns'>;
 }) {
   const requestToJoin = useMutation(api.campaigns.requestToJoin);
@@ -85,7 +88,12 @@ function JoinActions({
 
   return (
     <div className="mt-4 flex flex-col items-stretch gap-2">
-      {viewerStatus === 'none' ? (
+      {viewerStatus === 'none' && joinability === 'closed' ? (
+        <Button disabled aria-disabled="true">
+          Closed to new members
+        </Button>
+      ) : null}
+      {viewerStatus === 'none' && joinability === 'open' ? (
         <Button
           variant="primary"
           onClick={() =>

@@ -2,6 +2,7 @@ import { api } from '@engarde/backend/convex/_generated/api';
 import { Link } from '@tanstack/react-router';
 import { usePaginatedQuery } from 'convex/react';
 import { Button } from '../../primitives';
+import { RoleBadge } from './CampaignsPage';
 
 // Public campaign directory — browse, click a listing, land on its join
 // screen (the by-ID route, valid because directory campaigns are public).
@@ -30,11 +31,20 @@ export function DirectoryPage() {
                 params={{ campaignId: entry.campaignId }}
                 className="group block"
               >
-                <div className="border border-line bg-ink-1 p-4 transition-colors group-hover:border-accent">
+                <div
+                  className={`border border-line bg-ink-1 p-4 transition-colors group-hover:border-accent ${
+                    entry.joinability === 'closed' ? 'opacity-60' : ''
+                  }`}
+                >
                   <div className="flex items-baseline justify-between gap-4">
                     <h2 className="truncate font-display text-xl">{entry.name}</h2>
-                    <span className="type-label shrink-0 text-xs text-text-mute">
-                      {entry.memberCount} member{entry.memberCount === 1 ? '' : 's'}
+                    <span className="flex shrink-0 items-baseline gap-2">
+                      {entry.joinability === 'closed' ? (
+                        <RoleBadge label="Closed" tone="dim" />
+                      ) : null}
+                      <span className="type-label text-xs text-text-mute">
+                        {entry.memberCount} member{entry.memberCount === 1 ? '' : 's'}
+                      </span>
                     </span>
                   </div>
                   {entry.description ? (

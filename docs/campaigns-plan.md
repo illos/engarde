@@ -57,6 +57,7 @@ campaigns: defineTable({
   description: v.string(),          // short blurb shown on the join screen
   ownerId: v.id('users'),
   visibility: v.union(v.literal('public'), v.literal('private')),
+  joinability: v.union(v.literal('open'), v.literal('closed')),
   joinCode: v.string(),             // normalized uppercase, unique
   joinCodeRotatedAt: v.number(),
   createdAt: v.number(),
@@ -226,6 +227,16 @@ absent from preview/directory/roster payloads · regenerate kills the old code.
    shadow-pending complexity — consistent with the friend-group trust model.
 3. **Kick (`removeMember`), leave (`leaveCampaign`), and `unblockUser` are
    in scope** as specced above — confirmed completions of the lifecycle.
+4. **Joinability toggle (added 2026-08-21).** `joinability: open | closed`,
+   independent of visibility, owner-toggled (`setJoinability`). Closed kills
+   all three join routes at the mutation (`requestToJoin` refuses with "not
+   accepting new members" — checked before the blocked check, so blocked
+   users stay indistinguishable while closed). The join screen and directory
+   still *show* a closed campaign, grayed with a disabled affordance; the
+   owner console grays the code/link pills. Pre-existing pending requests
+   survive closing and remain approvable — closing stops *new* requests
+   only. Once a table has its people, this removes join-request spam risk
+   entirely without regenerating the code.
 
 ## Open questions (not blockers)
 
