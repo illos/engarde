@@ -8,7 +8,13 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
+import type * as authz from "../authz.js";
+import type * as emailDelivery from "../emailDelivery.js";
+import type * as emailRateLimits from "../emailRateLimits.js";
+import type * as http from "../http.js";
 import type * as instance from "../instance.js";
+import type * as profiles from "../profiles.js";
 
 import type {
   ApiFromModules,
@@ -17,7 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
+  authz: typeof authz;
+  emailDelivery: typeof emailDelivery;
+  emailRateLimits: typeof emailRateLimits;
+  http: typeof http;
   instance: typeof instance;
+  profiles: typeof profiles;
 }>;
 
 /**

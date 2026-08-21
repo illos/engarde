@@ -71,6 +71,13 @@ Important constraints:
   enter the same `requireUser` path as real auth rather than creating a second
   authorization model.
 
+Known pinned-library limitation: `@convex-dev/auth@0.0.95` rejects an unknown
+email during the password-reset action before invoking the delivery provider, so
+a caller using the Convex API directly can distinguish registered from unknown
+addresses. The web surface deliberately keeps the response and next screen
+identical. This is accepted only for the initial friend-group deployment and must
+be re-evaluated before open registration or when upgrading Convex Auth.
+
 References: [Convex Auth overview](https://docs.convex.dev/auth/convex-auth),
 [authentication overview](https://docs.convex.dev/auth/overview), and
 [auth in functions](https://docs.convex.dev/auth/functions-auth). Email delivery:

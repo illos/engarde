@@ -14,7 +14,9 @@
     "codegen": "convex codegen"
   },
   "dependencies": {
-    "convex": "^1.44.0"
+    "@convex-dev/auth": "0.0.95",
+    "convex": "^1.44.0",
+    "jose": "^6.2.9"
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",

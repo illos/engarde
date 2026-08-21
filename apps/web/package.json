@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@convex-dev/auth": "0.0.95",
     "@engarde/backend": "workspace:^",
     "@tanstack/react-router": "^1.170.31",
     "convex": "^1.44.0",

@@ -29,6 +29,28 @@ pnpm typecheck
 pnpm lint
 ```
 
+### Authentication environment
+
+Convex Auth requires `JWT_PRIVATE_KEY`, `JWKS`, and `SITE_URL` on each deployment.
+Local development intentionally needs no email credentials. Set
+`ENGARDE_AUTH_EMAIL_CONSOLE=true` explicitly to write verification and
+password-reset codes to the backend console. Without that flag, missing or partial
+Cloudflare configuration fails closed.
+
+Verification and reset delivery is limited to three messages per email address
+and purpose in each 15-minute window.
+
+To enable real delivery, set these Convex deployment variables:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_EMAIL_API_TOKEN` — a least-privilege token with `Email Sending: Edit`
+- `ENGARDE_EMAIL_FROM` — an address on a domain onboarded for Cloudflare Email Sending
+
+The sender domain must use Cloudflare DNS. Sending to arbitrary recipients currently
+requires Workers Paid. Set `ENGARDE_INITIAL_ADMIN_EMAIL` before the first profile is
+created to reserve the instance administrator role for that verified address; when
+it is absent, the first completed profile becomes administrator.
+
 ## License
 
 Code is licensed under [AGPL-3.0](LICENSE).
