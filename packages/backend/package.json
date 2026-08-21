@@ -1,0 +1,26 @@
+{
+  "name": "@engarde/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./convex/_generated/api": "./convex/_generated/api.js"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "echo 'no build step'",
+    "codegen": "convex codegen"
+  },
+  "dependencies": {
+    "convex": "^1.44.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.56",
+    "typescript": "^5.7.2",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}
