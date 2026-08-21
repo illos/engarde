@@ -4,6 +4,8 @@ Open-source companion software for running **Draw Steel** at the table — a liv
 virtual tabletop with campaign management, character/NPC/encounter tooling, and a
 canon-first rules engine.
 
+Production home: [en-garde.app](https://en-garde.app) (deployment pending).
+
 > **Status: greenfield bootstrap.** The application substrate (backend infra +
 > frontend shell) is being built and proven first; the game engine (rules canon,
 > intent reducer — everything that touches Draw Steel systems) lands only after
