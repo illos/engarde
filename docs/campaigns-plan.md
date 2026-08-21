@@ -238,6 +238,30 @@ absent from preview/directory/roster payloads · regenerate kills the old code.
    only. Once a table has its people, this removes join-request spam risk
    entirely without regenerating the code.
 
+## Hardening (red-team 2026-08-21, applied same day)
+
+The review found no authn/authz, cross-campaign, join-code, or
+director-invariant break. Applied fixes, all availability/abuse class:
+
+- **`memberCount` denormalized onto the campaign**, maintained
+  transactionally by the one `adjustMemberCount` helper inside every
+  roster-changing mutation (create/approve/remove/leave/block-of-active).
+  Previews and the directory never scan memberships.
+- **Directory page size clamped server-side** (50) — clients never control
+  read volume.
+- **O(1) director lookup** via the `by_campaignId_role` index (sound because
+  `role='director'` only ever exists on the single active director row).
+- **Abuse ceilings:** 20 owned campaigns per user; 10 simultaneous pending
+  join requests per user (cancel frees a slot). Generous by design — the
+  point is boundedness, not gatekeeping.
+- **UI:** all owner/member actions run through a shared runner that surfaces
+  rejected mutations and swallows double-clicks.
+
+**Deferred (documented forward-dep, revisit before public exposure):**
+pagination of the roster / pending / blocked lists and their per-row profile
+reads. All are bounded by genuine account count under the friend-group trust
+model; they become a scale slice when an instance opens registration wide.
+
 ## Open questions (not blockers)
 
 1. **Directory ordering/search** — start with recency-ordered pagination;

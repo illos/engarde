@@ -41,6 +41,10 @@ export default defineSchema({
     joinability: v.union(v.literal('open'), v.literal('closed')),
     joinCode: v.string(),
     joinCodeRotatedAt: v.number(),
+    // Denormalized count of active memberships — maintained transactionally
+    // by every mutation that changes roster size (adjustMemberCount in
+    // campaigns.ts), so previews/directory never scan the roster.
+    memberCount: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -61,5 +65,9 @@ export default defineSchema({
   })
     .index('by_campaignId_status', ['campaignId', 'status'])
     .index('by_userId_status', ['userId', 'status'])
-    .index('by_campaignId_userId', ['campaignId', 'userId']),
+    .index('by_campaignId_userId', ['campaignId', 'userId'])
+    // Locates the single director row in O(1). Sound because role='director'
+    // exists only on active rows: pending inserts, approvals, and blocks all
+    // normalize role to 'player'.
+    .index('by_campaignId_role', ['campaignId', 'role']),
 });

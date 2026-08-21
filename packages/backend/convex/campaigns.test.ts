@@ -436,6 +436,79 @@ describe('campaigns', () => {
     );
   });
 
+  test('memberCount stays transactionally consistent through the roster lifecycle', async () => {
+    const t = convexTest(schema, modules);
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const alpha = await addPlayer(t, 'alpha@example.test', 'alpha_user');
+    const beta = await addPlayer(t, 'beta@example.test', 'beta_user');
+    const { campaignId, joinCode } = await makeCampaign(owner.client);
+
+    const count = async () =>
+      (await owner.client.query(api.campaigns.getJoinPreview, { code: joinCode })).memberCount;
+    const join = async (who: { userId: Id<'users'>; client: Client }) => {
+      await who.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
+      await owner.client.mutation(api.campaigns.approveRequest, {
+        campaignId,
+        targetUserId: who.userId,
+      });
+    };
+
+    expect(await count()).toBe(1);
+    await join(alpha);
+    await join(beta);
+    expect(await count()).toBe(3);
+    await alpha.client.mutation(api.campaigns.leaveCampaign, { campaignId });
+    expect(await count()).toBe(2);
+    await owner.client.mutation(api.campaigns.blockUser, {
+      campaignId,
+      targetUserId: beta.userId,
+    });
+    expect(await count()).toBe(1);
+    await owner.client.mutation(api.campaigns.unblockUser, {
+      campaignId,
+      targetUserId: beta.userId,
+    });
+    await join(beta);
+    expect(await count()).toBe(2);
+    await owner.client.mutation(api.campaigns.removeMember, {
+      campaignId,
+      targetUserId: beta.userId,
+    });
+    expect(await count()).toBe(1);
+  });
+
+  test('creation and pending-request ceilings bound abuse', async () => {
+    const t = convexTest(schema, modules);
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
+
+    const codes: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const { joinCode } = await makeCampaign(owner.client, `Campaign ${i}`);
+      codes.push(joinCode);
+    }
+    await expect(
+      owner.client.mutation(api.campaigns.create, { name: 'One too many', description: '' }),
+    ).rejects.toThrow('already own');
+
+    for (const code of codes.slice(0, 10)) {
+      await joiner.client.mutation(api.campaigns.requestToJoin, { code });
+    }
+    await expect(
+      joiner.client.mutation(api.campaigns.requestToJoin, { code: codes[10] }),
+    ).rejects.toThrow('pending join requests');
+
+    const cards = await joiner.client.query(api.campaigns.listMine, {});
+    const cancelTarget = cards.find((card) => card.status === 'pending');
+    if (!cancelTarget) throw new Error('expected a pending card');
+    await joiner.client.mutation(api.campaigns.cancelJoinRequest, {
+      campaignId: cancelTarget.campaignId,
+    });
+    expect(await joiner.client.mutation(api.campaigns.requestToJoin, { code: codes[10] })).toBe(
+      'pending',
+    );
+  });
+
   test('join-target resolution requires exactly one of code and campaignId', async () => {
     const t = convexTest(schema, modules);
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');

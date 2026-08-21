@@ -46,15 +46,32 @@ function CampaignBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
 
 type Roster = NonNullable<ReturnType<typeof useQuery<typeof api.campaigns.listRoster>>>;
 
+// Shared runner for campaign actions: surfaces rejected mutations (network
+// failures, races with concurrent moderation) instead of looking successful,
+// and swallows re-clicks while one is in flight.
+function useMutationRunner() {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setError(null);
+    setBusy(true);
+    action()
+      .catch((cause) => setError(errorMessage(cause)))
+      .finally(() => setBusy(false));
+  };
+  return { error, busy, run };
+}
+
+function MutationError({ error }: { error: string | null }) {
+  return error ? <p className="mt-2 text-sm text-foe">{error}</p> : null;
+}
+
 function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; roster: Roster }) {
   const setDirector = useMutation(api.campaigns.setDirector);
   const removeMember = useMutation(api.campaigns.removeMember);
   const blockUser = useMutation(api.campaigns.blockUser);
-  const [error, setError] = useState<string | null>(null);
-  const moderate = (action: () => Promise<unknown>) => {
-    setError(null);
-    action().catch((cause) => setError(errorMessage(cause)));
-  };
+  const { error, busy, run: moderate } = useMutationRunner();
 
   return (
     <section>
@@ -75,6 +92,7 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
                 {member.role !== 'director' ? (
                   <Button
                     size="sm"
+                    disabled={busy}
                     onClick={() =>
                       moderate(() => setDirector({ campaignId, targetUserId: member.userId }))
                     }
@@ -87,6 +105,7 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
                     <Button
                       size="sm"
                       variant="danger"
+                      disabled={busy}
                       onClick={() => {
                         if (window.confirm(`Remove ${member.displayName} from the campaign?`))
                           moderate(() => removeMember({ campaignId, targetUserId: member.userId }));
@@ -97,6 +116,7 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
                     <Button
                       size="sm"
                       variant="danger"
+                      disabled={busy}
                       onClick={() => {
                         if (
                           window.confirm(
@@ -115,7 +135,7 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
           </li>
         ))}
       </ul>
-      {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
+      <MutationError error={error} />
     </section>
   );
 }
@@ -130,6 +150,7 @@ function PendingSection({
   const approve = useMutation(api.campaigns.approveRequest);
   const deny = useMutation(api.campaigns.denyRequest);
   const block = useMutation(api.campaigns.blockUser);
+  const { error, busy, run } = useMutationRunner();
   if (pending.length === 0) return null;
   return (
     <section>
@@ -144,23 +165,30 @@ function PendingSection({
             <Button
               size="sm"
               variant="primary"
-              onClick={() => approve({ campaignId, targetUserId: request.userId })}
+              disabled={busy}
+              onClick={() => run(() => approve({ campaignId, targetUserId: request.userId }))}
             >
               Add
             </Button>
-            <Button size="sm" onClick={() => deny({ campaignId, targetUserId: request.userId })}>
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => run(() => deny({ campaignId, targetUserId: request.userId }))}
+            >
               Deny
             </Button>
             <Button
               size="sm"
               variant="danger"
-              onClick={() => block({ campaignId, targetUserId: request.userId })}
+              disabled={busy}
+              onClick={() => run(() => block({ campaignId, targetUserId: request.userId }))}
             >
               Block
             </Button>
           </li>
         ))}
       </ul>
+      <MutationError error={error} />
     </section>
   );
 }
@@ -173,6 +201,7 @@ function BlockedSection({
   blocked: NonNullable<Roster['blocked']>;
 }) {
   const unblock = useMutation(api.campaigns.unblockUser);
+  const { error, busy, run } = useMutationRunner();
   if (blocked.length === 0) return null;
   return (
     <section>
@@ -184,12 +213,17 @@ function BlockedSection({
               <p className="truncate font-display text-lg">{entry.displayName}</p>
               <p className="truncate font-mono text-xs text-text-mute">@{entry.handle}</p>
             </div>
-            <Button size="sm" onClick={() => unblock({ campaignId, targetUserId: entry.userId })}>
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={() => run(() => unblock({ campaignId, targetUserId: entry.userId }))}
+            >
               Unblock
             </Button>
           </li>
         ))}
       </ul>
+      <MutationError error={error} />
     </section>
   );
 }
@@ -199,6 +233,7 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
   const setVisibility = useMutation(api.campaigns.setVisibility);
   const setJoinability = useMutation(api.campaigns.setJoinability);
   const regenerate = useMutation(api.campaigns.regenerateJoinCode);
+  const { error, busy, run } = useMutationRunner();
   if (settings === undefined) return null;
   const shareLink = `${window.location.origin}/join/${settings.joinCode}`;
   const isPublic = settings.visibility === 'public';
@@ -212,8 +247,9 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
           <RoleBadge label={settings.visibility} tone={isPublic ? 'victory' : 'dim'} />
           <Button
             size="sm"
+            disabled={busy}
             onClick={() =>
-              setVisibility({ campaignId, visibility: isPublic ? 'private' : 'public' })
+              run(() => setVisibility({ campaignId, visibility: isPublic ? 'private' : 'public' }))
             }
           >
             {isPublic ? 'Make private' : 'List publicly'}
@@ -224,7 +260,10 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
           <RoleBadge label={settings.joinability} tone={isOpen ? 'victory' : 'dim'} />
           <Button
             size="sm"
-            onClick={() => setJoinability({ campaignId, joinability: isOpen ? 'closed' : 'open' })}
+            disabled={busy}
+            onClick={() =>
+              run(() => setJoinability({ campaignId, joinability: isOpen ? 'closed' : 'open' }))
+            }
           >
             {isOpen ? 'Close joining' : 'Reopen joining'}
           </Button>
@@ -252,18 +291,20 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
         <Button
           size="sm"
           variant="danger"
+          disabled={busy}
           onClick={() => {
             if (
               window.confirm(
                 'Regenerate the share code? The current code and every share link stop working immediately.',
               )
             )
-              regenerate({ campaignId });
+              run(() => regenerate({ campaignId }));
           }}
         >
           Regenerate share code
         </Button>
       </div>
+      <MutationError error={error} />
     </section>
   );
 }
@@ -271,17 +312,21 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
 function LeaveSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
   const leave = useMutation(api.campaigns.leaveCampaign);
   const navigate = useNavigate();
+  const { error, busy, run } = useMutationRunner();
   return (
     <section className="border-t border-line-soft pt-6">
       <Button
         variant="danger"
+        disabled={busy}
         onClick={() => {
           if (window.confirm('Leave this campaign?'))
-            leave({ campaignId }).then(() => navigate({ to: '/campaigns' }));
+            run(() => leave({ campaignId }).then(() => navigate({ to: '/campaigns' })));
         }}
       >
         Leave campaign
       </Button>
+      <MutationError error={error} />
     </section>
   );
 }
+
