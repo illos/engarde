@@ -73,6 +73,8 @@ describe('campaigns', () => {
     ]);
     expect(roster.pending).toEqual([]);
     expect(roster.blocked).toEqual([]);
+    expect(roster).not.toHaveProperty('joinCode');
+    expect(roster.members[0]).not.toHaveProperty('joinCode');
   });
 
   test('code reaches a private campaign; its ID does not; public opens the ID and directory routes', async () => {
@@ -126,6 +128,10 @@ describe('campaigns', () => {
     expect(await joiner.client.query(api.campaigns.listMine, {})).toEqual([
       expect.objectContaining({ campaignId, status: 'pending', isOwner: false }),
     ]);
+    // A pending requester is not yet a member: the roster stays not-found.
+    await expect(joiner.client.query(api.campaigns.listRoster, { campaignId })).rejects.toThrow(
+      'Campaign not found',
+    );
 
     await joiner.client.mutation(api.campaigns.cancelJoinRequest, { campaignId });
     expect(await joiner.client.query(api.campaigns.listMine, {})).toEqual([]);
@@ -181,6 +187,13 @@ describe('campaigns', () => {
       (await joiner.client.query(api.campaigns.getJoinPreview, { code: joinCode })).viewerStatus,
     ).toBe('none');
     expect(await joiner.client.query(api.campaigns.listMine, {})).toEqual([]);
+    // ...the private campaign's ID and roster behave as nonexistent...
+    await expect(joiner.client.query(api.campaigns.getJoinPreview, { campaignId })).rejects.toThrow(
+      'Campaign not found',
+    );
+    await expect(joiner.client.query(api.campaigns.listRoster, { campaignId })).rejects.toThrow(
+      'Campaign not found',
+    );
     // ...and the request fails with the generic message.
     await expect(
       joiner.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
@@ -209,11 +222,22 @@ describe('campaigns', () => {
       targetUserId: member.userId,
     });
 
+    const asMember = { campaignId, targetUserId: outsider.userId };
     for (const call of [
       () => member.client.query(api.campaigns.getSettings, { campaignId }),
       () =>
         member.client.mutation(api.campaigns.setVisibility, { campaignId, visibility: 'public' }),
       () => member.client.mutation(api.campaigns.regenerateJoinCode, { campaignId }),
+      () =>
+        member.client.mutation(api.campaigns.updateSettings, {
+          campaignId,
+          name: 'Hijacked',
+          description: '',
+        }),
+      () => member.client.mutation(api.campaigns.approveRequest, asMember),
+      () => member.client.mutation(api.campaigns.denyRequest, asMember),
+      () => member.client.mutation(api.campaigns.blockUser, asMember),
+      () => member.client.mutation(api.campaigns.unblockUser, asMember),
       () =>
         member.client.mutation(api.campaigns.setDirector, {
           campaignId,

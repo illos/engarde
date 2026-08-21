@@ -88,9 +88,10 @@ function normalizeJoinCode(code: string): string {
 
 async function generateJoinCode(ctx: MutationCtx): Promise<string> {
   for (let attempt = 0; attempt < 8; attempt++) {
+    const bytes = crypto.getRandomValues(new Uint8Array(JOIN_CODE_LENGTH));
     let code = '';
-    for (let i = 0; i < JOIN_CODE_LENGTH; i++) {
-      code += JOIN_CODE_ALPHABET[Math.floor(Math.random() * JOIN_CODE_ALPHABET.length)];
+    for (const byte of bytes) {
+      code += JOIN_CODE_ALPHABET[byte % JOIN_CODE_ALPHABET.length];
     }
     const collision = await ctx.db
       .query('campaigns')
@@ -186,9 +187,9 @@ async function resolveJoinTarget(
   viewerId: Id<'users'>,
   args: { campaignId?: Id<'campaigns'>; code?: string },
 ): Promise<Doc<'campaigns'>> {
-  if ((args.campaignId === undefined) === (args.code === undefined))
-    throw new ConvexError('Provide either a campaign or a join code');
   if (args.code !== undefined) {
+    if (args.campaignId !== undefined)
+      throw new ConvexError('Provide either a campaign or a join code');
     const code = normalizeJoinCode(args.code);
     const campaign = await ctx.db
       .query('campaigns')
@@ -197,7 +198,9 @@ async function resolveJoinTarget(
     if (!campaign) throw new ConvexError(CAMPAIGN_NOT_FOUND);
     return campaign;
   }
-  const campaign = await ctx.db.get(args.campaignId as Id<'campaigns'>);
+  if (args.campaignId === undefined)
+    throw new ConvexError('Provide either a campaign or a join code');
+  const campaign = await ctx.db.get(args.campaignId);
   if (!campaign) throw new ConvexError(CAMPAIGN_NOT_FOUND);
   if (campaign.visibility === 'private') {
     const membership = await getMembership(ctx, campaign._id, viewerId);
@@ -334,30 +337,24 @@ export const listMine = query({
   returns: v.array(myCampaignCardView),
   handler: async (ctx) => {
     const profile = await requireProfile(ctx);
-    const memberships = [
-      ...(await ctx.db
-        .query('campaignMemberships')
-        .withIndex('by_userId_status', (q) => q.eq('userId', profile.userId).eq('status', 'active'))
-        .collect()),
-      ...(await ctx.db
-        .query('campaignMemberships')
-        .withIndex('by_userId_status', (q) =>
-          q.eq('userId', profile.userId).eq('status', 'pending'),
-        )
-        .collect()),
-    ];
     const cards = [];
-    for (const membership of memberships) {
-      const campaign = await ctx.db.get(membership.campaignId);
-      if (!campaign) continue;
-      cards.push({
-        campaignId: campaign._id,
-        name: campaign.name,
-        description: campaign.description,
-        status: membership.status as 'pending' | 'active',
-        role: membership.role,
-        isOwner: campaign.ownerId === profile.userId,
-      });
+    for (const status of ['active', 'pending'] as const) {
+      const memberships = await ctx.db
+        .query('campaignMemberships')
+        .withIndex('by_userId_status', (q) => q.eq('userId', profile.userId).eq('status', status))
+        .collect();
+      for (const membership of memberships) {
+        const campaign = await ctx.db.get(membership.campaignId);
+        if (!campaign) continue;
+        cards.push({
+          campaignId: campaign._id,
+          name: campaign.name,
+          description: campaign.description,
+          status,
+          role: membership.role,
+          isOwner: campaign.ownerId === profile.userId,
+        });
+      }
     }
     return cards;
   },
@@ -585,8 +582,9 @@ export const leaveCampaign = mutation({
     if (campaign.ownerId === profile.userId)
       throw new ConvexError('The owner cannot leave their campaign');
     const membership = await getMembership(ctx, campaign._id, profile.userId);
-    if (!membership || membership.status !== 'active')
-      throw new ConvexError('You are not a member of that campaign');
+    // Uniform not-found: a non-member must not be able to distinguish a real
+    // private campaign from a nonexistent ID through this mutation either.
+    if (!membership || membership.status !== 'active') throw new ConvexError(CAMPAIGN_NOT_FOUND);
     const wasDirector = membership.role === 'director';
     await ctx.db.delete(membership._id);
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);

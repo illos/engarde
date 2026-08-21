@@ -231,6 +231,12 @@ absent from preview/directory/roster payloads · regenerate kills the old code.
 
 1. **Directory ordering/search** — start with recency-ordered pagination;
    search/filters arrive with the later join-screen facts (setting, rating).
+2. **Deactivated accounts in rosters** (surfaced by the implementation
+   review): a deactivated user's membership persists and still shows in the
+   roster / member counts with their frozen display name. They cannot *act*
+   (`requireUser` rejects deactivated profiles), so this is purely a display
+   policy. Current behavior: keep showing them; the owner can remove them
+   like any member. Revisit if instance-level deactivation should cascade.
 
 ## Supersessions of `user-accounts-plan.md` §"Campaigns and membership"
 
