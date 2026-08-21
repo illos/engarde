@@ -363,6 +363,7 @@ export const listMine = query({
 export const listRoster = query({
   args: { campaignId: v.id('campaigns') },
   returns: v.object({
+    viewer: v.object({ role: roleValidator, isOwner: v.boolean() }),
     members: v.array(rosterEntryView),
     pending: v.optional(v.array(requestEntryView)),
     blocked: v.optional(v.array(requestEntryView)),
@@ -401,7 +402,11 @@ export const listRoster = query({
           isOwner: membership.userId === campaign.ownerId,
         });
     }
-    if (campaign.ownerId !== profile.userId) return { members };
+    const viewerSummary = {
+      role: viewer.role,
+      isOwner: campaign.ownerId === profile.userId,
+    };
+    if (!viewerSummary.isOwner) return { viewer: viewerSummary, members };
 
     const listByStatus = async (status: 'pending' | 'blocked') => {
       const rows = await ctx.db
@@ -424,6 +429,7 @@ export const listRoster = query({
       return entries;
     };
     return {
+      viewer: viewerSummary,
       members,
       pending: await listByStatus('pending'),
       blocked: await listByStatus('blocked'),

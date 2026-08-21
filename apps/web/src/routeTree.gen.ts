@@ -10,33 +10,102 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CampaignsIndexRouteImport } from './routes/campaigns.index'
+import { Route as CampaignsCampaignIdRouteImport } from './routes/campaigns.$campaignId'
+import { Route as DirectoryIndexRouteImport } from './routes/directory.index'
+import { Route as DirectoryCampaignIdRouteImport } from './routes/directory.$campaignId'
+import { Route as JoinCodeRouteImport } from './routes/join.$code'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CampaignsIndexRoute = CampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CampaignsCampaignIdRoute = CampaignsCampaignIdRouteImport.update({
+  id: '/campaigns/$campaignId',
+  path: '/campaigns/$campaignId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DirectoryIndexRoute = DirectoryIndexRouteImport.update({
+  id: '/directory/',
+  path: '/directory/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DirectoryCampaignIdRoute = DirectoryCampaignIdRouteImport.update({
+  id: '/directory/$campaignId',
+  path: '/directory/$campaignId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JoinCodeRoute = JoinCodeRouteImport.update({
+  id: '/join/$code',
+  path: '/join/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/directory/$campaignId': typeof DirectoryCampaignIdRoute
+  '/join/$code': typeof JoinCodeRoute
+  '/campaigns/': typeof CampaignsIndexRoute
+  '/directory/': typeof DirectoryIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/directory/$campaignId': typeof DirectoryCampaignIdRoute
+  '/join/$code': typeof JoinCodeRoute
+  '/campaigns': typeof CampaignsIndexRoute
+  '/directory': typeof DirectoryIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
+  '/directory/$campaignId': typeof DirectoryCampaignIdRoute
+  '/join/$code': typeof JoinCodeRoute
+  '/campaigns/': typeof CampaignsIndexRoute
+  '/directory/': typeof DirectoryIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/campaigns/$campaignId'
+    | '/directory/$campaignId'
+    | '/join/$code'
+    | '/campaigns/'
+    | '/directory/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/campaigns/$campaignId'
+    | '/directory/$campaignId'
+    | '/join/$code'
+    | '/campaigns'
+    | '/directory'
+  id:
+    | '__root__'
+    | '/'
+    | '/campaigns/$campaignId'
+    | '/directory/$campaignId'
+    | '/join/$code'
+    | '/campaigns/'
+    | '/directory/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CampaignsCampaignIdRoute: typeof CampaignsCampaignIdRoute
+  DirectoryCampaignIdRoute: typeof DirectoryCampaignIdRoute
+  JoinCodeRoute: typeof JoinCodeRoute
+  CampaignsIndexRoute: typeof CampaignsIndexRoute
+  DirectoryIndexRoute: typeof DirectoryIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +117,51 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/campaigns/': {
+      id: '/campaigns/'
+      path: '/campaigns'
+      fullPath: '/campaigns/'
+      preLoaderRoute: typeof CampaignsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/campaigns/$campaignId': {
+      id: '/campaigns/$campaignId'
+      path: '/campaigns/$campaignId'
+      fullPath: '/campaigns/$campaignId'
+      preLoaderRoute: typeof CampaignsCampaignIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/directory/': {
+      id: '/directory/'
+      path: '/directory'
+      fullPath: '/directory/'
+      preLoaderRoute: typeof DirectoryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/directory/$campaignId': {
+      id: '/directory/$campaignId'
+      path: '/directory/$campaignId'
+      fullPath: '/directory/$campaignId'
+      preLoaderRoute: typeof DirectoryCampaignIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/join/$code': {
+      id: '/join/$code'
+      path: '/join/$code'
+      fullPath: '/join/$code'
+      preLoaderRoute: typeof JoinCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CampaignsCampaignIdRoute: CampaignsCampaignIdRoute,
+  DirectoryCampaignIdRoute: DirectoryCampaignIdRoute,
+  JoinCodeRoute: JoinCodeRoute,
+  CampaignsIndexRoute: CampaignsIndexRoute,
+  DirectoryIndexRoute: DirectoryIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

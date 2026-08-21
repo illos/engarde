@@ -1,0 +1,29 @@
+/* Type-role composite classes.
+ *
+ * The everyday role handles are the Tailwind utilities `font-display` /
+ * `font-body` / `font-mono` (generated from the `--font-*` tokens in
+ * tokens.css — the swap point). This file holds the one role whose treatment
+ * is MORE than a font-family swap and so earns a bundled class, mirroring how
+ * the glyph font's class bundles its several properties.  glyph-audit-ignore
+ *
+ * See src/primitives/type-roles.ts (the registry) + CLAUDE.md Conventions.
+ * Classify text by role; never hardcode a font-family. `type-audit` enforces it.
+ */
+
+/* The "engraved label" — section tags, metadata, pill text. The mono (label)
+ * role plus the small-caps letterspaced treatment it always travels with, in
+ * one class so a label is one token, not four. Size/color stay with the caller
+ * (text-* utilities), like the rest of the design system. */
+.type-label {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  /* Weight/size/color stay with the caller (font-* / text-* utilities) — this
+   * class is unlayered and would otherwise override them. */
+}
+
+/* Display role for non-Tailwind contexts (print stylesheet, third-party
+ * markup) where the `font-display` utility isn't reachable. */
+.type-display {
+  font-family: var(--font-display);
+}

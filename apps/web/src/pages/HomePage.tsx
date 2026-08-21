@@ -12,18 +12,16 @@ export function HomePage({
   if (backendConfigured) return <AuthSurface />;
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-8 px-6">
-      <h1 className="font-serif text-6xl tracking-tight">En Garde</h1>
-      <p className="text-center text-stone-400">
+      <h1 className="text-6xl">En Garde</h1>
+      <p className="text-center text-text-dim">
         A table for Draw Steel. Greenfield substrate — surfaces arrive as their backing lands.
       </p>
-      <section className="w-full rounded-lg border border-stone-800 bg-stone-900 p-6">
-        <h2 className="mb-4 font-mono text-xs uppercase tracking-widest text-stone-500">
-          Substrate status
-        </h2>
+      <section className="w-full border border-line bg-ink-1 p-6">
+        <h2 className="mb-4 type-label text-xs text-text-mute">Substrate status</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-          <dt className="text-stone-400">Frontend</dt>
+          <dt className="text-text-dim">Frontend</dt>
           <dd>rendering</dd>
-          <dt className="text-stone-400">Backend</dt>
+          <dt className="text-text-dim">Backend</dt>
           <dd>
             {backendConfigured ? <LiveInstanceName /> : 'not configured — run `pnpm dev:backend`'}
           </dd>
@@ -37,11 +35,11 @@ function AuthSurface() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-8 px-6 py-12">
       <header>
-        <h1 className="font-serif text-6xl tracking-tight">En Garde</h1>
-        <p className="mt-3 text-stone-400">Gather your company around the table.</p>
+        <h1 className="text-6xl">En Garde</h1>
+        <p className="mt-3 text-text-dim">Gather your company around the table.</p>
       </header>
       <AuthLoading>
-        <p className="text-stone-400">Restoring your session…</p>
+        <p className="text-text-dim">Restoring your session…</p>
       </AuthLoading>
       <Unauthenticated>
         <PasswordForm />
@@ -109,8 +107,8 @@ function PasswordForm() {
   const needsPassword = flow === 'signIn' || flow === 'signUp';
   const needsCode = flow === 'verify' || flow === 'reset';
   return (
-    <section className="rounded-xl border border-stone-800 bg-stone-900 p-6">
-      <h2 className="font-serif text-2xl">
+    <section className="border border-line bg-ink-1 p-6">
+      <h2 className="text-2xl">
         {flow === 'signUp'
           ? 'Create your account'
           : flow === 'forgot' || flow === 'reset'
@@ -120,10 +118,10 @@ function PasswordForm() {
               : 'Sign in'}
       </h2>
       <form className="mt-6 grid gap-4" onSubmit={submit}>
-        <label className="grid gap-2 text-sm text-stone-300">
+        <label className="grid gap-2 text-sm text-text-dim">
           Email
           <input
-            className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+            className="border border-line bg-ink-0 px-3 py-2 text-base"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -132,26 +130,26 @@ function PasswordForm() {
           />
         </label>
         {needsPassword && (
-          <label className="grid gap-2 text-sm text-stone-300">
+          <label className="grid gap-2 text-sm text-text-dim">
             Password
             <input
-              className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+              className="border border-line bg-ink-0 px-3 py-2 text-base"
               name="password"
               type="password"
               required
               minLength={12}
               autoComplete={flow === 'signUp' ? 'new-password' : 'current-password'}
             />
-            <span className="text-xs text-stone-500">
+            <span className="text-xs text-text-mute">
               12+ characters with uppercase, lowercase, and a number.
             </span>
           </label>
         )}
         {needsCode && (
-          <label className="grid gap-2 text-sm text-stone-300">
+          <label className="grid gap-2 text-sm text-text-dim">
             Code
             <input
-              className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2 font-mono"
+              className="border border-line bg-ink-0 px-3 py-2 font-mono text-base"
               name="code"
               required
               autoComplete="one-time-code"
@@ -159,10 +157,10 @@ function PasswordForm() {
           </label>
         )}
         {flow === 'reset' && (
-          <label className="grid gap-2 text-sm text-stone-300">
+          <label className="grid gap-2 text-sm text-text-dim">
             New password
             <input
-              className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+              className="border border-line bg-ink-0 px-3 py-2 text-base"
               name="newPassword"
               type="password"
               required
@@ -172,7 +170,7 @@ function PasswordForm() {
           </label>
         )}
         <button
-          className="rounded-md bg-amber-600 px-4 py-2 font-medium text-stone-950 disabled:opacity-50"
+          className="h-11 bg-accent px-4 font-semibold text-ink-0 hover:bg-accent-strong disabled:opacity-50"
           disabled={busy}
           type="submit"
         >
@@ -189,8 +187,8 @@ function PasswordForm() {
                     : 'Sign in'}
         </button>
       </form>
-      {message && <output className="mt-4 block text-sm text-stone-300">{message}</output>}
-      <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-sm text-amber-500">
+      {message && <output className="mt-4 block text-sm text-text-dim">{message}</output>}
+      <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-sm text-accent">
         {flow !== 'signIn' && (
           <button type="button" onClick={() => setFlow('signIn')}>
             Sign in
@@ -213,7 +211,7 @@ function PasswordForm() {
 
 function Account() {
   const profile = useQuery(api.profiles.current);
-  if (profile === undefined) return <p className="text-stone-400">Loading your account…</p>;
+  if (profile === undefined) return <p className="text-text-dim">Loading your account…</p>;
   return profile === null ? (
     <ProfileForm mode="onboarding" />
   ) : (
@@ -247,35 +245,33 @@ function ProfileForm({
     }
   }
   return (
-    <section className="rounded-xl border border-stone-800 bg-stone-900 p-6">
+    <section className="border border-line bg-ink-1 p-6">
       <div className="flex items-center justify-between gap-4">
-        <h2 className="font-serif text-2xl">
+        <h2 className="text-2xl">
           {mode === 'onboarding' ? 'Choose your table name' : 'Your account'}
         </h2>
-        <button className="text-sm text-amber-500" type="button" onClick={() => void signOut()}>
+        <button className="text-sm text-accent" type="button" onClick={() => void signOut()}>
           Sign out
         </button>
       </div>
       {profile?.role === 'admin' && (
-        <p className="mt-2 text-xs uppercase tracking-widest text-amber-500">
-          Instance administrator
-        </p>
+        <p className="mt-2 type-label text-xs text-accent">Instance administrator</p>
       )}
       <form className="mt-6 grid gap-4" onSubmit={submit}>
-        <label className="grid gap-2 text-sm text-stone-300">
+        <label className="grid gap-2 text-sm text-text-dim">
           Display name
           <input
-            className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+            className="border border-line bg-ink-0 px-3 py-2 text-base"
             name="displayName"
             defaultValue={profile?.displayName}
             maxLength={60}
             required
           />
         </label>
-        <label className="grid gap-2 text-sm text-stone-300">
+        <label className="grid gap-2 text-sm text-text-dim">
           Handle
           <input
-            className="rounded-md border border-stone-700 bg-stone-950 px-3 py-2"
+            className="border border-line bg-ink-0 px-3 py-2 text-base"
             name="handle"
             defaultValue={profile?.handle}
             minLength={3}
@@ -283,18 +279,18 @@ function ProfileForm({
             pattern="[A-Za-z0-9_]+"
             required
           />
-          <span className="text-xs text-stone-500">
+          <span className="text-xs text-text-mute">
             3–24 letters, numbers, or underscores. Used for exact friend discovery.
           </span>
         </label>
         <button
-          className="rounded-md bg-amber-600 px-4 py-2 font-medium text-stone-950"
+          className="h-11 bg-accent px-4 font-semibold text-ink-0 hover:bg-accent-strong"
           type="submit"
         >
           {mode === 'onboarding' ? 'Enter En Garde' : 'Save profile'}
         </button>
       </form>
-      {message && <output className="mt-4 block text-sm text-stone-300">{message}</output>}
+      {message && <output className="mt-4 block text-sm text-text-dim">{message}</output>}
     </section>
   );
 }

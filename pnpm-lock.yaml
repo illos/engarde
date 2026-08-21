@@ -26,6 +26,15 @@ importers:
       '@engarde/backend':
         specifier: workspace:^
         version: link:../../packages/backend
+      '@fontsource/cormorant-garamond':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/eb-garamond':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/geist-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@tanstack/react-router':
         specifier: ^1.170.31
         version: 1.170.31(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -472,6 +481,15 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource/cormorant-garamond@5.3.0':
+    resolution: {integrity: sha512-weuGsCirGVWBWqpt6YUp0yLThTe4G8YO45noq8wxeJCRvEpq5lFrxNMFSTxcyOyV5k5otzJ8guDzYegdYlcLMQ==}
+
+  '@fontsource/eb-garamond@5.3.0':
+    resolution: {integrity: sha512-VplwHpB8FLuzl+4G5LDci1b3Z4SghiuXH8XEgaxjnOb5aue5mEt1njmDKeO6iyLeGa73LffU7PC7hzncLRx0ZA==}
+
+  '@fontsource/geist-mono@5.3.0':
+    resolution: {integrity: sha512-UtJ1BBBCVpMYdIcW7nEB45UAoAw5M53ZXs2t0ciPW+IokuAAIc56M8+kW5tXbRJCTpDw4XTtU7proT6NdQAHTg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1868,6 +1886,12 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.1': {}
+
+  '@fontsource/cormorant-garamond@5.3.0': {}
+
+  '@fontsource/eb-garamond@5.3.0': {}
+
+  '@fontsource/geist-mono@5.3.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

@@ -1,0 +1,386 @@
+/* Design tokens — ported verbatim from the ironyard-v2 predecessor
+ * (apps/web/src/theme/tokens.css; token architecture documented there in
+ * docs/design-ref/ + docs/milestones/ui-refresh.md). Values are the settled
+ * design; combat-era tokens (conditions, ranks, stamina) are inert until
+ * those surfaces port over.
+ * Expressed as CSS variables in OKLCH.
+ * Surfaced to Tailwind v4 via @theme; surface ramps and accent are overridable
+ * at runtime by data-theme and data-pack attributes on the document root.
+ * Fonts behind the type roles are self-hosted (@fontsource imports in
+ * styles.css) — no CDN at runtime.
+ */
+
+/* ── Surface ramp ───────────────────────────────────────────────────────
+ * Two surface KINDS share one set of token names (ink/text/line). UI-heavy
+ * is the default; the presentation remap below re-points the same names to
+ * cream/paper. Components never swap classes — only the surface scope they
+ * sit in changes (via <Surface kind> → data-surface). See ui-refresh.md §5.1.
+ *
+ * `:root, [data-surface="ui"]` so a UI-heavy region can be nested back
+ * inside a presentation region and re-assert the dark ramp. */
+:root,
+[data-surface="ui"] {
+  /* Surface elevation — twilight UI-heavy: cool dark blue-grey */
+  --ink-0: oklch(0.2 0.012 256);
+  --ink-1: oklch(0.235 0.012 256);
+  --ink-2: oklch(0.275 0.012 256);
+  --ink-3: oklch(0.32 0.012 256);
+  --ink-4: oklch(0.4 0.012 256);
+  --line: oklch(0.44 0.012 256 / 0.7);
+  --line-soft: oklch(0.44 0.012 256 / 0.35);
+
+  /* Text */
+  --text: oklch(0.9 0.008 256);
+  --text-dim: oklch(0.7 0.008 256);
+  --text-mute: oklch(0.54 0.008 256);
+
+  /* Establish the base text color at the surface scope — NOT just the --text
+   * variable. `color` is inherited as a COMPUTED value: set once on <body> it
+   * would pin every descendant to the dark-surface ink regardless of a nested
+   * surface's --text override. Re-declaring `color: var(--text)` here means a
+   * surface region (ui nested in presentation, or vice-versa) re-bases the
+   * inherited color, so text without an explicit `text-*` utility still reads. */
+  color: var(--text);
+}
+
+/* Presentation surface — warm cream/paper (sheets, stat-blocks, ability
+ * cards, rule quotes). Remaps the SAME ink/text/line names. Twilight values;
+ * day/night get their own presentation ramps in Phase 4. */
+[data-surface="presentation"] {
+  --ink-0: oklch(0.93 0.018 87);
+  --ink-1: oklch(0.905 0.02 87);
+  --ink-2: oklch(0.875 0.022 86);
+  --ink-3: oklch(0.845 0.025 86);
+  --ink-4: oklch(0.8 0.028 84);
+  --line: oklch(0.68 0.02 86 / 0.7);
+  --line-soft: oklch(0.68 0.02 86 / 0.35);
+
+  --text: oklch(0.27 0.018 70);
+  --text-dim: oklch(0.45 0.016 70);
+  --text-mute: oklch(0.58 0.014 75);
+
+  /* Re-base inherited text color to the paper ink (see the UI-surface note
+   * above) so default-colored text reads dark on cream, not the inherited
+   * near-white. */
+  color: var(--text);
+
+  /* Semantic-token cream-contrast tuning (ui-refresh.md §7.2). The foe-red +
+   * monster-rank palettes are tuned ~0.62–0.78 lightness to read on dark
+   * chrome; on cream those same values wash out. Darken to ~0.48–0.52 here so
+   * the FoeStatBlock / AbilityCard categorical hues stay legible on paper,
+   * keeping hue+chroma so each rank's identity survives the surface flip. Only
+   * the tokens that actually render on a presentation surface are remapped. */
+  --foe: oklch(0.5 0.18 25);
+  --rank-min: oklch(0.5 0.006 80);
+  --rank-hor: oklch(0.5 0.12 150);
+  --rank-pla: oklch(0.5 0.1 200);
+  --rank-eli: oklch(0.5 0.16 280);
+  --rank-led: oklch(0.52 0.13 60);
+  --rank-sol: oklch(0.5 0.18 25);
+}
+
+:root {
+  /* Side tones */
+  --hero: oklch(0.78 0.04 220);
+  --foe: oklch(0.62 0.16 25);
+  --victory: oklch(0.82 0.17 85); /* gold — Pill dot for Victories */
+
+  /* Stamina states */
+  --hp-good: oklch(0.76 0.16 150);
+  --hp-warn: oklch(0.82 0.18 80);
+  --hp-bad: oklch(0.66 0.22 25);
+
+  /* Accent — default = Regal (twilight's default pack). Overridden by
+   * [data-pack=...] below; ThemeProvider sets the effective pack
+   * (chosenPack ?? theme default). Muted gold (hue ~87, near --victory's 85;
+   * moderate chroma so it reads gold, not the amber/orange it started at at
+   * hue 72, nor a brassy yellow). See ui-refresh.md §5.2. */
+  --accent: oklch(0.76 0.11 87);
+  --accent-strong: oklch(0.83 0.12 89);
+  --accent-glow: oklch(0.76 0.12 87 / 0.5);
+
+  /* Spacing (4px base — canonical steps from spec) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-3-5: 14px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Motion */
+  --motion-fast: 140ms ease;
+  --motion-progress: 360ms ease;
+  --motion-stamina: 480ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  --motion-pulse: 2200ms;
+
+  /* Card shadow — flat by default; Pass 1 ships no elevation */
+  --shadow-card: none;
+
+  /* Pass 2b2a — monster rank palette (categorical) */
+  --rank-min: oklch(0.74 0.004 80); /* neutral gray */
+  --rank-hor: oklch(0.72 0.1 150); /* green */
+  --rank-pla: oklch(0.74 0.1 200); /* teal */
+  --rank-eli: oklch(0.78 0.12 280); /* violet */
+  --rank-led: oklch(0.78 0.14 60); /* amber */
+  --rank-sol: oklch(0.66 0.22 25); /* foe-red */
+
+  /* Pass 2b2a — per-condition palette (nine distinct hues) */
+  --cond-bleed: oklch(0.66 0.22 25); /* red       — DoT */
+  --cond-daze: oklch(0.74 0.14 290); /* violet    — mental */
+  --cond-fright: oklch(0.74 0.14 330); /* magenta   — fear */
+  --cond-grab: oklch(0.78 0.14 60); /* amber     — physical hold */
+  --cond-prone: oklch(0.74 0.1 90); /* olive     — physical */
+  --cond-restr: oklch(0.7 0.14 40); /* orange    — physical hold */
+  --cond-slow: oklch(0.55 0.2 290); /* deep purple — mobility (eye-test 2026-05-15) */
+  --cond-taunt: oklch(0.78 0.14 250); /* blue      — mental */
+  --cond-weak: oklch(0.72 0.06 240); /* gray-blue — debuff */
+  /* M2.7d — action-economy trio. Surprise = bright warm gold (alarm).
+   * Unconscious = deep desaturated indigo (out of play; reads as muted
+   * against active chips). Dazed reuses --cond-daze (violet — pre-reserved). */
+  --cond-surprise: oklch(0.84 0.16 85); /* gold      — alarm / startle */
+  --cond-unconscious: oklch(0.42 0.04 285); /* deep cool gray — out of play */
+
+  /* M2.6b — positional-flag palette. Sibling category to conditions, kept
+   * visually adjacent but with desaturated "world geometry" hues so the
+   * defender-card chip row reads as terrain/stealth, not effect-imposed. */
+  --pos-cover: oklch(0.68 0.03 70); /* warm stone-gray — physical obstacle */
+  --pos-conceal: oklch(0.7 0.04 210); /* cool blue-gray  — fog / partial obscure */
+  --pos-hidden: oklch(0.6 0.05 285); /* muted indigo   — shadow / stealth */
+
+  /* Pass 2b2a — desaturated HP zone pairs for the inline-variant stamina bar */
+  --hp-good-dim: oklch(0.5 0.12 150);
+  --hp-warn-dim: oklch(0.55 0.14 60);
+  --hp-bad-dim: oklch(0.42 0.18 25);
+}
+
+/* Day / night themes — authored in Phase 4 (ui-refresh.md §7.4). Until then
+ * they inherit the twilight (:root) palette, so selecting them never breaks
+ * rendering. Each will retune BOTH surface kinds: day = lighter UI-heavy +
+ * bright white paper; night = near-black UI-heavy + dark parchment (i.e. the
+ * presentation surface is NOT always cream — it's whatever the theme says
+ * paper looks like). */
+:root[data-theme="day"] {
+  /* TODO(Phase 4): day palette — UI-heavy ramp + [data-theme=day] [data-surface=presentation] paper ramp. */
+}
+:root[data-theme="night"] {
+  /* TODO(Phase 4): night palette — UI-heavy ramp + [data-theme=night] [data-surface=presentation] paper ramp. */
+}
+
+:root[data-pack="regal"] {
+  --accent: oklch(0.76 0.11 87);
+  --accent-strong: oklch(0.83 0.12 89);
+  --accent-glow: oklch(0.76 0.12 87 / 0.5);
+}
+:root[data-pack="lightning"] {
+  --accent: oklch(0.82 0.16 230);
+  --accent-strong: oklch(0.9 0.18 220);
+  --accent-glow: oklch(0.78 0.18 230 / 0.5);
+}
+:root[data-pack="shadow"] {
+  --accent: oklch(0.62 0.2 305);
+  --accent-strong: oklch(0.72 0.24 305);
+  --accent-glow: oklch(0.55 0.22 305 / 0.5);
+}
+:root[data-pack="fireball"] {
+  --accent: oklch(0.74 0.2 50);
+  --accent-strong: oklch(0.84 0.22 55);
+  --accent-glow: oklch(0.7 0.22 45 / 0.5);
+}
+:root[data-pack="chrome"] {
+  --accent: oklch(0.84 0.025 240);
+  --accent-strong: oklch(0.92 0.04 240);
+  --accent-glow: oklch(0.78 0.1 240 / 0.4);
+}
+
+/* Per-element pack scoping — used inside the combat tracker so each row
+ * can carry its character's pack color when Layer 2 wires per-character packs.
+ * Pass 1: the .pack-* classes are not yet applied; components fall back to
+ * --accent. The classes exist so future work can light them up without
+ * touching every component.
+ *
+ * The OKLCH triples below MUST be kept in sync with the :root[data-pack="..."] rules above.
+ */
+.pack-regal {
+  --pk: oklch(0.76 0.11 87);
+  --pk-strong: oklch(0.83 0.12 89);
+  --pk-glow: oklch(0.76 0.12 87 / 0.5);
+}
+.pack-lightning {
+  --pk: oklch(0.82 0.16 230);
+  --pk-strong: oklch(0.9 0.18 220);
+  --pk-glow: oklch(0.78 0.18 230 / 0.5);
+}
+.pack-shadow {
+  --pk: oklch(0.62 0.2 305);
+  --pk-strong: oklch(0.72 0.24 305);
+  --pk-glow: oklch(0.55 0.22 305 / 0.5);
+}
+.pack-fireball {
+  --pk: oklch(0.74 0.2 50);
+  --pk-strong: oklch(0.84 0.22 55);
+  --pk-glow: oklch(0.7 0.22 45 / 0.5);
+}
+.pack-chrome {
+  --pk: oklch(0.84 0.025 240);
+  --pk-strong: oklch(0.92 0.04 240);
+  --pk-glow: oklch(0.78 0.1 240 / 0.4);
+}
+
+/* Tailwind v4 theme — expose the CSS variables as theme tokens so utility
+ * classes like bg-ink-1 / text-text-dim / border-line work. The defaults
+ * above remain authoritative; Tailwind just references them.
+ *
+ * `inline` is LOAD-BEARING for the two-surface remap (§5.1): it makes each
+ * utility emit `background-color: var(--ink-0)` directly, so the value is read
+ * at the element — picking up the `[data-surface="presentation"]` cream
+ * override on the scope it sits in. Without `inline`, Tailwind indirects
+ * through `--color-ink-0` which resolves once at :root (dark) and inherits
+ * down, so the remap silently no-ops and presentation surfaces stay dark.
+ */
+@theme inline {
+  --color-ink-0: var(--ink-0);
+  --color-ink-1: var(--ink-1);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-mute: var(--text-mute);
+  --color-hero: var(--hero);
+  --color-foe: var(--foe);
+  --color-victory: var(--victory);
+  --color-hp-good: var(--hp-good);
+  --color-hp-warn: var(--hp-warn);
+  --color-hp-bad: var(--hp-bad);
+  --color-hp-good-dim: var(--hp-good-dim);
+  --color-hp-warn-dim: var(--hp-warn-dim);
+  --color-hp-bad-dim: var(--hp-bad-dim);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-glow: var(--accent-glow);
+  --color-pk: var(--pk, var(--accent));
+  --color-pk-strong: var(--pk-strong, var(--accent-strong));
+  --color-pk-glow: var(--pk-glow, var(--accent-glow));
+
+  --color-rank-min: var(--rank-min);
+  --color-rank-hor: var(--rank-hor);
+  --color-rank-pla: var(--rank-pla);
+  --color-rank-eli: var(--rank-eli);
+  --color-rank-led: var(--rank-led);
+  --color-rank-sol: var(--rank-sol);
+
+  --color-cond-bleed: var(--cond-bleed);
+  --color-cond-daze: var(--cond-daze);
+  --color-cond-fright: var(--cond-fright);
+  --color-cond-grab: var(--cond-grab);
+  --color-cond-prone: var(--cond-prone);
+  --color-cond-restr: var(--cond-restr);
+  --color-cond-slow: var(--cond-slow);
+  --color-cond-taunt: var(--cond-taunt);
+  --color-cond-weak: var(--cond-weak);
+  --color-cond-surprise: var(--cond-surprise);
+  --color-cond-unconscious: var(--cond-unconscious);
+
+  --color-pos-cover: var(--pos-cover);
+  --color-pos-conceal: var(--pos-conceal);
+  --color-pos-hidden: var(--pos-hidden);
+
+  /*
+   * Type roles — THE SWAP POINT. Each token names a job, not a typeface; the
+   * registry that documents the roles is src/primitives/type-roles.ts. Change
+   * the family string here and every element in that role follows, with zero
+   * component edits. NEVER hardcode a font-family in a component — classify by
+   * role (font-display / font-body / font-mono utilities + .type-label). The
+   * `type-audit` script enforces this. (Parallels the <Glyph> convention.)
+   *   display → Cormorant Garamond  · headings, names, big numerals
+   *   body    → EB Garamond         · prose + default reading text
+   *   mono    → Geist Mono          · engraved labels, IDs, dice (the label role)
+   */
+  --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-body: "EB Garamond", Georgia, "Times New Roman", serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+
+  --spacing-1: var(--space-1);
+  --spacing-2: var(--space-2);
+  --spacing-2-5: var(--space-2-5);
+  --spacing-3: var(--space-3);
+  --spacing-3-5: var(--space-3-5);
+  --spacing-4: var(--space-4);
+  --spacing-6: var(--space-6);
+  --spacing-8: var(--space-8);
+
+  /* Single source of truth for the app's page width. Every screen renders
+     inside one uniform frame (set on <main> in AppShell as `max-w-page`),
+     sized to fill a 13–15" laptop and centered with gutters past that.
+     Pages provide content only — they don't set their own page max-width. */
+  --container-page: 87.5rem; /* 1400px */
+
+  --shadow-card: var(--shadow-card);
+}
+
+html,
+body {
+  background: var(--ink-0);
+  color: var(--text);
+  /* Body role (EB Garamond) is the global default; every element inherits it
+     unless it opts into another role. */
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Display role — headings carry it by default (page titles, section heads).
+   Names + big numerals opt in explicitly via `font-display` / `.type-display`
+   since they aren't heading elements. Titles are uppercase + lightly tracked
+   for the engraved nameplate feel (experiment — scope to page titles only if
+   names read better in title-case). Label-style headings opt out via
+   `.type-label` (the mono label role), which overrides this. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Acting-now pulse (Combat Tracker §11 / cardinal rule: pulse = "acting now").
+ * Applied to the active participant's roster row and mirrored on the right-pane
+ * preview focus, visually linking the two panes. The glow color is the
+ * pack-aware `--color-pk-glow` (falls back to `--accent-glow` until per-
+ * participant pack stamping lands — colorPack is not yet on the Participant; see
+ * ui-refresh.md §11 forward-dep), so when packs are stamped the pulse becomes
+ * pack-tinted with zero changes here.
+ */
+@keyframes acting-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--color-pk-glow, var(--accent-glow));
+  }
+  50% {
+    box-shadow: 0 0 0 3px var(--color-pk-glow, var(--accent-glow));
+  }
+}
+
+.acting-pulse {
+  animation: acting-pulse var(--motion-pulse) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acting-pulse {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--color-pk-glow, var(--accent-glow));
+  }
+}

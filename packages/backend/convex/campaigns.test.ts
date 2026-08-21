@@ -68,6 +68,7 @@ describe('campaigns', () => {
       expect.objectContaining({ campaignId, status: 'active', role: 'director', isOwner: true }),
     ]);
     const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
+    expect(roster.viewer).toEqual({ role: 'director', isOwner: true });
     expect(roster.members).toEqual([
       expect.objectContaining({ userId: owner.userId, role: 'director', isOwner: true }),
     ]);
@@ -253,6 +254,7 @@ describe('campaigns', () => {
     }
 
     const memberView = await member.client.query(api.campaigns.listRoster, { campaignId });
+    expect(memberView.viewer).toEqual({ role: 'player', isOwner: false });
     expect(memberView.pending).toBeUndefined();
     expect(memberView.blocked).toBeUndefined();
     await expect(outsider.client.query(api.campaigns.listRoster, { campaignId })).rejects.toThrow(
