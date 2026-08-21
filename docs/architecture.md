@@ -49,8 +49,9 @@ Boundary rules:
 
 1. **Substrate first (now):** backend + frontend scaffold, built, tested, CI-gated,
    proven working end-to-end — with zero game-system content.
-2. **Collaborative layer:** auth (magic link), users, campaigns, memberships,
-   invite codes, lobby presence, sharing.
+2. **Collaborative layer:** auth (password default, optional magic link; Cloudflare
+   Email Service delivery), users, campaigns, memberships, invite codes, lobby
+   presence, sharing.
 3. **Engine port (last):** the rules engine, canon registry, and content pipeline
    arrive from the predecessor repo (`Ironyard_v2`, frozen at `pre-convex`) once
    the app is healthy. Ported verbatim, gated by its own ~22k LOC test suite.
