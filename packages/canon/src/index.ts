@@ -6,5 +6,6 @@ export * from './extract.js';
 export * from './frontmatter.js';
 export * from './inventory.js';
 export * from './lifecycle.js';
+export * from './pilot-scope.js';
 export * from './schemas.js';
 export * from './source.js';

@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { auditExtractionBundle } from './audit.js';
+import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
 import {
@@ -13,6 +14,7 @@ import {
   ingestStructuredRecord,
 } from './extract.js';
 import { buildCorpusInventory } from './inventory.js';
+import { PilotConfigSchema, assemblePilotScope } from './pilot-scope.js';
 import {
   type ArtifactRecord,
   ArtifactRecordSchema,
@@ -116,7 +118,8 @@ function usage(): never {
   corpus packet --root <steelcompendium> --path <chapter.md> [--from-line N --to-line N --reason text] [--out <packet.json>]
   corpus cut --root <steelcompendium> --proposal <proposal.json> [--out <bundle.json>]
   corpus audit --root <steelcompendium> --bundle <bundle.json>
-  corpus campaign-audit --root <steelcompendium> --inventory <inventory.json> --structured-bundles <directory> --chapter-bundles <directory> --classes-pilot <bundle.json> [--out <manifest.json>]`);
+  corpus campaign-audit --root <steelcompendium> --inventory <inventory.json> --structured-bundles <directory> --chapter-bundles <directory> --classes-pilot <bundle.json> [--out <manifest.json>]
+  corpus pilot-scope --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <conditions-pilot.json>] [--out <manifest.json>]`);
 }
 
 async function main(): Promise<void> {
@@ -255,6 +258,93 @@ async function main(): Promise<void> {
     const result = auditExtractionBundle(source, bundle, auxiliarySources);
     await emit(result);
     if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'pilot-scope') {
+    const configPath = resolve(
+      argument('config') ??
+        fileURLToPath(new URL('../config/conditions-pilot.json', import.meta.url)),
+    );
+    const configBytes = await readFile(configPath);
+    const pilotConfig = PilotConfigSchema.parse(JSON.parse(configBytes.toString('utf8')));
+
+    const artifacts: ArtifactRecord[] = [];
+    const bundleByArtifactId = new Map<string, string>();
+    const bundleFiles = [
+      ...(await listBundleFiles(resolve(requiredArgument('structured-bundles')))),
+      ...(await listBundleFiles(resolve(requiredArgument('chapter-bundles')))),
+    ];
+    for (const file of bundleFiles) {
+      const parsed = ExtractionBundleSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+      for (const record of parsed.records) {
+        if (record.recordKind !== 'artifact') continue;
+        artifacts.push(record);
+        bundleByArtifactId.set(record.id, file);
+      }
+    }
+
+    const scope = assemblePilotScope(artifacts, pilotConfig);
+
+    // Conservation over the discovered closure: every bundle contributing an
+    // in-scope artifact must still pass the byte-conservation audit against
+    // the pinned source.
+    const contributing = new Map<string, number>();
+    for (const entry of scope.entries) {
+      const bundlePath = bundleByArtifactId.get(entry.id);
+      if (!bundlePath) continue;
+      contributing.set(bundlePath, (contributing.get(bundlePath) ?? 0) + 1);
+    }
+    const conservation = [];
+    for (const [bundlePath, artifactsInScope] of [...contributing.entries()].sort()) {
+      const bundleBytes = await readFile(bundlePath);
+      const bundle = ExtractionBundleSchema.parse(JSON.parse(bundleBytes.toString('utf8')));
+      const source = await readFile(safeSourceFile(sourceRoot, bundle.source.path));
+      const auxiliarySources = new Map<string, Buffer>();
+      for (const auxiliary of bundle.source.auxiliarySources) {
+        auxiliarySources.set(
+          auxiliary.path,
+          await readFile(safeSourceFile(sourceRoot, auxiliary.path)),
+        );
+      }
+      const audit = auditExtractionBundle(source, bundle, auxiliarySources);
+      conservation.push({
+        sourcePath: bundle.source.path,
+        bundlePath,
+        bundleSha256: sha256(bundleBytes),
+        artifactsInScope,
+        ok: audit.ok,
+        errors: audit.errors,
+      });
+    }
+    const conservationFailures = conservation.filter((entry) => !entry.ok);
+
+    // Total lifecycle accounting: schema validation already makes an unknown
+    // state impossible; the manifest still reports the per-state counts.
+    const lifecycleCounts: Record<string, number> = {};
+    for (const entry of scope.entries) {
+      const record = artifacts.find((candidate) => candidate.id === entry.id);
+      if (!record) continue;
+      const key = `${record.lifecycle.ingest}/${record.lifecycle.classification}/${record.lifecycle.parsing}/${record.lifecycle.conformance}`;
+      lifecycleCounts[key] = (lifecycleCounts[key] ?? 0) + 1;
+    }
+
+    const ok = scope.findings.length === 0 && conservationFailures.length === 0;
+    await emit({
+      schemaVersion: 1,
+      schema: 'engarde-pilot-scope-manifest-v1',
+      source: { pin: lock.commit, checkout: localStatus.head, clean: localStatus.clean },
+      config: { path: configPath, sha256: sha256(configBytes) },
+      scope,
+      conservation: {
+        bundlesAudited: conservation.length,
+        failures: conservationFailures.length,
+        bundles: conservation,
+      },
+      lifecycleCounts,
+      ok,
+    });
+    if (!ok) process.exitCode = 1;
     return;
   }
 

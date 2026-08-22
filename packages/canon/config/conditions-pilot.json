@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "schema": "engarde-conditions-pilot-config-v1",
+  "description": "Pilot scope inputs for the Conditions vertical (ROAD-0004, engine-plan §Pilot). Seeds are the nine core condition records plus the five mechanically sampled condition-applying abilities (terra-c sample, accepted 2026-08-22). Chapter resolutions are the twelve Lead-accepted dispositions from the ROAD-0003 conditions closure (conditions.resolutions.json); they resolve chapter-base SCC references to selected structured artifacts or record an explicit non-dependency. Supplements are reviewed semantic additions that reference-following cannot reach, each with its recorded reason — pointers only, never content.",
+  "seeds": {
+    "conditions": [
+      "mcdm.heroes.v1/condition/bleeding",
+      "mcdm.heroes.v1/condition/dazed",
+      "mcdm.heroes.v1/condition/frightened",
+      "mcdm.heroes.v1/condition/grabbed",
+      "mcdm.heroes.v1/condition/prone",
+      "mcdm.heroes.v1/condition/restrained",
+      "mcdm.heroes.v1/condition/slowed",
+      "mcdm.heroes.v1/condition/taunted",
+      "mcdm.heroes.v1/condition/weakened"
+    ],
+    "abilities": [
+      "mcdm.heroes.v1/feature.common.maneuvers/grab",
+      "mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood",
+      "mcdm.heroes.v1/feature.ability.censor.level-2/sentenced",
+      "mcdm.heroes.v1/feature.ability.tactician.level-1/mark",
+      "mcdm.monsters.v1/dynamic-terrain.environmental-hazards/toxic-plants"
+    ]
+  },
+  "chapterResolutions": [
+    {
+      "from": "mcdm.heroes.v1/class/tactician",
+      "reference": "mcdm.heroes.v1/chapter/tests",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": [
+        "mcdm.heroes.v1/skill.interpersonal/lead",
+        "mcdm.heroes.v1/skill.group/exploration"
+      ]
+    },
+    {
+      "from": "mcdm.heroes.v1/condition/grabbed",
+      "reference": "mcdm.heroes.v1/chapter/combat",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/feature.common.maneuvers/knockback"]
+    },
+    {
+      "from": "mcdm.heroes.v1/condition/prone",
+      "reference": "mcdm.heroes.v1/chapter/combat",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/feature.common.maneuvers/stand-up"]
+    },
+    {
+      "from": "mcdm.heroes.v1/movement/crawl",
+      "reference": "mcdm.heroes.v1/chapter/classes",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": [
+        "mcdm.heroes.v1/condition/prone",
+        "mcdm.heroes.v1/rule.combat/condition",
+        "mcdm.heroes.v1/rule.combat/free-maneuver"
+      ]
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.character/speed",
+      "reference": "mcdm.heroes.v1/chapter/classes",
+      "disposition": "context-only",
+      "selectedArtifactIds": []
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.combat/melee",
+      "reference": "mcdm.heroes.v1/chapter/downtime-projects",
+      "disposition": "context-only",
+      "selectedArtifactIds": []
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.dice/ability-roll",
+      "reference": "mcdm.heroes.v1/chapter/combat",
+      "disposition": "context-only",
+      "selectedArtifactIds": []
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.dice/ability-roll",
+      "reference": "mcdm.heroes.v1/chapter/the-basics",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": [
+        "mcdm.heroes.v1/rule.dice/power-roll",
+        "mcdm.heroes.v1/rule.character/characteristic"
+      ]
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.dice/power-roll",
+      "reference": "mcdm.heroes.v1/chapter/classes",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/rule.combat/critical-hit"]
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.dice/power-roll",
+      "reference": "mcdm.heroes.v1/chapter/tests",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/rule.test/test"]
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.test/test",
+      "reference": "mcdm.heroes.v1/chapter/combat",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/feature.common.maneuvers/make-or-assist-a-test"]
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.test/test",
+      "reference": "mcdm.heroes.v1/chapter/the-basics",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/rule.resource/hero-token"]
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/the-basics",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk; its topic links (edge, bane, recoveries, respite) are direct structured references already followed by the walk. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/background",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk pointing at the Background chapter for languages; not condition machinery. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/classes",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk; condition/potency/saving-throw/surge topic links are direct structured references already followed. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/combat",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk; combat topic links are direct structured references already followed. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/downtime-projects",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk pointing at crafting projects; not condition machinery. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/ancestries#other-sections",
+      "reference": "mcdm.heroes.v1/chapter/tests",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Navigation directory chunk; the tests topic link is a direct structured reference already followed. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/chapter/combat#cant-exceed-speed",
+      "reference": "mcdm.heroes.v1/chapter/classes",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/rule.combat/condition"],
+      "note": "The chapter pointer reads 'see Conditions in Chapter 5: Classes'; the structured condition rule record carries that content and is linked in the same sentence. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.combat/distance",
+      "reference": "mcdm.heroes.v1/chapter/the-basics",
+      "disposition": "covered-by-structured-artifact",
+      "selectedArtifactIds": ["mcdm.heroes.v1/rule.dice/edge", "mcdm.heroes.v1/rule.dice/bane"],
+      "note": "The chapter pointer reads 'See Edges and Banes in Chapter 1'; both structured records are linked in the same sentence. Lead disposition 2026-08-22."
+    },
+    {
+      "from": "mcdm.heroes.v1/rule.combat/distance",
+      "reference": "mcdm.heroes.v1/chapter/kits",
+      "disposition": "context-only",
+      "selectedArtifactIds": [],
+      "note": "Kit damage-bonus elaboration; the governing sentence's rule text lives in this artifact and its bonuses-and-penalties link is followed directly. Kit internals are outside the conditions pilot. Lead disposition 2026-08-22."
+    }
+  ],
+  "supplements": [
+    {
+      "id": "mcdm.heroes.v1/chapter/classes#stacking-unique-effects",
+      "reason": "Effect-stacking machinery named by engine-plan §Pilot as retained in the Classes chapter; sibling of the mechanically included condition-stacking and ending-effects chunks, but its own references (bonuses-and-penalties, potency) carry no condition-core edge, so reference-following cannot reach it. Lead supplement 2026-08-22."
+    },
+    {
+      "id": "mcdm.heroes.v1/chapter/classes#creature-ends-an-ability-effect",
+      "reason": "Child section of the mechanically included ending-effects chunk (parentKey: ending-effects); part of the effect-ending machinery but reachable only through chunk hierarchy, which the assembler does not yet walk. Hierarchy completion is a candidate mechanical rule for the pilot judgment. Lead supplement 2026-08-22."
+    }
+  ],
+  "maxDepth": 2
+}

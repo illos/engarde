@@ -179,3 +179,26 @@ bytes is a new version of the same id — its lifecycle restarts and the prior
 version's ingest state moves to `superseded`, so upstream/errata updates land
 as deliberate diffs, never silent absorption. `exception` is an explicit state
 on every post-ingest axis; `isLegalTransition` guards state changes.
+
+## Conditions pilot scope (ROAD-0004, engine-plan §Pilot step 2)
+
+`corpus pilot-scope` assembles the pilot's discovered dependency closure and runs
+the conservation audit over every contributing bundle:
+
+```sh
+pnpm --filter @engarde/canon corpus pilot-scope \
+  --root ../../.reference/steelcompendium \
+  --structured-bundles ../../.artifacts/canon/bundles \
+  --chapter-bundles ../../.artifacts/canon/campaign/accepted \
+  --out ../../.artifacts/canon/pilot/pilot-scope.manifest.json
+```
+
+Inputs live in the committed `config/conditions-pilot.json`: the nine condition
+seeds plus five sampled condition-applying abilities, the accepted chapter-base
+resolutions (a chapter hyperlink is a discovery lead, never resolved blindly to
+every child), and reviewed semantic supplements with recorded reasons. Every
+inclusion carries provenance (`seed` / `dependency` / `resolution` /
+`inbound-machinery` / `semantic-supplement`); chapter chunks that reference the
+condition core are pulled in as machinery via the inbound pass; structured
+inbound hits are enumerated as candidates, not silently included. Any edge the
+walk cannot account for is a finding and fails the run.
