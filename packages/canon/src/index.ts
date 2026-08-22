@@ -5,5 +5,6 @@ export * from './dependency.js';
 export * from './extract.js';
 export * from './frontmatter.js';
 export * from './inventory.js';
+export * from './lifecycle.js';
 export * from './schemas.js';
 export * from './source.js';

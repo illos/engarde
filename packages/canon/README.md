@@ -162,3 +162,20 @@ mechanically ingests all nine core conditions:
 pnpm --filter @engarde/canon test
 pnpm --filter @engarde/canon test:corpus
 ```
+
+## Execution contract (engine-plan 0.2)
+
+Every artifact lives in a **total state machine** defined in `src/lifecycle.ts`
+— four axes (`ingest`, `classification`, `parsing`, `conformance`), each with an
+exhaustive state list, an initial state, and a legal-transition table.
+`ArtifactRecordSchema` derives its lifecycle enums from that one home, so a
+state outside the contract fails validation: "unknown state" is structurally
+impossible at rest, which is what makes the dashboard headline ("0 artifacts in
+unknown state") checkable.
+
+Identity and versioning: an artifact's `id` is its stable identity; its
+`version` is the SHA-256 of its verbatim source span. A re-cut with different
+bytes is a new version of the same id — its lifecycle restarts and the prior
+version's ingest state moves to `superseded`, so upstream/errata updates land
+as deliberate diffs, never silent absorption. `exception` is an explicit state
+on every post-ingest axis; `isLegalTransition` guards state changes.

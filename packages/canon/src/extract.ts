@@ -1,5 +1,6 @@
 import { requireLine, scanSourceLines, sha256 } from './bytes.js';
 import { parseFrontmatter } from './frontmatter.js';
+import { INITIAL_LIFECYCLE } from './lifecycle.js';
 import {
   type ChapterChunkProposal,
   ChapterChunkProposalSchema,
@@ -112,12 +113,7 @@ function artifact(
     structuredData,
     references: extractSccReferences(text),
     proposedTags,
-    lifecycle: {
-      ingest: 'extracted',
-      classification: 'unclassified',
-      parsing: 'unparsed',
-      conformance: 'none',
-    },
+    lifecycle: INITIAL_LIFECYCLE,
   };
 }
 

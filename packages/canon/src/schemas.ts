@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LIFECYCLE_AXES } from './lifecycle.js';
 
 export const RelativeSourcePathSchema = z
   .string()
@@ -53,11 +54,13 @@ export const AuxiliarySourceSchema = z.object({
   sha256: Sha256Schema,
 });
 
+// Fail-closed against the total execution contract: any state outside
+// LIFECYCLE_AXES is a schema error, never an "unknown state" at rest.
 const LifecycleSchema = z.object({
-  ingest: z.literal('extracted'),
-  classification: z.literal('unclassified'),
-  parsing: z.literal('unparsed'),
-  conformance: z.literal('none'),
+  ingest: z.enum(LIFECYCLE_AXES.ingest.states),
+  classification: z.enum(LIFECYCLE_AXES.classification.states),
+  parsing: z.enum(LIFECYCLE_AXES.parsing.states),
+  conformance: z.enum(LIFECYCLE_AXES.conformance.states),
 });
 
 export const ArtifactRecordSchema = z.object({
