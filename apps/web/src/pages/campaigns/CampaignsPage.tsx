@@ -52,7 +52,15 @@ function CampaignCard({ card }: { card: Card }) {
       <div className="flex shrink-0 items-center gap-2">
         {card.isOwner ? <RoleBadge label="Owner" tone="accent" /> : null}
         {card.status === 'active' ? (
-          <RoleBadge label={card.role} tone={card.role === 'director' ? 'accent' : 'dim'} />
+          <>
+            {card.campaignAccess === 'admin' && !card.isOwner ? (
+              <RoleBadge label="Admin" tone="victory" />
+            ) : null}
+            <RoleBadge
+              label={card.gameRole}
+              tone={card.gameRole === 'director' ? 'accent' : 'dim'}
+            />
+          </>
         ) : (
           <RoleBadge label="Pending" tone="victory" />
         )}

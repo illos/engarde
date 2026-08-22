@@ -55,11 +55,325 @@ export function TableSurface({ campaignId }: { campaignId: Id<'campaigns'> }) {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <h1 className="text-3xl">The Table</h1>
+      <SessionPanel campaignId={campaignId} />
+      <SessionHistoryPanel campaignId={campaignId} />
       <div className="flex flex-col gap-6 sm:flex-row">
         <PlayersPanel players={players} />
         <ChatPanel campaignId={campaignId} messages={messages} />
       </div>
     </div>
+  );
+}
+
+function SessionPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
+  const session = useQuery(api.sessions.getActive, { campaignId });
+  const characters = useQuery(api.characters.listForCampaign, { campaignId });
+  const roster = useQuery(api.campaigns.listRoster, { campaignId });
+  const grants = useQuery(api.sessions.listControlGrants, { campaignId });
+  const start = useMutation(api.sessions.start);
+  const end = useMutation(api.sessions.end);
+  const addCharacter = useMutation(api.sessions.addCharacter);
+  const removeCharacter = useMutation(api.sessions.removeCharacter);
+  const offerControl = useMutation(api.sessions.offerControl);
+  const respondToControl = useMutation(api.sessions.respondToControl);
+  const revokeControl = useMutation(api.sessions.revokeControl);
+  const relinquishControl = useMutation(api.sessions.relinquishControl);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [recipient, setRecipient] = useState<Record<string, string>>({});
+  const [scope, setScope] = useState<'session' | 'persistent'>('session');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (
+    session === undefined ||
+    characters === undefined ||
+    roster === undefined ||
+    grants === undefined
+  )
+    return <p className="text-sm text-text-dim">Preparing the session…</p>;
+
+  const run = (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    action()
+      .catch((cause) => setError(errorMessage(cause)))
+      .finally(() => setBusy(false));
+  };
+  const activeCharacters = characters.characters.filter(
+    (character) => character.status === 'active',
+  );
+  const activeIds = new Set(session?.roster.map((entry) => entry.characterId));
+  const isDirector = roster.viewer.gameRole === 'director';
+
+  if (session === null) {
+    return (
+      <section className="border border-line bg-ink-1 p-4">
+        <h2 className="text-xl">No active session</h2>
+        {isDirector ? (
+          <>
+            <p className="mt-1 text-sm text-text-dim">
+              Choose the starting roster. This selection freezes the resource-generation basis.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {activeCharacters.map((character) => (
+                <label key={character.characterId} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selected[character.characterId])}
+                    onChange={(event) =>
+                      setSelected((current) => ({
+                        ...current,
+                        [character.characterId]: event.target.checked,
+                      }))
+                    }
+                  />
+                  {character.name}
+                </label>
+              ))}
+            </div>
+            <Button
+              className="mt-4"
+              variant="primary"
+              disabled={busy || !activeCharacters.some((entry) => selected[entry.characterId])}
+              onClick={() =>
+                run(() =>
+                  start({
+                    campaignId,
+                    characterIds: activeCharacters
+                      .filter((entry) => selected[entry.characterId])
+                      .map((entry) => entry.characterId),
+                  }),
+                )
+              }
+            >
+              Start session
+            </Button>
+          </>
+        ) : (
+          <p className="mt-1 text-sm text-text-dim">The Director chooses when play begins.</p>
+        )}
+        {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="border border-line bg-ink-1 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl">Session {session.number}</h2>
+          <p className="mt-1 text-sm text-text-dim">
+            Starting basis: {session.resources.basisCharacterCount} characters · level total{' '}
+            {session.resources.basisLevelTotal}. Roster changes do not regenerate it.
+          </p>
+        </div>
+        {isDirector ? (
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm('End this session? It becomes immutable history.'))
+                run(() => end({ campaignId }));
+            }}
+          >
+            End session
+          </Button>
+        ) : null}
+      </div>
+      <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+        {session.roster.map((entry) => {
+          const character = activeCharacters.find((item) => item.characterId === entry.characterId);
+          const otherMembers = roster.members.filter(
+            (member) => member.userId !== entry.ownerUserId,
+          );
+          return (
+            <li key={entry.characterId} className="border border-line-soft bg-ink-2 p-3">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-display">{entry.name}</span>
+                {entry.canControl ? <RoleBadge label="Control" tone="victory" /> : null}
+                {entry.initial ? <RoleBadge label="Initial" tone="dim" /> : null}
+                {isDirector ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={busy}
+                    onClick={() =>
+                      run(() => removeCharacter({ campaignId, characterId: entry.characterId }))
+                    }
+                  >
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+              {character?.isMine && otherMembers.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-line-soft pt-3">
+                  <select
+                    aria-label={`Control recipient for ${entry.name}`}
+                    className="h-9 min-w-0 flex-1 border border-line bg-ink-1 px-2 text-sm"
+                    value={recipient[entry.characterId] ?? ''}
+                    onChange={(event) =>
+                      setRecipient((current) => ({
+                        ...current,
+                        [entry.characterId]: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Offer control to…</option>
+                    {otherMembers.map((member) => (
+                      <option key={member.userId} value={member.userId}>
+                        {member.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Control scope"
+                    className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                    value={scope}
+                    onChange={(event) => setScope(event.target.value as 'session' | 'persistent')}
+                  >
+                    <option value="session">This session</option>
+                    <option value="persistent">Until revoked</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    disabled={busy || !recipient[entry.characterId]}
+                    onClick={() => {
+                      const target = recipient[entry.characterId] as Id<'users'> | undefined;
+                      if (target)
+                        run(() =>
+                          offerControl({
+                            characterId: entry.characterId,
+                            granteeUserId: target,
+                            scope,
+                          }),
+                        );
+                    }}
+                  >
+                    Offer
+                  </Button>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {isDirector && activeCharacters.some((entry) => !activeIds.has(entry.characterId)) ? (
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-line-soft pt-4">
+          {activeCharacters
+            .filter((entry) => !activeIds.has(entry.characterId))
+            .map((entry) => (
+              <Button
+                key={entry.characterId}
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  run(() => addCharacter({ campaignId, characterId: entry.characterId }))
+                }
+              >
+                Add {entry.name}
+              </Button>
+            ))}
+        </div>
+      ) : null}
+      {grants.length > 0 ? (
+        <div className="mt-4 border-t border-line-soft pt-4">
+          <h3 className="type-label text-xs text-text-mute">Control grants</h3>
+          <ul className="mt-2 grid gap-2">
+            {grants.map((grant) => (
+              <li key={grant.grantId} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  {grant.characterName} → {grant.granteeName} · {grant.scope} · {grant.status}
+                </span>
+                {grant.granteeUserId === session.viewer.userId && grant.status === 'pending' ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={busy}
+                      onClick={() =>
+                        run(() => respondToControl({ grantId: grant.grantId, accept: true }))
+                      }
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() =>
+                        run(() => respondToControl({ grantId: grant.grantId, accept: false }))
+                      }
+                    >
+                      Decline
+                    </Button>
+                  </>
+                ) : null}
+                {grant.grantorUserId === session.viewer.userId &&
+                (grant.status === 'pending' || grant.status === 'accepted') ? (
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => run(() => revokeControl({ grantId: grant.grantId }))}
+                  >
+                    Revoke
+                  </Button>
+                ) : null}
+                {grant.granteeUserId === session.viewer.userId && grant.status === 'accepted' ? (
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => run(() => relinquishControl({ grantId: grant.grantId }))}
+                  >
+                    Relinquish
+                  </Button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
+    </section>
+  );
+}
+
+function sessionTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString([], {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+function SessionHistoryPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
+  const history = useQuery(api.sessions.listHistory, { campaignId });
+  if (history === undefined)
+    return <p className="text-sm text-text-dim">Loading session history…</p>;
+  return (
+    <section>
+      <h2 className="type-label text-xs text-text-mute">Session history</h2>
+      {history.length === 0 ? (
+        <p className="mt-3 text-sm text-text-dim">No completed sessions yet.</p>
+      ) : (
+        <ol className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+          {history.map((session) => (
+            <li
+              key={session.sessionId}
+              className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 p-3"
+            >
+              <span className="font-display text-lg">Session {session.number}</span>
+              <span className="text-sm text-text-dim">
+                <time dateTime={new Date(session.startedAt).toISOString()}>
+                  {sessionTime(session.startedAt)}
+                </time>{' '}
+                –{' '}
+                <time dateTime={new Date(session.endedAt).toISOString()}>
+                  {sessionTime(session.endedAt)}
+                </time>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

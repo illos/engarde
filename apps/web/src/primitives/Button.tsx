@@ -17,10 +17,10 @@ const variantClasses: Record<ButtonVariant, string> = {
     'bg-transparent text-text-dim border border-transparent hover:text-text hover:border-line-soft',
 };
 
-// Touch-first: md (the default) meets the 44px floor; sm is for dense inline
-// rows where the floor is deliberately traded for density.
+// Every size keeps the 44px touch floor; sm only reduces horizontal padding
+// and type size for dense inline rows.
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: 'h-9 px-3 text-sm',
+  sm: 'h-11 px-3 text-sm',
   md: 'h-11 px-4 text-sm',
 };
 

@@ -144,10 +144,95 @@ describe('TablePage', () => {
     expect(spyFor(api.lobby.sendMessage)).not.toHaveBeenCalled();
   });
 
+  test('the Director selects a durable starting roster and starts the session', () => {
+    const characterId = 'character-1' as Id<'characters'>;
+    setQuery(api.lobby.listPresent, players);
+    setQuery(api.lobby.listMessages, []);
+    setQuery(api.sessions.getActive, null);
+    setQuery(api.sessions.listControlGrants, []);
+    setQuery(api.characters.listForCampaign, {
+      viewer: { userId: userA, isOwner: true, canAdminister: true },
+      characters: [
+        {
+          characterId,
+          ownerUserId: userA,
+          name: 'Nerevar',
+          concept: '',
+          level: 1,
+          status: 'active',
+          isMine: true,
+        },
+      ],
+    });
+    setQuery(api.campaigns.listRoster, {
+      viewer: {
+        gameRole: 'director',
+        campaignAccess: 'admin',
+        isOwner: true,
+        canAdminister: true,
+      },
+      members: [],
+      pending: [],
+      blocked: [],
+    });
+    render(<TablePage campaignId={campaignId} />);
+    fireEvent.click(screen.getByLabelText('Nerevar'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start session' }));
+    expect(spyFor(api.sessions.start)).toHaveBeenCalledWith({
+      campaignId,
+      characterIds: [characterId],
+    });
+  });
+
+  test('lists completed sessions newest first', () => {
+    const firstStartedAt = new Date(2026, 7, 20, 18, 0).getTime();
+    const firstEndedAt = new Date(2026, 7, 20, 20, 0).getTime();
+    const secondStartedAt = new Date(2026, 7, 21, 19, 0).getTime();
+    const secondEndedAt = new Date(2026, 7, 21, 21, 30).getTime();
+    setQuery(api.lobby.listPresent, players);
+    setQuery(api.lobby.listMessages, []);
+    setQuery(api.sessions.listHistory, [
+      {
+        sessionId: 'session-2' as Id<'sessions'>,
+        number: 2,
+        startedAt: secondStartedAt,
+        startedByUserId: userA,
+        endedAt: secondEndedAt,
+        endedByUserId: userA,
+      },
+      {
+        sessionId: 'session-1' as Id<'sessions'>,
+        number: 1,
+        startedAt: firstStartedAt,
+        startedByUserId: userA,
+        endedAt: firstEndedAt,
+        endedByUserId: userA,
+      },
+    ]);
+    render(<TablePage campaignId={campaignId} />);
+
+    expect(screen.getByRole('heading', { name: 'Session history' })).toBeTruthy();
+    const entries = screen.getAllByRole('listitem');
+    const historyEntries = entries.filter((entry) => entry.textContent?.startsWith('Session '));
+    expect(historyEntries.map((entry) => entry.textContent)).toEqual([
+      expect.stringContaining('Session 2'),
+      expect.stringContaining('Session 1'),
+    ]);
+  });
+
   test('a failing lobby query renders the not-found fallback', () => {
     setQuery(api.lobby.listPresent, new Error('Campaign not found'));
     setQuery(api.lobby.listMessages, []);
     render(<TablePage campaignId={campaignId} />);
     expect(screen.getByRole('heading', { name: 'Campaign not found' })).toBeTruthy();
+  });
+
+  test('an operational query failure is not mislabeled as campaign not-found', () => {
+    setQuery(api.lobby.listPresent, new Error('Network request failed'));
+    setQuery(api.lobby.listMessages, []);
+    render(<TablePage campaignId={campaignId} />);
+    expect(screen.getByRole('heading', { name: 'Unable to load this page' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Campaign not found' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 });

@@ -43,7 +43,7 @@ describe('profiles', () => {
     ).rejects.toThrow('Verify your email');
   });
 
-  test('bootstraps the first profile as admin and later profiles as members', async () => {
+  test('profile onboarding never grants installation authority', async () => {
     const t = convexTest(schema, modules);
     const firstUser = await addUser(t, 'first@example.test');
     const secondUser = await addUser(t, 'second@example.test');
@@ -57,8 +57,16 @@ describe('profiles', () => {
       handle: 'second_player',
     });
 
-    expect(first).toMatchObject({ handle: 'first_player', role: 'admin' });
-    expect(second).toMatchObject({ handle: 'second_player', role: 'member' });
+    expect(first).toEqual({
+      displayName: 'First',
+      handle: 'first_player',
+      lifecycle: 'active',
+    });
+    expect(second).toEqual({
+      displayName: 'Second',
+      handle: 'second_player',
+      lifecycle: 'active',
+    });
   });
 
   test('onboarding is idempotent and handles stay unique', async () => {
@@ -124,29 +132,5 @@ describe('profiles', () => {
     await expect(
       firstClient.mutation(api.profiles.update, { displayName: 'Again', handle: 'again_user' }),
     ).rejects.toThrow('Account deactivated');
-  });
-
-  test('configured verified email claims admin instead of the first registrant', async () => {
-    const previous = process.env.ENGARDE_INITIAL_ADMIN_EMAIL;
-    process.env.ENGARDE_INITIAL_ADMIN_EMAIL = 'chosen@example.test';
-    try {
-      const t = convexTest(schema, modules);
-      const firstUser = await addUser(t, 'first@example.test');
-      const chosenUser = await addUser(t, 'chosen@example.test');
-      const first = await asUser(t, firstUser).mutation(api.profiles.completeOnboarding, {
-        displayName: 'First',
-        handle: 'first_user',
-      });
-      const chosen = await asUser(t, chosenUser).mutation(api.profiles.completeOnboarding, {
-        displayName: 'Chosen',
-        handle: 'chosen_user',
-      });
-      expect(first.role).toBe('member');
-      expect(chosen.role).toBe('admin');
-    } finally {
-      if (previous === undefined)
-        Reflect.deleteProperty(process.env, 'ENGARDE_INITIAL_ADMIN_EMAIL');
-      else process.env.ENGARDE_INITIAL_ADMIN_EMAIL = previous;
-    }
   });
 });

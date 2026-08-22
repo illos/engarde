@@ -8,7 +8,7 @@ import { TableSurface } from '../table/TablePage';
 import { errorMessage } from './AppScreen';
 import { RoleBadge } from './CampaignsPage';
 
-// Campaign home: roster for every member; settings + moderation for the owner.
+// Campaign home: roster for every member; settings + moderation for campaign admins.
 export function CampaignPage({ campaignId }: { campaignId: Id<'campaigns'> }) {
   return (
     <QueryBoundary
@@ -39,15 +39,14 @@ function CampaignBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
         roster={roster}
         campaignCharacters={campaignCharacters}
       />
-      {roster.viewer.isOwner ? (
+      {roster.viewer.canAdminister ? (
         <>
           <PendingSection campaignId={campaignId} pending={roster.pending ?? []} />
           <BlockedSection campaignId={campaignId} blocked={roster.blocked ?? []} />
           <SettingsSection campaignId={campaignId} />
         </>
-      ) : (
-        <LeaveSection campaignId={campaignId} />
-      )}
+      ) : null}
+      {!roster.viewer.isOwner ? <LeaveSection campaignId={campaignId} /> : null}
     </div>
   );
 }
@@ -88,6 +87,7 @@ function MembersSection({
   campaignCharacters: CampaignCharacters;
 }) {
   const setDirector = useMutation(api.campaigns.setDirector);
+  const setCampaignAccess = useMutation(api.campaigns.setCampaignAccess);
   const removeMember = useMutation(api.campaigns.removeMember);
   const blockUser = useMutation(api.campaigns.blockUser);
   const approveCharacter = useMutation(api.characters.approve);
@@ -109,12 +109,18 @@ function MembersSection({
                 <p className="truncate font-mono text-xs text-text-mute">@{member.handle}</p>
               </div>
               {member.isOwner ? <RoleBadge label="Owner" tone="accent" /> : null}
-              <RoleBadge label={member.role} tone={member.role === 'director' ? 'accent' : 'dim'} />
-              {roster.viewer.isOwner ? (
+              {member.campaignAccess === 'admin' && !member.isOwner ? (
+                <RoleBadge label="Admin" tone="victory" />
+              ) : null}
+              <RoleBadge
+                label={member.gameRole}
+                tone={member.gameRole === 'director' ? 'accent' : 'dim'}
+              />
+              {roster.viewer.canAdminister ? (
                 <span className="flex gap-2">
                   {/* Any active member can take the screen — including the owner
                       reclaiming it after handing director to someone else. */}
-                  {member.role !== 'director' ? (
+                  {member.gameRole !== 'director' ? (
                     <Button
                       size="sm"
                       disabled={busy}
@@ -125,7 +131,25 @@ function MembersSection({
                       Make Director
                     </Button>
                   ) : null}
-                  {!member.isOwner ? (
+                  {roster.viewer.isOwner && !member.isOwner ? (
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() =>
+                        moderate(() =>
+                          setCampaignAccess({
+                            campaignId,
+                            targetUserId: member.userId,
+                            campaignAccess: member.campaignAccess === 'admin' ? 'user' : 'admin',
+                          }),
+                        )
+                      }
+                    >
+                      {member.campaignAccess === 'admin' ? 'Revoke Admin' : 'Make Admin'}
+                    </Button>
+                  ) : null}
+                  {!member.isOwner &&
+                  (roster.viewer.isOwner || member.campaignAccess !== 'admin') ? (
                     <>
                       <Button
                         size="sm"
@@ -176,7 +200,7 @@ function MembersSection({
                       label={character.status}
                       tone={character.status === 'active' ? 'victory' : 'dim'}
                     />
-                    {character.status === 'pending' && roster.viewer.isOwner ? (
+                    {character.status === 'pending' && roster.viewer.canAdminister ? (
                       <>
                         <Button
                           size="sm"
@@ -233,7 +257,9 @@ function MembersSection({
                         Remove character
                       </Button>
                     ) : null}
-                    {character.status === 'active' && roster.viewer.isOwner && !character.isMine ? (
+                    {character.status === 'active' &&
+                    roster.viewer.canAdminister &&
+                    !character.isMine ? (
                       <Button
                         size="sm"
                         variant="danger"

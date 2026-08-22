@@ -1,7 +1,12 @@
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { type MutationCtx, type QueryCtx, mutation, query } from './_generated/server';
-import { requireActiveMember, requireProfile } from './authz';
+import { requireActiveMember, requireCampaignAdmin, requireProfile } from './authz';
+import {
+  expireControlGrantsForBinding,
+  expireControlGrantsForGranteeInCampaign,
+  removeCharacterFromActiveSession,
+} from './sessions';
 
 const CHARACTER_NOT_FOUND = 'Character not found';
 const CAMPAIGN_NOT_FOUND = 'Campaign not found';
@@ -79,14 +84,12 @@ async function requireOwnedCharacter(
   return { character, ownerUserId: profile.userId };
 }
 
-async function requireCampaignOwner(
+async function requireCampaignModerator(
   ctx: DatabaseCtx,
   campaignId: Id<'campaigns'>,
-): Promise<{ campaign: Doc<'campaigns'>; ownerUserId: Id<'users'> }> {
-  const profile = await requireProfile(ctx);
-  const campaign = await ctx.db.get(campaignId);
-  if (!campaign || campaign.ownerId !== profile.userId) throw new ConvexError(CAMPAIGN_NOT_FOUND);
-  return { campaign, ownerUserId: profile.userId };
+): Promise<{ campaign: Doc<'campaigns'>; actorUserId: Id<'users'> }> {
+  const { campaign, profile } = await requireCampaignAdmin(ctx, campaignId);
+  return { campaign, actorUserId: profile.userId };
 }
 
 async function recordEvent(
@@ -177,8 +180,18 @@ export async function detachCharactersForMembershipEnd(
       type: 'membership_ended',
       occurredAt: now,
     });
+    await removeCharacterFromActiveSession(ctx, {
+      campaignId: binding.campaignId,
+      characterId: binding.characterId,
+      actorUserId: args.actorUserId,
+    });
+    await expireControlGrantsForBinding(ctx, binding._id);
     await ctx.db.delete(binding._id);
   }
+  await expireControlGrantsForGranteeInCampaign(ctx, {
+    campaignId: args.campaignId,
+    granteeUserId: args.ownerUserId,
+  });
 }
 
 export const create = mutation({
@@ -248,11 +261,15 @@ export const listMine = query({
 export const listForCampaign = query({
   args: { campaignId: v.id('campaigns') },
   returns: v.object({
-    viewer: v.object({ userId: v.id('users'), isOwner: v.boolean() }),
+    viewer: v.object({
+      userId: v.id('users'),
+      isOwner: v.boolean(),
+      canAdminister: v.boolean(),
+    }),
     characters: v.array(campaignCharacterView),
   }),
   handler: async (ctx, args) => {
-    const { campaign, profile } = await requireActiveMember(ctx, args.campaignId);
+    const { campaign, profile, membership } = await requireActiveMember(ctx, args.campaignId);
     const active = await ctx.db
       .query('characterCampaignBindings')
       .withIndex('by_campaignId_status', (q) =>
@@ -260,7 +277,7 @@ export const listForCampaign = query({
       )
       .take(MAX_BOUND_CHARACTERS_PER_CAMPAIGN);
     const pending =
-      campaign.ownerId === profile.userId
+      campaign.ownerId === profile.userId || (membership.campaignAccess ?? 'user') === 'admin'
         ? await ctx.db
             .query('characterCampaignBindings')
             .withIndex('by_campaignId_status', (q) =>
@@ -290,7 +307,12 @@ export const listForCampaign = query({
       });
     }
     return {
-      viewer: { userId: profile.userId, isOwner: campaign.ownerId === profile.userId },
+      viewer: {
+        userId: profile.userId,
+        isOwner: campaign.ownerId === profile.userId,
+        canAdminister:
+          campaign.ownerId === profile.userId || (membership.campaignAccess ?? 'user') === 'admin',
+      },
       characters: views,
     };
   },
@@ -321,6 +343,12 @@ export const withdraw = mutation({
       type: 'withdrawn',
       occurredAt: now,
     });
+    await removeCharacterFromActiveSession(ctx, {
+      campaignId: binding.campaignId,
+      characterId: binding.characterId,
+      actorUserId: ownerUserId,
+    });
+    await expireControlGrantsForBinding(ctx, binding._id);
     await ctx.db.delete(binding._id);
     return null;
   },
@@ -342,6 +370,12 @@ export const removeFromCampaign = mutation({
       type: 'removed',
       occurredAt: now,
     });
+    await removeCharacterFromActiveSession(ctx, {
+      campaignId: binding.campaignId,
+      characterId: binding.characterId,
+      actorUserId: ownerUserId,
+    });
+    await expireControlGrantsForBinding(ctx, binding._id);
     await ctx.db.delete(binding._id);
     return null;
   },
@@ -354,22 +388,22 @@ async function requireBindingForReview(
   status: BindingStatus,
 ): Promise<{
   binding: Doc<'characterCampaignBindings'>;
-  ownerUserId: Id<'users'>;
+  actorUserId: Id<'users'>;
 }> {
-  const { ownerUserId } = await requireCampaignOwner(ctx, campaignId);
+  const { actorUserId } = await requireCampaignModerator(ctx, campaignId);
   const binding = await bindingFor(ctx, characterId);
   if (!binding || binding.campaignId !== campaignId || binding.status !== status)
     throw new ConvexError(
       status === 'pending' ? 'No pending submission for that character' : 'Character is not active',
     );
-  return { binding, ownerUserId };
+  return { binding, actorUserId };
 }
 
 export const approve = mutation({
   args: { campaignId: v.id('campaigns'), characterId: v.id('characters') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { binding, ownerUserId } = await requireBindingForReview(
+    const { binding, actorUserId } = await requireBindingForReview(
       ctx,
       args.campaignId,
       args.characterId,
@@ -379,13 +413,13 @@ export const approve = mutation({
     await ctx.db.patch(binding._id, {
       status: 'active',
       reviewedAt: now,
-      reviewedBy: ownerUserId,
+      reviewedBy: actorUserId,
       updatedAt: now,
     });
     await recordEvent(ctx, {
       characterId: binding.characterId,
       campaignId: binding.campaignId,
-      actorUserId: ownerUserId,
+      actorUserId,
       type: 'approved',
       occurredAt: now,
     });
@@ -397,7 +431,7 @@ export const deny = mutation({
   args: { campaignId: v.id('campaigns'), characterId: v.id('characters') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { binding, ownerUserId } = await requireBindingForReview(
+    const { binding, actorUserId } = await requireBindingForReview(
       ctx,
       args.campaignId,
       args.characterId,
@@ -407,7 +441,7 @@ export const deny = mutation({
     await recordEvent(ctx, {
       characterId: binding.characterId,
       campaignId: binding.campaignId,
-      actorUserId: ownerUserId,
+      actorUserId,
       type: 'denied',
       occurredAt: now,
     });
@@ -420,7 +454,7 @@ export const kick = mutation({
   args: { campaignId: v.id('campaigns'), characterId: v.id('characters') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { binding, ownerUserId } = await requireBindingForReview(
+    const { binding, actorUserId } = await requireBindingForReview(
       ctx,
       args.campaignId,
       args.characterId,
@@ -430,10 +464,16 @@ export const kick = mutation({
     await recordEvent(ctx, {
       characterId: binding.characterId,
       campaignId: binding.campaignId,
-      actorUserId: ownerUserId,
+      actorUserId,
       type: 'kicked',
       occurredAt: now,
     });
+    await removeCharacterFromActiveSession(ctx, {
+      campaignId: binding.campaignId,
+      characterId: binding.characterId,
+      actorUserId,
+    });
+    await expireControlGrantsForBinding(ctx, binding._id);
     await ctx.db.delete(binding._id);
     return null;
   },

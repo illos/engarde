@@ -84,10 +84,10 @@ describe('JoinScreen', () => {
     viewerStatus: 'none' as const,
   };
 
-  test('shows the campaign card and requests to join', () => {
-    setQuery(api.campaigns.getJoinPreview, preview);
+  test('shows the campaign card and requests to join', async () => {
+    spyFor(api.campaigns.previewJoinCode).mockResolvedValue({ status: 'found', preview });
     render(<JoinScreen code="ABCD2345" />);
-    expect(screen.getByRole('heading', { name: 'The Iron Vow' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'The Iron Vow' })).toBeTruthy();
     expect(screen.getByText('Oaths and consequences')).toBeTruthy();
     expect(screen.getByText('Rhian')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Join this Campaign' }));
@@ -96,28 +96,34 @@ describe('JoinScreen', () => {
     });
   });
 
-  test('pending state shows the badge and cancels the request', () => {
-    setQuery(api.campaigns.getJoinPreview, { ...preview, viewerStatus: 'pending' });
+  test('pending state shows the badge and cancels the request', async () => {
+    spyFor(api.campaigns.previewJoinCode).mockResolvedValue({
+      status: 'found',
+      preview: { ...preview, viewerStatus: 'pending' },
+    });
     render(<JoinScreen code="ABCD2345" />);
-    expect(screen.getByText(/Pending — awaiting approval/)).toBeTruthy();
+    expect(await screen.findByText(/Pending — awaiting approval/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel request' }));
     expect(spyFor(api.campaigns.cancelJoinRequest)).toHaveBeenCalledWith({
       campaignId,
     });
   });
 
-  test('a closed campaign shows a disabled affordance instead of the join button', () => {
-    setQuery(api.campaigns.getJoinPreview, { ...preview, joinability: 'closed' });
+  test('a closed campaign shows a disabled affordance instead of the join button', async () => {
+    spyFor(api.campaigns.previewJoinCode).mockResolvedValue({
+      status: 'found',
+      preview: { ...preview, joinability: 'closed' },
+    });
     render(<JoinScreen code="ABCD2345" />);
-    const closed = screen.getByRole('button', { name: 'Closed to new members' });
+    const closed = await screen.findByRole('button', { name: 'Closed to new members' });
     expect((closed as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Join this Campaign' })).toBeNull();
   });
 
-  test('a failed lookup renders not-found instead of crashing', () => {
-    setQuery(api.campaigns.getJoinPreview, new Error('Campaign not found'));
+  test('a failed lookup renders not-found instead of crashing', async () => {
+    spyFor(api.campaigns.previewJoinCode).mockResolvedValue({ status: 'not_found' });
     render(<JoinScreen code="WRONGCOD" />);
-    expect(screen.getByRole('heading', { name: 'Campaign not found' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Campaign not found' })).toBeTruthy();
   });
 });
 
@@ -129,7 +135,8 @@ describe('CampaignsPage', () => {
         name: 'The Iron Vow',
         description: '',
         status: 'active',
-        role: 'director',
+        gameRole: 'director',
+        campaignAccess: 'admin',
         isOwner: true,
       },
       {
@@ -137,7 +144,8 @@ describe('CampaignsPage', () => {
         name: 'Sunken Halls',
         description: '',
         status: 'pending',
-        role: 'player',
+        gameRole: 'player',
+        campaignAccess: 'user',
         isOwner: false,
       },
     ]);
@@ -153,10 +161,29 @@ describe('CampaignsPage', () => {
 
 describe('CampaignPage', () => {
   const ownerRoster = {
-    viewer: { role: 'director' as const, isOwner: true },
+    viewer: {
+      gameRole: 'director' as const,
+      campaignAccess: 'admin' as const,
+      isOwner: true,
+      canAdminister: true,
+    },
     members: [
-      { userId: userA, displayName: 'Rhian', handle: 'rhian', role: 'director', isOwner: true },
-      { userId: userB, displayName: 'Bren', handle: 'bren', role: 'player', isOwner: false },
+      {
+        userId: userA,
+        displayName: 'Rhian',
+        handle: 'rhian',
+        gameRole: 'director',
+        campaignAccess: 'admin',
+        isOwner: true,
+      },
+      {
+        userId: userB,
+        displayName: 'Bren',
+        handle: 'bren',
+        gameRole: 'player',
+        campaignAccess: 'user',
+        isOwner: false,
+      },
     ],
     pending: [
       { userId: 'user-c' as Id<'users'>, displayName: 'Cael', handle: 'cael', requestedAt: 1 },
@@ -164,7 +191,7 @@ describe('CampaignPage', () => {
     blocked: [],
   };
   const ownerCharacterView = {
-    viewer: { userId: userA, isOwner: true },
+    viewer: { userId: userA, isOwner: true, canAdminister: true },
     characters: [
       {
         characterId: characterA,
@@ -215,16 +242,35 @@ describe('CampaignPage', () => {
 
   test('an owner who handed off director can reclaim it from their own row', () => {
     setQuery(api.campaigns.listRoster, {
-      viewer: { role: 'player' as const, isOwner: true },
+      viewer: {
+        gameRole: 'player' as const,
+        campaignAccess: 'admin' as const,
+        isOwner: true,
+        canAdminister: true,
+      },
       members: [
-        { userId: userA, displayName: 'Rhian', handle: 'rhian', role: 'player', isOwner: true },
-        { userId: userB, displayName: 'Bren', handle: 'bren', role: 'director', isOwner: false },
+        {
+          userId: userA,
+          displayName: 'Rhian',
+          handle: 'rhian',
+          gameRole: 'player',
+          campaignAccess: 'admin',
+          isOwner: true,
+        },
+        {
+          userId: userB,
+          displayName: 'Bren',
+          handle: 'bren',
+          gameRole: 'director',
+          campaignAccess: 'user',
+          isOwner: false,
+        },
       ],
       pending: [],
       blocked: [],
     });
     setQuery(api.characters.listForCampaign, {
-      viewer: { userId: userA, isOwner: true },
+      viewer: { userId: userA, isOwner: true, canAdminister: true },
       characters: [],
     });
     setQuery(api.campaigns.getSettings, {
@@ -249,11 +295,16 @@ describe('CampaignPage', () => {
 
   test('a plain member sees the roster and leave, not the owner console', () => {
     setQuery(api.campaigns.listRoster, {
-      viewer: { role: 'player' as const, isOwner: false },
+      viewer: {
+        gameRole: 'player' as const,
+        campaignAccess: 'user' as const,
+        isOwner: false,
+        canAdminister: false,
+      },
       members: ownerRoster.members,
     });
     setQuery(api.characters.listForCampaign, {
-      viewer: { userId: userB, isOwner: false },
+      viewer: { userId: userB, isOwner: false, canAdminister: false },
       characters: [
         {
           characterId: characterA,

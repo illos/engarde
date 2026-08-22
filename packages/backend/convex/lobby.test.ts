@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -7,6 +8,12 @@ import { PRESENCE_STALE_MS } from './lobby';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
+
+function makeHarness() {
+  const t = convexTest(schema, modules);
+  registerRateLimiter(t);
+  return t;
+}
 
 type Harness = ReturnType<typeof convexTest>;
 type Client = ReturnType<Harness['withIdentity']>;
@@ -51,7 +58,7 @@ async function setupTable(t: Harness) {
 
 describe('lobby (the Table)', () => {
   test('every surface answers uniform not-found for outsiders and pending members', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const stranger = await addPlayer(t, 'stranger@example.test', 'stranger_user');
     const pending = await addPlayer(t, 'pending@example.test', 'pending_user');
@@ -75,7 +82,7 @@ describe('lobby (the Table)', () => {
   });
 
   test('join / heartbeat / leave drive the present-player list', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const { owner, player, campaignId } = await setupTable(t);
 
     await owner.client.mutation(api.lobby.join, { campaignId });
@@ -103,8 +110,8 @@ describe('lobby (the Table)', () => {
     expect(afterLeave.map((p) => p.userId)).toEqual([owner.userId]);
   });
 
-  test('a stale row reads as absent and is swept by the next heartbeat', async () => {
-    const t = convexTest(schema, modules);
+  test('a stale row reads as absent without making heartbeats sweep other users', async () => {
+    const t = makeHarness();
     const { owner, player, campaignId } = await setupTable(t);
     await owner.client.mutation(api.lobby.join, { campaignId });
     await player.client.mutation(api.lobby.join, { campaignId });
@@ -134,11 +141,35 @@ describe('lobby (the Table)', () => {
             .collect()
         ).length,
     );
-    expect(rowCount).toBe(1);
+    expect(rowCount).toBe(2);
+  });
+
+  test('presence rendering uses display data captured by the heartbeat', async () => {
+    const t = makeHarness();
+    const { owner, player, campaignId } = await setupTable(t);
+    await player.client.mutation(api.lobby.join, { campaignId });
+
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query('profiles')
+        .withIndex('by_userId', (q) => q.eq('userId', player.userId))
+        .unique();
+      if (!profile) throw new Error('expected a profile');
+      await ctx.db.delete(profile._id);
+    });
+
+    expect(await owner.client.query(api.lobby.listPresent, { campaignId })).toEqual([
+      expect.objectContaining({
+        userId: player.userId,
+        displayName: 'player_user',
+        handle: 'player_user',
+        role: 'player',
+      }),
+    ]);
   });
 
   test('a member removed mid-session drops from the list before their row goes stale', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const { owner, player, campaignId } = await setupTable(t);
     await player.client.mutation(api.lobby.join, { campaignId });
     await owner.client.mutation(api.campaigns.removeMember, {
@@ -150,13 +181,22 @@ describe('lobby (the Table)', () => {
   });
 
   test('messages are tagged with author and time, oldest first', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const { owner, player, campaignId } = await setupTable(t);
     const before = Date.now();
     await owner.client.mutation(api.lobby.sendMessage, { campaignId, body: 'Take your seats.' });
     await player.client.mutation(api.lobby.sendMessage, { campaignId, body: '  Ready!  ' });
 
-    const messages = await player.client.query(api.lobby.listMessages, { campaignId });
+    await t.run(async (ctx) => {
+      const profile = await ctx.db
+        .query('profiles')
+        .withIndex('by_userId', (q) => q.eq('userId', player.userId))
+        .unique();
+      if (!profile) throw new Error('expected a profile');
+      await ctx.db.delete(profile._id);
+    });
+
+    const messages = await owner.client.query(api.lobby.listMessages, { campaignId });
     expect(messages).toHaveLength(2);
     expect(messages[0]).toMatchObject({
       authorUserId: owner.userId,
@@ -174,7 +214,7 @@ describe('lobby (the Table)', () => {
   });
 
   test('rejects empty and oversized messages', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const { owner, campaignId } = await setupTable(t);
     await expect(
       owner.client.mutation(api.lobby.sendMessage, { campaignId, body: '   ' }),
@@ -184,8 +224,19 @@ describe('lobby (the Table)', () => {
     ).rejects.toThrow('at most 1000 characters');
   });
 
+  test('message sending is throttled per member', async () => {
+    const t = makeHarness();
+    const { owner, campaignId } = await setupTable(t);
+    for (let index = 0; index < 5; index++) {
+      await owner.client.mutation(api.lobby.sendMessage, { campaignId, body: `message ${index}` });
+    }
+    await expect(
+      owner.client.mutation(api.lobby.sendMessage, { campaignId, body: 'one too many' }),
+    ).rejects.toThrow('Messages are being sent too quickly');
+  });
+
   test('listMessages returns only the latest page', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const { owner, campaignId } = await setupTable(t);
     await t.run(async (ctx) => {
       for (let i = 0; i < 55; i++) {

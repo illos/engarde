@@ -32,6 +32,11 @@ boundary to its neighbors.
 └────────────────────────────────────────────────┘
 ```
 
+Installation administration is a sibling frontend, not another game layer:
+`apps/control-center` is the **System Control Center**. It shares authentication and
+the Convex deployment but authorizes directly through `instanceOperators`; it never
+uses player profiles or campaign roles as a privilege signal.
+
 Boundary rules:
 
 - **The frontend never implements a game rule.** It renders engine output and

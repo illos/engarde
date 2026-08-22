@@ -1,21 +1,42 @@
 import { Component, type ReactNode } from 'react';
 
-// Error boundary for surfaces whose backing query can legitimately fail for
-// the viewer — e.g. `getJoinPreview` / `listRoster` answer "Campaign not
-// found" for a bad code or a private campaign the viewer can't see. Convex's
-// useQuery throws into render, so the page supplies the not-found rendering
-// as `fallback` here rather than branching inline.
+function messageFor(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return '';
+}
+
+// Convex useQuery throws into render. Known access/not-found failures use the
+// page-specific fallback; transport, server, and programming failures retain
+// their real category and get a retry affordance instead of masquerading as a
+// missing campaign.
 export class QueryBoundary extends Component<
   { fallback: ReactNode; children: ReactNode },
-  { failed: boolean }
+  { error: unknown | null }
 > {
-  override state = { failed: false };
+  override state = { error: null };
 
-  static getDerivedStateFromError() {
-    return { failed: true };
+  static getDerivedStateFromError(error: unknown) {
+    return { error };
   }
 
   override render() {
-    return this.state.failed ? this.props.fallback : this.props.children;
+    if (this.state.error === null) return this.props.children;
+    if (/campaign not found/i.test(messageFor(this.state.error))) return this.props.fallback;
+    return (
+      <div role="alert" className="mx-auto max-w-md py-16 text-center">
+        <h1 className="text-3xl">Unable to load this page</h1>
+        <p className="mt-3 text-text-dim">
+          The service may be temporarily unavailable. Check your connection and try again.
+        </p>
+        <button
+          type="button"
+          className="mt-5 inline-flex h-11 items-center justify-center border border-accent-strong bg-accent px-4 text-sm font-semibold text-ink-0 hover:bg-accent-strong"
+          onClick={() => this.setState({ error: null })}
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 }

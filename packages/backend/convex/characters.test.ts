@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -6,6 +7,12 @@ import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
+
+function makeHarness() {
+  const t = convexTest(schema, modules);
+  registerRateLimiter(t);
+  return t;
+}
 
 type Harness = ReturnType<typeof convexTest>;
 type Client = ReturnType<Harness['withIdentity']>;
@@ -47,7 +54,7 @@ async function joinCampaign(
 
 describe('characters', () => {
   test('requires a profile and validates the pre-engine character identity fields', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     await expect(
       t.mutation(api.characters.create, { name: 'Nobody', concept: '' }),
     ).rejects.toThrow('Unauthenticated');
@@ -64,7 +71,7 @@ describe('characters', () => {
   });
 
   test('creates portable user-owned characters and allows many in one campaign', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const { campaignId } = await makeCampaign(owner.client, 'Morrowind');
 
@@ -100,7 +107,7 @@ describe('characters', () => {
   });
 
   test('member submissions stay private while pending and the campaign owner can approve', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const submitter = await addPlayer(t, 'submitter@example.test', 'submitter_user');
     const peer = await addPlayer(t, 'peer@example.test', 'peer_user');
@@ -135,7 +142,7 @@ describe('characters', () => {
   });
 
   test('one character cannot bind twice, but denial and kick free it without losing progression', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const alphaOwner = await addPlayer(t, 'alpha@example.test', 'alpha_owner');
     const betaOwner = await addPlayer(t, 'beta@example.test', 'beta_owner');
     const player = await addPlayer(t, 'player@example.test', 'player_user');
@@ -188,7 +195,7 @@ describe('characters', () => {
   });
 
   test('character owners can withdraw pending and remove active bindings', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const player = await addPlayer(t, 'player@example.test', 'player_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client, 'Morrowind');
@@ -209,7 +216,7 @@ describe('characters', () => {
   });
 
   test('authorization hides characters and moderation from outsiders and other members', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const player = await addPlayer(t, 'player@example.test', 'player_user');
     const outsider = await addPlayer(t, 'outsider@example.test', 'outsider_user');
@@ -233,7 +240,7 @@ describe('characters', () => {
   });
 
   test('losing campaign membership transactionally releases every owned character', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const player = await addPlayer(t, 'player@example.test', 'player_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client, 'Morrowind');

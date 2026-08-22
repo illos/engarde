@@ -8,21 +8,17 @@ import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
 
-async function addProfile(t: ReturnType<typeof convexTest>, role: 'admin' | 'member') {
+async function addOperator(t: ReturnType<typeof convexTest>) {
   const userId: Id<'users'> = await t.run(async (ctx) =>
-    ctx.db.insert('users', { email: `${role}@example.test`, emailVerificationTime: Date.now() }),
+    ctx.db.insert('users', { email: 'operator@example.test', emailVerificationTime: Date.now() }),
   );
   await t.run(async (ctx) => {
     const now = Date.now();
-    await ctx.db.insert('profiles', {
+    await ctx.db.insert('instanceOperators', {
       userId,
-      displayName: role,
-      handle: role,
-      handleNormalized: role,
-      role,
-      lifecycle: 'active',
-      onboardingCompletedAt: now,
-      createdAt: now,
+      status: 'active',
+      source: 'provisioned',
+      grantedAt: now,
       updatedAt: now,
     });
   });
@@ -37,29 +33,46 @@ describe('instance settings', () => {
 
   test('setName persists and getName reads it back', async () => {
     const t = convexTest(schema, modules);
-    const admin = await addProfile(t, 'admin');
-    await admin.mutation(api.instance.setName, { name: 'Test Table' });
+    const operator = await addOperator(t);
+    await operator.mutation(api.instance.setName, { name: '  Test Table  ' });
     expect(await t.query(api.instance.getName, {})).toBe('Test Table');
+  });
+
+  test('setName rejects blank and oversized values', async () => {
+    const t = convexTest(schema, modules);
+    const operator = await addOperator(t);
+    await expect(operator.mutation(api.instance.setName, { name: '   ' })).rejects.toThrow(
+      '1–80 characters',
+    );
+    await expect(operator.mutation(api.instance.setName, { name: 'x'.repeat(81) })).rejects.toThrow(
+      '1–80 characters',
+    );
   });
 
   test('setName overwrites an existing value instead of duplicating the row', async () => {
     const t = convexTest(schema, modules);
-    const admin = await addProfile(t, 'admin');
-    await admin.mutation(api.instance.setName, { name: 'First' });
-    await admin.mutation(api.instance.setName, { name: 'Second' });
+    const operator = await addOperator(t);
+    await operator.mutation(api.instance.setName, { name: 'First' });
+    await operator.mutation(api.instance.setName, { name: 'Second' });
     expect(await t.query(api.instance.getName, {})).toBe('Second');
     const rows = await t.run(async (ctx) => await ctx.db.query('instanceSettings').collect());
     expect(rows).toHaveLength(1);
   });
 
-  test('setName rejects anonymous users and non-admin members', async () => {
+  test('setName rejects anonymous users and ordinary app profiles', async () => {
     const t = convexTest(schema, modules);
     await expect(t.mutation(api.instance.setName, { name: 'Owned' })).rejects.toThrow(
       'Unauthenticated',
     );
-    const member = await addProfile(t, 'member');
-    await expect(member.mutation(api.instance.setName, { name: 'Owned' })).rejects.toThrow(
-      'Administrator access required',
+    const userId: Id<'users'> = await t.run(async (ctx) =>
+      ctx.db.insert('users', { email: 'player@example.test', emailVerificationTime: Date.now() }),
+    );
+    const player = t.withIdentity({
+      subject: `${userId}|test-session`,
+      tokenIdentifier: `test|${userId}`,
+    });
+    await expect(player.mutation(api.instance.setName, { name: 'Owned' })).rejects.toThrow(
+      'Operator access required',
     );
   });
 });

@@ -17,6 +17,7 @@ Production home: [en-garde.app](https://en-garde.app) (deployment pending).
 |---|---|
 | `packages/backend` | Backend infra — Convex deployment: schema, functions, auth, realtime |
 | `apps/web` | Frontend — the UI that accesses the game engine |
+| `apps/control-center` | System Control Center — separate Operator-only installation administration |
 | `packages/engine` | *(reserved)* The game engine — Draw Steel rules made playable |
 
 ## Development
@@ -25,7 +26,7 @@ Requires Node 24+ and pnpm 9.
 
 ```sh
 pnpm install
-pnpm dev        # web app + convex dev (backend needs a one-time `pnpm dev:backend` login)
+pnpm dev        # player UI :5173 + control center :5174 + Convex backend
 pnpm test       # vitest across all workspaces
 pnpm typecheck
 pnpm lint
@@ -49,9 +50,18 @@ To enable real delivery, set these Convex deployment variables:
 - `ENGARDE_EMAIL_FROM` — an address on a domain onboarded for Cloudflare Email Sending
 
 The sender domain must use Cloudflare DNS. Sending to arbitrary recipients currently
-requires Workers Paid. Set `ENGARDE_INITIAL_ADMIN_EMAIL` before the first profile is
-created to reserve the instance administrator role for that verified address; when
-it is absent, the first completed profile becomes administrator.
+requires Workers Paid.
+
+Installation setup is deliberately separate from player onboarding. Set a strong,
+one-time `ENGARDE_SETUP_CAPABILITY`, open the **System Control Center**, and
+authenticate a verified identity. Its sealed setup flow establishes the first
+`instanceOperators` entitlement and permanently rejects the capability after setup;
+creating a player profile never grants installation authority. See
+[`docs/system-control-center-plan.md`](docs/system-control-center-plan.md).
+
+The local control center is served at `http://127.0.0.1:5174`. It shares the player
+app's `VITE_CONVEX_URL` configuration while keeping its route tree and production
+artifact separate.
 
 ## License
 

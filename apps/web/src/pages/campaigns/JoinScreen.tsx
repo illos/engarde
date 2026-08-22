@@ -2,7 +2,7 @@ import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from 'convex/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, QueryBoundary, Surface } from '../../primitives';
 import { errorMessage } from './AppScreen';
 
@@ -32,13 +32,72 @@ export function JoinScreen(target: JoinTarget) {
 }
 
 function JoinCard(target: JoinTarget) {
-  const preview = useQuery(
-    api.campaigns.getJoinPreview,
-    target.code !== undefined ? { code: target.code } : { campaignId: target.campaignId },
+  return target.code !== undefined ? (
+    <JoinCodeCard code={target.code} />
+  ) : (
+    <JoinCampaignCard campaignId={target.campaignId} />
   );
+}
+
+type Preview = NonNullable<ReturnType<typeof useQuery<typeof api.campaigns.getJoinPreview>>>;
+
+function JoinCampaignCard({ campaignId }: { campaignId: Id<'campaigns'> }) {
+  const preview = useQuery(api.campaigns.getJoinPreview, { campaignId });
   if (preview === undefined) {
     return <p className="py-16 text-center text-text-dim">Looking up the campaign…</p>;
   }
+  return <ResolvedJoinCard target={{ campaignId }} preview={preview} />;
+}
+
+function JoinCodeCard({ code }: { code: string }) {
+  const previewJoinCode = useMutation(api.campaigns.previewJoinCode);
+  const lastRequestedCode = useRef<string | null>(null);
+  const [preview, setPreview] = useState<Preview | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (lastRequestedCode.current === code) return;
+    lastRequestedCode.current = code;
+    let current = true;
+    setPreview(undefined);
+    setError(null);
+    previewJoinCode({ code })
+      .then((result) => {
+        if (current) setPreview(result.status === 'found' ? result.preview : null);
+      })
+      .catch((cause) => {
+        if (current) setError(errorMessage(cause));
+      });
+    return () => {
+      current = false;
+    };
+  }, [code, previewJoinCode]);
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h1 className="text-3xl">Campaign lookup unavailable</h1>
+        <p className="mt-3 text-text-dim">{error}</p>
+      </div>
+    );
+  }
+  if (preview === undefined) {
+    return <p className="py-16 text-center text-text-dim">Looking up the campaign…</p>;
+  }
+  if (preview === null) {
+    return (
+      <div className="mx-auto max-w-md py-16 text-center">
+        <h1 className="text-3xl">Campaign not found</h1>
+        <p className="mt-3 text-text-dim">
+          The code may be wrong or may have been regenerated. Ask your Director for a fresh one.
+        </p>
+      </div>
+    );
+  }
+  return <ResolvedJoinCard target={{ code }} preview={preview} />;
+}
+
+function ResolvedJoinCard({ target, preview }: { target: JoinTarget; preview: Preview }) {
   return (
     <div className="mx-auto max-w-md">
       <Surface

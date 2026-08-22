@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 // the affordance hint (swaps to a check for a beat after a copy). Shared by the
 // /campaigns card invite + the campaign status-pane eyebrow. `bg-ink-2` reads on
 // both the dark UI surface and the cream presentation surface (one step off the
-// container ramp on either). Deliberately below the 44pt touch floor — a small
-// inline control where the touch-first rule is intentionally overridden.
+// container ramp on either). It stays visually compact while preserving the
+// shared 44px touch floor.
 export function CopyPill({ value, label }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   // Clear the "copied" flash; cancels on unmount so a fast navigate-away doesn't
@@ -30,7 +30,7 @@ export function CopyPill({ value, label }: { value: string; label?: string }) {
       type="button"
       onClick={copy}
       aria-label={copied ? `${name} copied` : `Copy ${name} ${value}`}
-      className="group inline-flex items-center gap-1 px-2 py-1 bg-ink-2 border border-line rounded hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow transition-colors"
+      className="group inline-flex min-h-11 min-w-11 items-center gap-1 rounded border border-line bg-ink-2 px-2 transition-colors hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
     >
       <code className="text-sm font-mono tabular">{value}</code>
       <span

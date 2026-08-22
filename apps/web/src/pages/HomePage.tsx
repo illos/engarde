@@ -191,17 +191,29 @@ function PasswordForm() {
       {message && <output className="mt-4 block text-sm text-text-dim">{message}</output>}
       <div className="mt-5 flex flex-wrap gap-x-4 gap-y-2 text-sm text-accent">
         {flow !== 'signIn' && (
-          <button type="button" onClick={() => setFlow('signIn')}>
+          <button
+            className="inline-flex min-h-11 items-center"
+            type="button"
+            onClick={() => setFlow('signIn')}
+          >
             Sign in
           </button>
         )}
         {flow !== 'signUp' && (
-          <button type="button" onClick={() => setFlow('signUp')}>
+          <button
+            className="inline-flex min-h-11 items-center"
+            type="button"
+            onClick={() => setFlow('signUp')}
+          >
             Create account
           </button>
         )}
         {flow !== 'forgot' && (
-          <button type="button" onClick={() => setFlow('forgot')}>
+          <button
+            className="inline-flex min-h-11 items-center"
+            type="button"
+            onClick={() => setFlow('forgot')}
+          >
             Forgot password?
           </button>
         )}
@@ -244,7 +256,7 @@ function ProfileForm({
   profile,
 }: {
   mode: 'onboarding' | 'edit';
-  profile?: { displayName: string; handle: string; role: 'member' | 'admin' };
+  profile?: { displayName: string; handle: string };
 }) {
   const save = useMutation(
     mode === 'onboarding' ? api.profiles.completeOnboarding : api.profiles.update,
@@ -270,13 +282,14 @@ function ProfileForm({
         <h2 className="text-2xl">
           {mode === 'onboarding' ? 'Choose your table name' : 'Your account'}
         </h2>
-        <button className="text-sm text-accent" type="button" onClick={() => void signOut()}>
+        <button
+          className="inline-flex min-h-11 items-center text-sm text-accent"
+          type="button"
+          onClick={() => void signOut()}
+        >
           Sign out
         </button>
       </div>
-      {profile?.role === 'admin' && (
-        <p className="mt-2 type-label text-xs text-accent">Instance administrator</p>
-      )}
       <form className="mt-6 grid gap-4" onSubmit={submit}>
         <label className="grid gap-2 text-sm text-text-dim">
           Display name

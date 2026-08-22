@@ -1,5 +1,13 @@
 # Core campaign structure plan
 
+> **Role amendment (2026-08-22):** DEC-0007 supersedes this document's original
+> owner-only moderation and bundled `role` model. Active memberships now expose
+> independent `campaignAccess: user | admin` and `gameRole: player | director`
+> axes. Only the owner delegates campaign admin; owner or campaign admin may
+> moderate ordinary members, manage settings, and atomically assign Director.
+> The implemented schema and `campaigns.ts` are authoritative for those amended
+> fields and checks; the remaining join/discovery lifecycle below still applies.
+
 > Proposed 2026-08-21. Companion to `user-accounts-plan.md`; where the two
 > disagree on campaigns/membership, **this document wins** (it reflects a later
 > product decision — see "Supersessions" at the end). It is a plan, not yet an

@@ -104,7 +104,7 @@ Use Convex `Id<...>` references and indexed queries throughout.
 - `displayName`
 - unique, case-normalized `handle` for deliberate discovery and friend requests
 - optional `avatarStorageId`
-- instance role: `member | admin`
+- no instance-wide role; installation operators are separate from app profiles
 - lifecycle: `active | deactivated`
 - timestamps and optional onboarding completion marker
 - indexes: `by_userId`, `by_handleNormalized`
@@ -118,12 +118,11 @@ Handle uniqueness must be enforced transactionally: query the normalized-handle
 index and write only if no other profile owns it. Convex schemas do not provide a
 SQL-style unique constraint.
 
-**Admin bootstrap:** a fresh instance has no admin, and nothing should grant the
-role by accident. Recommended (mirrors the predecessor): if the deployment env var
-`ENGARDE_INITIAL_ADMIN_EMAIL` matches a registrant's verified email, grant `admin`
-at profile creation; absent the var, the first registrant auto-claims it. Either
-path runs inside the same profile-creation transaction — never a separate mutation
-a client could invoke. Confirmed as decision 6 below before Slice 1 builds it.
+**Operator bootstrap (supersedes the original profile-admin proposal):** a fresh
+installation uses a deployment-capability-gated, one-time setup transaction to grant
+the first `instanceOperators` entitlement. The transaction seals setup and consumes
+the capability. Profiles never carry or imply installation authority; an operator
+does not need a player profile.
 
 ### Friendships
 
@@ -344,7 +343,7 @@ non-member and a removed member cannot observe or enter the lobby.
 
 - Deactivation, session revocation behavior, ownership-transfer gates, audit-log
   attribution policy, data export placeholder/contract.
-- Admin recovery path that cannot impersonate ordinary users.
+- Operator recovery path that cannot impersonate ordinary users.
 
 **Exit:** deactivated users cannot act or be discovered, while campaigns and logs
 remain internally consistent and ownership cannot become orphaned.
@@ -374,6 +373,7 @@ deployment remain separately consent-gated.
    deletion/export once retained campaign/log obligations are explicit.
 5. **Friend requirement for campaign invites?** Recommended: no. Friends improve
    discovery and invitation UX but never confer access.
-6. **Admin bootstrap?** Recommended: `ENGARDE_INITIAL_ADMIN_EMAIL` env-var
-   pre-claim, else first registrant auto-claims, inside the profile-creation
-   transaction (mirrors the predecessor).
+6. **Installation authority?** Decided: the separate System Control Center performs
+   a verified, one-time `ENGARDE_SETUP_CAPABILITY` claim. Ordinary signup and
+   profile creation never grant Operator authority; see
+   `docs/system-control-center-plan.md`.

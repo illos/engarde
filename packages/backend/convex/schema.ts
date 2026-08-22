@@ -16,20 +16,53 @@ export default defineSchema({
     handle: v.string(),
     handleNormalized: v.string(),
     avatarStorageId: v.optional(v.id('_storage')),
-    role: v.union(v.literal('member'), v.literal('admin')),
+    // Transitional only: older local rows may still carry the retired global
+    // profile role. New writes never set it and no authorization reads it.
+    role: v.optional(v.union(v.literal('member'), v.literal('admin'))),
     lifecycle: v.union(v.literal('active'), v.literal('deactivated')),
     onboardingCompletedAt: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index('by_userId', ['userId'])
-    .index('by_handleNormalized', ['handleNormalized'])
-    .index('by_role', ['role']),
+    .index('by_handleNormalized', ['handleNormalized']),
+  instanceSetup: defineTable({
+    key: v.literal('installation'),
+    status: v.literal('complete'),
+    completedByUserId: v.id('users'),
+    completedAt: v.number(),
+    capabilityConsumedAt: v.number(),
+  }).index('by_key', ['key']),
+  instanceOperators: defineTable({
+    userId: v.id('users'),
+    status: v.union(v.literal('active'), v.literal('revoked')),
+    source: v.union(v.literal('provisioned'), v.literal('granted')),
+    grantedByUserId: v.optional(v.id('users')),
+    grantedAt: v.number(),
+    revokedByUserId: v.optional(v.id('users')),
+    revokedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_userId', ['userId'])
+    .index('by_status', ['status']),
+  operatorAuditEvents: defineTable({
+    actorUserId: v.id('users'),
+    subjectUserId: v.optional(v.id('users')),
+    type: v.union(
+      v.literal('installation_bootstrapped'),
+      v.literal('operator_granted'),
+      v.literal('operator_revoked'),
+      v.literal('instance_name_set'),
+    ),
+    occurredAt: v.number(),
+  }).index('by_occurredAt', ['occurredAt']),
   authEmailIssuanceLimits: defineTable({
     key: v.string(),
     windowStartedAt: v.number(),
     sends: v.number(),
-  }).index('by_key', ['key']),
+  })
+    .index('by_key', ['key'])
+    .index('by_windowStartedAt', ['windowStartedAt']),
   // Campaign model: docs/campaigns-plan.md. Owner authority comes from
   // ownerId, never from a membership role; joinCode is the single regenerable
   // secret behind both the share code and the share link.
@@ -42,9 +75,11 @@ export default defineSchema({
     joinCode: v.string(),
     joinCodeRotatedAt: v.number(),
     // Denormalized count of active memberships — maintained transactionally
-    // by every mutation that changes roster size (adjustMemberCount in
+    // by every mutation that changes roster size (reconcileMemberCount in
     // campaigns.ts), so previews/directory never scan the roster.
     memberCount: v.number(),
+    activeSessionId: v.optional(v.id('sessions')),
+    nextSessionNumber: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -52,13 +87,17 @@ export default defineSchema({
     .index('by_visibility', ['visibility'])
     .index('by_joinCode', ['joinCode']),
   // One row per (campaign, user) across the whole lifecycle: a join request
-  // (pending), a roster spot (active), or a block record (blocked). role is
-  // meaningful only while active; exactly one active director per campaign.
+  // (pending), a roster spot (active), or a block record (blocked). The two
+  // active-role axes are independent; exactly one active member is Director.
   campaignMemberships: defineTable({
     campaignId: v.id('campaigns'),
     userId: v.id('users'),
     status: v.union(v.literal('pending'), v.literal('active'), v.literal('blocked')),
-    role: v.union(v.literal('player'), v.literal('director')),
+    // `role` is retained only so existing local rows can deploy through the
+    // transition. New writes use the two independent axes below.
+    role: v.optional(v.union(v.literal('player'), v.literal('director'))),
+    campaignAccess: v.optional(v.union(v.literal('user'), v.literal('admin'))),
+    gameRole: v.optional(v.union(v.literal('player'), v.literal('director'))),
     requestedAt: v.number(),
     joinedAt: v.optional(v.number()),
     updatedAt: v.number(),
@@ -66,10 +105,29 @@ export default defineSchema({
     .index('by_campaignId_status', ['campaignId', 'status'])
     .index('by_userId_status', ['userId', 'status'])
     .index('by_campaignId_userId', ['campaignId', 'userId'])
-    // Locates the single director row in O(1). Sound because role='director'
-    // exists only on active rows: pending inserts, approvals, and blocks all
-    // normalize role to 'player'.
-    .index('by_campaignId_role', ['campaignId', 'role']),
+    // New rows use this index; transition reads also support legacy `role`
+    // values until the local data migration removes them.
+    .index('by_campaignId_gameRole', ['campaignId', 'gameRole']),
+  campaignAuditEvents: defineTable({
+    campaignId: v.id('campaigns'),
+    actorUserId: v.id('users'),
+    subjectUserId: v.optional(v.id('users')),
+    sessionId: v.optional(v.id('sessions')),
+    type: v.union(
+      v.literal('admin_granted'),
+      v.literal('admin_revoked'),
+      v.literal('director_assigned'),
+      v.literal('member_approved'),
+      v.literal('member_denied'),
+      v.literal('member_removed'),
+      v.literal('member_blocked'),
+      v.literal('member_unblocked'),
+      v.literal('settings_updated'),
+    ),
+    occurredAt: v.number(),
+  })
+    .index('by_campaignId', ['campaignId'])
+    .index('by_sessionId', ['sessionId']),
   // A character is a canonical user-owned object. Campaign participation is
   // represented by a separate, revocable binding below: one character can be
   // bound to at most one campaign, while one user can bind many characters to
@@ -117,12 +175,105 @@ export default defineSchema({
   })
     .index('by_characterId', ['characterId'])
     .index('by_campaignId', ['campaignId']),
-  // The Table (lobby runtime). Presence is heartbeat-based: one row per
-  // (campaign, user) while they sit at the Table; rows older than the stale
-  // window read as absent and are swept opportunistically on heartbeats.
+  sessions: defineTable({
+    campaignId: v.id('campaigns'),
+    number: v.number(),
+    status: v.union(v.literal('active'), v.literal('ended')),
+    startedByUserId: v.id('users'),
+    startedAt: v.number(),
+    endedByUserId: v.optional(v.id('users')),
+    endedAt: v.optional(v.number()),
+  })
+    .index('by_campaignId_number', ['campaignId', 'number'])
+    .index('by_campaignId_status', ['campaignId', 'status']),
+  sessionRuntime: defineTable({
+    sessionId: v.id('sessions'),
+    status: v.union(v.literal('active'), v.literal('frozen')),
+    resourceBasisCharacterCount: v.number(),
+    resourceBasisLevelTotal: v.number(),
+    resourcesGeneratedAt: v.number(),
+    frozenAt: v.optional(v.number()),
+    // Transitional only for local session rows written before the field was
+    // found to have no reader or concurrency role. New sessions omit it.
+    revision: v.optional(v.number()),
+  }).index('by_sessionId', ['sessionId']),
+  sessionRosterEntries: defineTable({
+    sessionId: v.id('sessions'),
+    campaignId: v.id('campaigns'),
+    characterId: v.id('characters'),
+    bindingId: v.id('characterCampaignBindings'),
+    ownerUserIdSnapshot: v.id('users'),
+    characterNameSnapshot: v.string(),
+    levelSnapshot: v.number(),
+    status: v.union(v.literal('active'), v.literal('removed')),
+    initial: v.boolean(),
+    addedByUserId: v.id('users'),
+    addedAt: v.number(),
+    removedByUserId: v.optional(v.id('users')),
+    removedAt: v.optional(v.number()),
+  })
+    .index('by_sessionId', ['sessionId'])
+    .index('by_sessionId_characterId', ['sessionId', 'characterId'])
+    .index('by_bindingId', ['bindingId']),
+  sessionRosterEvents: defineTable({
+    sessionId: v.id('sessions'),
+    characterId: v.id('characters'),
+    actorUserId: v.id('users'),
+    type: v.union(v.literal('initial'), v.literal('added'), v.literal('removed')),
+    occurredAt: v.number(),
+  }).index('by_sessionId', ['sessionId']),
+  sessionEvents: defineTable({
+    sessionId: v.id('sessions'),
+    campaignId: v.id('campaigns'),
+    actorUserId: v.id('users'),
+    subjectUserId: v.optional(v.id('users')),
+    type: v.union(v.literal('started'), v.literal('ended'), v.literal('director_handoff')),
+    occurredAt: v.number(),
+  }).index('by_sessionId', ['sessionId']),
+  characterControlGrants: defineTable({
+    campaignId: v.id('campaigns'),
+    characterId: v.id('characters'),
+    bindingId: v.id('characterCampaignBindings'),
+    grantorUserId: v.id('users'),
+    granteeUserId: v.id('users'),
+    scope: v.union(v.literal('session'), v.literal('persistent')),
+    sessionId: v.optional(v.id('sessions')),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('accepted'),
+      v.literal('declined'),
+      v.literal('revoked'),
+      v.literal('relinquished'),
+      v.literal('expired'),
+    ),
+    offeredAt: v.number(),
+    respondedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_bindingId_status', ['bindingId', 'status'])
+    .index('by_campaignId_grantorUserId', ['campaignId', 'grantorUserId'])
+    .index('by_campaignId_granteeUserId', ['campaignId', 'granteeUserId'])
+    .index('by_campaignId_granteeUserId_status', ['campaignId', 'granteeUserId', 'status'])
+    .index('by_granteeUserId_status_bindingId_scope_sessionId', [
+      'granteeUserId',
+      'status',
+      'bindingId',
+      'scope',
+      'sessionId',
+    ])
+    .index('by_sessionId_status', ['sessionId', 'status']),
+  // The Table (lobby runtime). Presence is heartbeat-based: one bounded row
+  // per active campaign member. Display data is denormalized so the reactive
+  // presence read does not join profiles and memberships once per row.
   lobbyPresence: defineTable({
     campaignId: v.id('campaigns'),
     userId: v.id('users'),
+    // Optional only for local rows written before the denormalization. Every
+    // join/heartbeat refreshes them, so legacy rows age out within one window.
+    displayName: v.optional(v.string()),
+    handle: v.optional(v.string()),
+    gameRole: v.optional(v.union(v.literal('player'), v.literal('director'))),
     joinedAt: v.number(),
     lastSeenAt: v.number(),
   })
@@ -131,7 +282,12 @@ export default defineSchema({
   lobbyMessages: defineTable({
     campaignId: v.id('campaigns'),
     authorUserId: v.id('users'),
+    // Optional only for pre-denormalization local rows retained for 30 days.
+    authorName: v.optional(v.string()),
+    authorHandle: v.optional(v.string()),
     body: v.string(),
     sentAt: v.number(),
-  }).index('by_campaignId', ['campaignId']),
+  })
+    .index('by_campaignId', ['campaignId'])
+    .index('by_sentAt', ['sentAt']),
 });

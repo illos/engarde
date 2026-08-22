@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -6,6 +7,12 @@ import type { Id } from './_generated/dataModel';
 import schema from './schema';
 
 const modules = import.meta.glob('./**/*.ts');
+
+function makeHarness() {
+  const t = convexTest(schema, modules);
+  registerRateLimiter(t);
+  return t;
+}
 
 type Harness = ReturnType<typeof convexTest>;
 type Client = ReturnType<Harness['withIdentity']>;
@@ -35,11 +42,16 @@ async function makeCampaign(client: Client, name = 'The Iron Vow') {
   return { campaignId, joinCode: settings.joinCode };
 }
 
+async function previewByCode(client: Client, code: string) {
+  const result = await client.mutation(api.campaigns.previewJoinCode, { code });
+  return result.status === 'found' ? result.preview : null;
+}
+
 const FIRST_PAGE = { paginationOpts: { numItems: 20, cursor: null } };
 
 describe('campaigns', () => {
   test('rejects unauthenticated and profile-less callers', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     await expect(t.query(api.campaigns.listMine, {})).rejects.toThrow('Unauthenticated');
     const bare = await t.run(
       async (ctx) =>
@@ -55,7 +67,7 @@ describe('campaigns', () => {
   });
 
   test('create bootstraps a private campaign with a code and the owner as active director', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
 
@@ -65,12 +77,23 @@ describe('campaigns', () => {
 
     const cards = await owner.client.query(api.campaigns.listMine, {});
     expect(cards).toEqual([
-      expect.objectContaining({ campaignId, status: 'active', role: 'director', isOwner: true }),
+      expect.objectContaining({
+        campaignId,
+        status: 'active',
+        gameRole: 'director',
+        campaignAccess: 'admin',
+        isOwner: true,
+      }),
     ]);
     const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
-    expect(roster.viewer).toEqual({ role: 'director', isOwner: true });
+    expect(roster.viewer).toEqual({
+      gameRole: 'director',
+      campaignAccess: 'admin',
+      isOwner: true,
+      canAdminister: true,
+    });
     expect(roster.members).toEqual([
-      expect.objectContaining({ userId: owner.userId, role: 'director', isOwner: true }),
+      expect.objectContaining({ userId: owner.userId, gameRole: 'director', isOwner: true }),
     ]);
     expect(roster.pending).toEqual([]);
     expect(roster.blocked).toEqual([]);
@@ -79,14 +102,12 @@ describe('campaigns', () => {
   });
 
   test('code reaches a private campaign; its ID does not; public opens the ID and directory routes', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
 
-    const byCode = await joiner.client.query(api.campaigns.getJoinPreview, {
-      code: ` ${joinCode.toLowerCase()} `,
-    });
+    const byCode = await previewByCode(joiner.client, ` ${joinCode.toLowerCase()} `);
     expect(byCode).toMatchObject({
       campaignId,
       name: 'The Iron Vow',
@@ -111,7 +132,7 @@ describe('campaigns', () => {
   });
 
   test('request, cancel, re-request, approve reaches the roster as player', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
@@ -147,7 +168,7 @@ describe('campaigns', () => {
     const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
     expect(roster.members).toHaveLength(2);
     expect(roster.members).toContainEqual(
-      expect.objectContaining({ userId: joiner.userId, role: 'player', isOwner: false }),
+      expect.objectContaining({ userId: joiner.userId, gameRole: 'player', isOwner: false }),
     );
     expect(await joiner.client.mutation(api.campaigns.requestToJoin, { code: joinCode })).toBe(
       'active',
@@ -155,7 +176,7 @@ describe('campaigns', () => {
   });
 
   test('deny deletes the request and allows a fresh one', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
@@ -172,7 +193,7 @@ describe('campaigns', () => {
   });
 
   test('block fails re-requests generically without leaking state; unblock restores the path', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
@@ -184,9 +205,7 @@ describe('campaigns', () => {
     });
 
     // No special state on the join screen or the campaigns list...
-    expect(
-      (await joiner.client.query(api.campaigns.getJoinPreview, { code: joinCode })).viewerStatus,
-    ).toBe('none');
+    expect((await previewByCode(joiner.client, joinCode))?.viewerStatus).toBe('none');
     expect(await joiner.client.query(api.campaigns.listMine, {})).toEqual([]);
     // ...the private campaign's ID and roster behave as nonexistent...
     await expect(joiner.client.query(api.campaigns.getJoinPreview, { campaignId })).rejects.toThrow(
@@ -212,7 +231,7 @@ describe('campaigns', () => {
   });
 
   test('owner mutations reject non-owners, and roster hides moderation lists from members', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const member = await addPlayer(t, 'member@example.test', 'member_user');
     const outsider = await addPlayer(t, 'outsider@example.test', 'outsider_user');
@@ -256,7 +275,12 @@ describe('campaigns', () => {
     }
 
     const memberView = await member.client.query(api.campaigns.listRoster, { campaignId });
-    expect(memberView.viewer).toEqual({ role: 'player', isOwner: false });
+    expect(memberView.viewer).toEqual({
+      gameRole: 'player',
+      campaignAccess: 'user',
+      isOwner: false,
+      canAdminister: false,
+    });
     expect(memberView.pending).toBeUndefined();
     expect(memberView.blocked).toBeUndefined();
     await expect(outsider.client.query(api.campaigns.listRoster, { campaignId })).rejects.toThrow(
@@ -265,7 +289,7 @@ describe('campaigns', () => {
   });
 
   test('setDirector swaps atomically and keeps exactly one director', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const member = await addPlayer(t, 'member@example.test', 'member_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
@@ -288,10 +312,10 @@ describe('campaigns', () => {
     });
 
     const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
-    const directors = roster.members.filter((entry) => entry.role === 'director');
+    const directors = roster.members.filter((entry) => entry.gameRole === 'director');
     expect(directors).toEqual([expect.objectContaining({ userId: member.userId })]);
     expect(roster.members).toContainEqual(
-      expect.objectContaining({ userId: owner.userId, role: 'player', isOwner: true }),
+      expect.objectContaining({ userId: owner.userId, gameRole: 'player', isOwner: true }),
     );
 
     // The owner is an active member like any other: they can take it back.
@@ -300,19 +324,19 @@ describe('campaigns', () => {
       targetUserId: owner.userId,
     });
     const reclaimed = await owner.client.query(api.campaigns.listRoster, { campaignId });
-    expect(reclaimed.members.filter((entry) => entry.role === 'director')).toEqual([
+    expect(reclaimed.members.filter((entry) => entry.gameRole === 'director')).toEqual([
       expect.objectContaining({ userId: owner.userId }),
     ]);
   });
 
   test('the director leaving, being removed, or being blocked reverts the role to the owner', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
 
     const expectOwnerIsDirector = async () => {
       const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
-      expect(roster.members.filter((entry) => entry.role === 'director')).toEqual([
+      expect(roster.members.filter((entry) => entry.gameRole === 'director')).toEqual([
         expect.objectContaining({ userId: owner.userId }),
       ]);
     };
@@ -351,7 +375,7 @@ describe('campaigns', () => {
   });
 
   test('the owner cannot leave, be removed, or be blocked', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const { campaignId } = await makeCampaign(owner.client);
 
@@ -370,23 +394,19 @@ describe('campaigns', () => {
   });
 
   test('regenerating the join code kills the old code and link', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
     const { campaignId, joinCode: oldCode } = await makeCampaign(owner.client);
 
     const newCode = await owner.client.mutation(api.campaigns.regenerateJoinCode, { campaignId });
     expect(newCode).not.toBe(oldCode);
-    await expect(
-      joiner.client.query(api.campaigns.getJoinPreview, { code: oldCode }),
-    ).rejects.toThrow('Campaign not found');
-    expect(
-      (await joiner.client.query(api.campaigns.getJoinPreview, { code: newCode })).campaignId,
-    ).toBe(campaignId);
+    expect(await previewByCode(joiner.client, oldCode)).toBeNull();
+    expect((await previewByCode(joiner.client, newCode))?.campaignId).toBe(campaignId);
   });
 
   test('closing joinability disables all three routes, hides nothing else, and is reversible', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const early = await addPlayer(t, 'early@example.test', 'early_user');
     const late = await addPlayer(t, 'late@example.test', 'late_user');
@@ -423,8 +443,8 @@ describe('campaigns', () => {
 
     // The preview still resolves (grayed in the UI, not hidden) and carries
     // the flag; the pre-existing pending request survives and is approvable.
-    const previewClosed = await late.client.query(api.campaigns.getJoinPreview, { code: joinCode });
-    expect(previewClosed.joinability).toBe('closed');
+    const previewClosed = await previewByCode(late.client, joinCode);
+    expect(previewClosed?.joinability).toBe('closed');
     await owner.client.mutation(api.campaigns.approveRequest, {
       campaignId,
       targetUserId: early.userId,
@@ -437,14 +457,14 @@ describe('campaigns', () => {
   });
 
   test('memberCount stays transactionally consistent through the roster lifecycle', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const alpha = await addPlayer(t, 'alpha@example.test', 'alpha_user');
     const beta = await addPlayer(t, 'beta@example.test', 'beta_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
 
     const count = async () =>
-      (await owner.client.query(api.campaigns.getJoinPreview, { code: joinCode })).memberCount;
+      (await owner.client.query(api.campaigns.getJoinPreview, { campaignId })).memberCount;
     const join = async (who: { userId: Id<'users'>; client: Client }) => {
       await who.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
       await owner.client.mutation(api.campaigns.approveRequest, {
@@ -457,6 +477,9 @@ describe('campaigns', () => {
     await join(alpha);
     await join(beta);
     expect(await count()).toBe(3);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(campaignId, { memberCount: 999 });
+    });
     await alpha.client.mutation(api.campaigns.leaveCampaign, { campaignId });
     expect(await count()).toBe(2);
     await owner.client.mutation(api.campaigns.blockUser, {
@@ -478,7 +501,7 @@ describe('campaigns', () => {
   });
 
   test('creation and pending-request ceilings bound abuse', async () => {
-    const t = convexTest(schema, modules);
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
 
@@ -509,15 +532,204 @@ describe('campaigns', () => {
     );
   });
 
-  test('join-target resolution requires exactly one of code and campaignId', async () => {
-    const t = convexTest(schema, modules);
+  test('a campaign pending-request ceiling bounds moderation reads and rejects overflow', async () => {
+    const t = makeHarness();
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const overflow = await addPlayer(t, 'overflow@example.test', 'overflow_user');
+    const { campaignId, joinCode } = await makeCampaign(owner.client);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 100; index++) {
+        const userId = await ctx.db.insert('users', {
+          email: `pending-${index}@example.test`,
+          emailVerificationTime: now,
+        });
+        await ctx.db.insert('profiles', {
+          userId,
+          displayName: `Pending ${index}`,
+          handle: `pending_${index}`,
+          handleNormalized: `pending_${index}`,
+          lifecycle: 'active',
+          onboardingCompletedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert('campaignMemberships', {
+          campaignId,
+          userId,
+          status: 'pending',
+          campaignAccess: 'user',
+          gameRole: 'player',
+          requestedAt: now + index,
+          updatedAt: now + index,
+        });
+      }
+    });
+
+    const roster = await owner.client.query(api.campaigns.listRoster, { campaignId });
+    expect(roster.pending).toHaveLength(100);
+    await expect(
+      overflow.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
+    ).rejects.toThrow('too many pending join requests');
+  });
+
+  test('active campaign limits bound listMine and prevent new activation paths', async () => {
+    const t = makeHarness();
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const member = await addPlayer(t, 'member@example.test', 'member_user');
+    const target = await makeCampaign(owner.client, 'Target campaign');
+    await member.client.mutation(api.campaigns.requestToJoin, { code: target.joinCode });
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 105; index++) {
+        const campaignId = await ctx.db.insert('campaigns', {
+          name: `Seeded ${index}`,
+          description: '',
+          ownerId: owner.userId,
+          visibility: 'private',
+          joinability: 'open',
+          joinCode: `SEED${String(index).padStart(4, '0')}`,
+          joinCodeRotatedAt: now,
+          memberCount: 1,
+          createdAt: now + index,
+          updatedAt: now + index,
+        });
+        await ctx.db.insert('campaignMemberships', {
+          campaignId,
+          userId: member.userId,
+          status: 'active',
+          campaignAccess: 'user',
+          gameRole: 'player',
+          requestedAt: now + index,
+          joinedAt: now + index,
+          updatedAt: now + index,
+        });
+      }
+    });
+
+    const cards = await member.client.query(api.campaigns.listMine, {});
+    expect(cards.filter((card) => card.status === 'active')).toHaveLength(100);
+    expect(cards.filter((card) => card.status === 'pending')).toHaveLength(1);
+    await expect(
+      member.client.mutation(api.campaigns.create, { name: 'Over limit', description: '' }),
+    ).rejects.toThrow('active campaigns');
+    await expect(
+      owner.client.mutation(api.campaigns.approveRequest, {
+        campaignId: target.campaignId,
+        targetUserId: member.userId,
+      }),
+    ).rejects.toThrow('active campaign limit');
+  });
+
+  test('join-code previews and join requests are throttled per authenticated user', async () => {
+    const t = makeHarness();
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
+    const peer = await addPlayer(t, 'peer@example.test', 'peer_user');
+    const { joinCode } = await makeCampaign(owner.client);
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await expect(previewByCode(joiner.client, 'WRONGCOD')).resolves.toBeNull();
+    }
+    await expect(previewByCode(joiner.client, 'WRONGCOD')).rejects.toThrow(
+      'Too many join-code attempts',
+    );
+    await expect(previewByCode(peer.client, joinCode)).resolves.toMatchObject({
+      name: 'The Iron Vow',
+    });
+
+    for (let attempt = 0; attempt < 30; attempt++) {
+      await expect(
+        peer.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
+      ).resolves.toBe('pending');
+    }
+    await expect(
+      peer.client.mutation(api.campaigns.requestToJoin, { code: joinCode }),
+    ).rejects.toThrow('Too many join requests');
+  });
+
+  test('join requests require exactly one of code and campaignId', async () => {
+    const t = makeHarness();
     const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
     const { campaignId, joinCode } = await makeCampaign(owner.client);
-    await expect(owner.client.query(api.campaigns.getJoinPreview, {})).rejects.toThrow(
+    await expect(owner.client.mutation(api.campaigns.requestToJoin, {})).rejects.toThrow(
       'either a campaign or a join code',
     );
     await expect(
-      owner.client.query(api.campaigns.getJoinPreview, { campaignId, code: joinCode }),
+      owner.client.mutation(api.campaigns.requestToJoin, { campaignId, code: joinCode }),
     ).rejects.toThrow('either a campaign or a join code');
+  });
+
+  test('campaign admin and Director are independent, with owner-only admin delegation', async () => {
+    const t = makeHarness();
+    const owner = await addPlayer(t, 'owner@example.test', 'owner_user');
+    const admin = await addPlayer(t, 'admin@example.test', 'admin_user');
+    const joiner = await addPlayer(t, 'joiner@example.test', 'joiner_user');
+    const { campaignId, joinCode } = await makeCampaign(owner.client);
+    await admin.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
+    await owner.client.mutation(api.campaigns.approveRequest, {
+      campaignId,
+      targetUserId: admin.userId,
+    });
+    await owner.client.mutation(api.campaigns.setCampaignAccess, {
+      campaignId,
+      targetUserId: admin.userId,
+      campaignAccess: 'admin',
+    });
+
+    let roster = await admin.client.query(api.campaigns.listRoster, { campaignId });
+    expect(roster.viewer).toMatchObject({
+      campaignAccess: 'admin',
+      gameRole: 'player',
+      canAdminister: true,
+    });
+    await joiner.client.mutation(api.campaigns.requestToJoin, { code: joinCode });
+    await admin.client.mutation(api.campaigns.approveRequest, {
+      campaignId,
+      targetUserId: joiner.userId,
+    });
+    await admin.client.mutation(api.campaigns.setDirector, {
+      campaignId,
+      targetUserId: joiner.userId,
+    });
+    roster = await admin.client.query(api.campaigns.listRoster, { campaignId });
+    expect(roster.members).toContainEqual(
+      expect.objectContaining({
+        userId: admin.userId,
+        campaignAccess: 'admin',
+        gameRole: 'player',
+      }),
+    );
+    expect(roster.members).toContainEqual(
+      expect.objectContaining({
+        userId: joiner.userId,
+        campaignAccess: 'user',
+        gameRole: 'director',
+      }),
+    );
+    await expect(
+      admin.client.mutation(api.campaigns.setCampaignAccess, {
+        campaignId,
+        targetUserId: joiner.userId,
+        campaignAccess: 'admin',
+      }),
+    ).rejects.toThrow('Campaign not found');
+    await expect(
+      admin.client.mutation(api.campaigns.removeMember, {
+        campaignId,
+        targetUserId: owner.userId,
+      }),
+    ).rejects.toThrow('owner cannot be removed');
+
+    await owner.client.mutation(api.campaigns.setCampaignAccess, {
+      campaignId,
+      targetUserId: admin.userId,
+      campaignAccess: 'user',
+    });
+    await expect(admin.client.query(api.campaigns.getSettings, { campaignId })).rejects.toThrow(
+      'Campaign not found',
+    );
   });
 });

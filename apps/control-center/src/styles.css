@@ -1,0 +1,31 @@
+@import "@fontsource/cormorant-garamond/500.css";
+@import "@fontsource/cormorant-garamond/600.css";
+@import "@fontsource/cormorant-garamond/700.css";
+@import "@fontsource/eb-garamond/400.css";
+@import "@fontsource/eb-garamond/400-italic.css";
+@import "@fontsource/eb-garamond/500.css";
+@import "@fontsource/eb-garamond/600.css";
+@import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/geist-mono/600.css";
+
+@import "tailwindcss";
+@import "../../web/src/theme/tokens.css";
+@import "../../web/src/theme/type.css";
+
+body {
+  min-width: 320px;
+}
+
+.control-grid {
+  background-image: linear-gradient(
+      color-mix(in srgb, var(--color-line) 25%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-line) 25%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
+}

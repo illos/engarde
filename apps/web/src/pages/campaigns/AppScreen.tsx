@@ -19,25 +19,28 @@ export function AppScreen({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-page flex-col px-4 sm:px-6">
       <header className="flex h-14 items-center justify-between border-b border-line-soft">
-        <Link to="/" className="font-display text-xl uppercase tracking-wide">
+        <Link
+          to="/"
+          className="inline-flex h-11 items-center font-display text-xl uppercase tracking-wide"
+        >
           En Garde
         </Link>
         <nav className="flex items-center gap-6">
           <Link
             to="/campaigns"
-            className="type-label text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
+            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
           >
             Campaigns
           </Link>
           <Link
             to="/characters"
-            className="type-label text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
+            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
           >
             Characters
           </Link>
           <Link
             to="/directory"
-            className="type-label text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
+            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
           >
             Directory
           </Link>
@@ -51,7 +54,10 @@ export function AppScreen({ children }: { children: ReactNode }) {
       <Unauthenticated>
         <main className="flex flex-1 flex-col items-center justify-center gap-3">
           <p className="text-text-dim">You need to sign in first.</p>
-          <Link to="/" className="text-accent underline underline-offset-4">
+          <Link
+            to="/"
+            className="inline-flex h-11 items-center text-accent underline underline-offset-4"
+          >
             Go to sign in
           </Link>
         </main>

@@ -2,8 +2,11 @@ import { paginationOptsValidator } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { type MutationCtx, type QueryCtx, mutation, query } from './_generated/server';
-import { requireProfile } from './authz';
+import { campaignAccessFor, gameRoleFor, requireCampaignAdmin, requireProfile } from './authz';
 import { detachCharactersForMembershipEnd } from './characters';
+import { removePresenceForMember } from './lobby';
+import { rateLimiter } from './rateLimits';
+import { recordDirectorHandoff } from './sessions';
 
 // Model + invariants: docs/campaigns-plan.md. Owner authority comes from
 // campaigns.ownerId (never a membership role); exactly one active director
@@ -22,10 +25,15 @@ const JOIN_CODE_LENGTH = 8;
 const DIRECTORY_PAGE_CAP = 50;
 const MAX_OWNED_CAMPAIGNS = 20;
 const MAX_PENDING_JOIN_REQUESTS = 10;
+const MAX_PENDING_REQUESTS_PER_CAMPAIGN = 100;
+const MAX_ACTIVE_CAMPAIGNS_PER_USER = 100;
+const MAX_CAMPAIGN_MEMBERS = 200;
+const MAX_BLOCKED_ROSTER_ENTRIES = 100;
 
 const visibilityValidator = v.union(v.literal('public'), v.literal('private'));
 const joinabilityValidator = v.union(v.literal('open'), v.literal('closed'));
-const roleValidator = v.union(v.literal('player'), v.literal('director'));
+const gameRoleValidator = v.union(v.literal('player'), v.literal('director'));
+const campaignAccessValidator = v.union(v.literal('user'), v.literal('admin'));
 
 const joinPreviewView = v.object({
   campaignId: v.id('campaigns'),
@@ -36,6 +44,11 @@ const joinPreviewView = v.object({
   joinability: joinabilityValidator,
   viewerStatus: v.union(v.literal('none'), v.literal('pending'), v.literal('active')),
 });
+
+const joinCodePreviewResult = v.union(
+  v.object({ status: v.literal('found'), preview: joinPreviewView }),
+  v.object({ status: v.literal('not_found') }),
+);
 
 const directoryEntryView = v.object({
   campaignId: v.id('campaigns'),
@@ -51,7 +64,8 @@ const myCampaignCardView = v.object({
   name: v.string(),
   description: v.string(),
   status: v.union(v.literal('pending'), v.literal('active')),
-  role: roleValidator,
+  gameRole: gameRoleValidator,
+  campaignAccess: campaignAccessValidator,
   isOwner: v.boolean(),
 });
 
@@ -59,7 +73,8 @@ const rosterEntryView = v.object({
   userId: v.id('users'),
   displayName: v.string(),
   handle: v.string(),
-  role: roleValidator,
+  gameRole: gameRoleValidator,
+  campaignAccess: campaignAccessValidator,
   isOwner: v.boolean(),
 });
 
@@ -135,6 +150,22 @@ async function requireOwner(
   return { campaign, ownerId: profile.userId };
 }
 
+async function recordCampaignEvent(
+  ctx: MutationCtx,
+  args: {
+    campaignId: Id<'campaigns'>;
+    actorUserId: Id<'users'>;
+    subjectUserId?: Id<'users'>;
+    sessionId?: Id<'sessions'>;
+    type: Doc<'campaignAuditEvents'>['type'];
+  },
+): Promise<void> {
+  await ctx.db.insert('campaignAuditEvents', {
+    ...args,
+    occurredAt: Date.now(),
+  });
+}
+
 async function activeMembers(
   ctx: DatabaseCtx,
   campaignId: Id<'campaigns'>,
@@ -142,31 +173,31 @@ async function activeMembers(
   return await ctx.db
     .query('campaignMemberships')
     .withIndex('by_campaignId_status', (q) => q.eq('campaignId', campaignId).eq('status', 'active'))
-    .collect();
+    .take(MAX_CAMPAIGN_MEMBERS);
 }
 
-// The one place roster size changes are counted. memberCount is denormalized
-// onto the campaign so previews and the directory never scan memberships;
-// every mutation that adds/removes an active membership calls this in the
-// same transaction.
-async function adjustMemberCount(
-  ctx: MutationCtx,
-  campaign: Doc<'campaigns'>,
-  delta: 1 | -1,
-): Promise<void> {
-  await ctx.db.patch(campaign._id, { memberCount: campaign.memberCount + delta });
+// Recount the bounded active roster after each membership-size change. This
+// both maintains the denormalized preview/directory value and repairs any
+// stale legacy counter the next time that campaign changes.
+async function reconcileMemberCount(ctx: MutationCtx, campaign: Doc<'campaigns'>): Promise<void> {
+  const active = await ctx.db
+    .query('campaignMemberships')
+    .withIndex('by_campaignId_status', (q) =>
+      q.eq('campaignId', campaign._id).eq('status', 'active'),
+    )
+    .take(MAX_CAMPAIGN_MEMBERS);
+  await ctx.db.patch(campaign._id, { memberCount: active.length });
 }
 
-// O(1) director lookup via by_campaignId_role — sound because role='director'
-// only ever exists on the single active director row (see schema note).
 async function directorMembership(
   ctx: DatabaseCtx,
   campaignId: Id<'campaigns'>,
 ): Promise<Doc<'campaignMemberships'> | null> {
-  return await ctx.db
+  const members = await ctx.db
     .query('campaignMemberships')
-    .withIndex('by_campaignId_role', (q) => q.eq('campaignId', campaignId).eq('role', 'director'))
-    .unique();
+    .withIndex('by_campaignId_status', (q) => q.eq('campaignId', campaignId).eq('status', 'active'))
+    .take(MAX_CAMPAIGN_MEMBERS);
+  return members.find((membership) => gameRoleFor(membership) === 'director') ?? null;
 }
 
 // After the active director's row is deleted or demoted, the role reverts to
@@ -175,7 +206,7 @@ async function revertDirectorToOwner(ctx: MutationCtx, campaign: Doc<'campaigns'
   const ownerMembership = await getMembership(ctx, campaign._id, campaign.ownerId);
   if (!ownerMembership || ownerMembership.status !== 'active')
     throw new ConvexError('Campaign owner membership is missing');
-  await ctx.db.patch(ownerMembership._id, { role: 'director', updatedAt: Date.now() });
+  await ctx.db.patch(ownerMembership._id, { gameRole: 'director', updatedAt: Date.now() });
 }
 
 async function ownerDisplayName(ctx: DatabaseCtx, ownerId: Id<'users'>): Promise<string> {
@@ -252,12 +283,22 @@ export const create = mutation({
   returns: v.id('campaigns'),
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
-    const owned = await ctx.db
-      .query('campaigns')
-      .withIndex('by_ownerId', (q) => q.eq('ownerId', profile.userId))
-      .take(MAX_OWNED_CAMPAIGNS);
+    const [owned, activeMemberships] = await Promise.all([
+      ctx.db
+        .query('campaigns')
+        .withIndex('by_ownerId', (q) => q.eq('ownerId', profile.userId))
+        .take(MAX_OWNED_CAMPAIGNS),
+      ctx.db
+        .query('campaignMemberships')
+        .withIndex('by_userId_status', (q) => q.eq('userId', profile.userId).eq('status', 'active'))
+        .take(MAX_ACTIVE_CAMPAIGNS_PER_USER),
+    ]);
     if (owned.length >= MAX_OWNED_CAMPAIGNS)
       throw new ConvexError(`You already own ${MAX_OWNED_CAMPAIGNS} campaigns`);
+    if (activeMemberships.length >= MAX_ACTIVE_CAMPAIGNS_PER_USER)
+      throw new ConvexError(
+        `You already belong to ${MAX_ACTIVE_CAMPAIGNS_PER_USER} active campaigns`,
+      );
     const now = Date.now();
     const campaignId = await ctx.db.insert('campaigns', {
       name: validateName(args.name),
@@ -275,7 +316,8 @@ export const create = mutation({
       campaignId,
       userId: profile.userId,
       status: 'active',
-      role: 'director',
+      campaignAccess: 'admin',
+      gameRole: 'director',
       requestedAt: now,
       joinedAt: now,
       updatedAt: now,
@@ -288,11 +330,16 @@ export const updateSettings = mutation({
   args: { campaignId: v.id('campaigns'), name: v.string(), description: v.string() },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     await ctx.db.patch(campaign._id, {
       name: validateName(args.name),
       description: validateDescription(args.description),
       updatedAt: Date.now(),
+    });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      type: 'settings_updated',
     });
     return null;
   },
@@ -302,8 +349,13 @@ export const setVisibility = mutation({
   args: { campaignId: v.id('campaigns'), visibility: visibilityValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     await ctx.db.patch(campaign._id, { visibility: args.visibility, updatedAt: Date.now() });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      type: 'settings_updated',
+    });
     return null;
   },
 });
@@ -312,8 +364,13 @@ export const setJoinability = mutation({
   args: { campaignId: v.id('campaigns'), joinability: joinabilityValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     await ctx.db.patch(campaign._id, { joinability: args.joinability, updatedAt: Date.now() });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      type: 'settings_updated',
+    });
     return null;
   },
 });
@@ -322,10 +379,15 @@ export const regenerateJoinCode = mutation({
   args: { campaignId: v.id('campaigns') },
   returns: v.string(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     const joinCode = await generateJoinCode(ctx);
     const now = Date.now();
     await ctx.db.patch(campaign._id, { joinCode, joinCodeRotatedAt: now, updatedAt: now });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      type: 'settings_updated',
+    });
     return joinCode;
   },
 });
@@ -334,7 +396,7 @@ export const getSettings = query({
   args: { campaignId: v.id('campaigns') },
   returns: settingsView,
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign } = await requireCampaignAdmin(ctx, args.campaignId);
     return {
       campaignId: campaign._id,
       name: campaign.name,
@@ -347,12 +409,34 @@ export const getSettings = query({
 });
 
 export const getJoinPreview = query({
-  args: { campaignId: v.optional(v.id('campaigns')), code: v.optional(v.string()) },
+  args: { campaignId: v.id('campaigns') },
   returns: joinPreviewView,
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
-    const campaign = await resolveJoinTarget(ctx, profile.userId, args);
+    const campaign = await resolveJoinTarget(ctx, profile.userId, { campaignId: args.campaignId });
     return await buildPreview(ctx, campaign, profile.userId);
+  },
+});
+
+export const previewJoinCode = mutation({
+  args: { code: v.string() },
+  returns: joinCodePreviewResult,
+  handler: async (ctx, args) => {
+    const profile = await requireProfile(ctx);
+    const limit = await rateLimiter.limit(ctx, 'joinCodePreview', {
+      key: profile.userId,
+    });
+    if (!limit.ok) throw new ConvexError('Too many join-code attempts. Try again later.');
+    const code = normalizeJoinCode(args.code);
+    const campaign = await ctx.db
+      .query('campaigns')
+      .withIndex('by_joinCode', (q) => q.eq('joinCode', code))
+      .unique();
+    if (!campaign) return { status: 'not_found' } as const;
+    return {
+      status: 'found',
+      preview: await buildPreview(ctx, campaign, profile.userId),
+    } as const;
   },
 });
 
@@ -402,11 +486,14 @@ export const listMine = query({
   handler: async (ctx) => {
     const profile = await requireProfile(ctx);
     const cards = [];
-    for (const status of ['active', 'pending'] as const) {
+    for (const { status, limit } of [
+      { status: 'active', limit: MAX_ACTIVE_CAMPAIGNS_PER_USER },
+      { status: 'pending', limit: MAX_PENDING_JOIN_REQUESTS },
+    ] as const) {
       const memberships = await ctx.db
         .query('campaignMemberships')
         .withIndex('by_userId_status', (q) => q.eq('userId', profile.userId).eq('status', status))
-        .collect();
+        .take(limit);
       for (const membership of memberships) {
         const campaign = await ctx.db.get(membership.campaignId);
         if (!campaign) continue;
@@ -415,7 +502,8 @@ export const listMine = query({
           name: campaign.name,
           description: campaign.description,
           status,
-          role: membership.role,
+          gameRole: gameRoleFor(membership),
+          campaignAccess: campaignAccessFor(membership, campaign),
           isOwner: campaign.ownerId === profile.userId,
         });
       }
@@ -427,7 +515,12 @@ export const listMine = query({
 export const listRoster = query({
   args: { campaignId: v.id('campaigns') },
   returns: v.object({
-    viewer: v.object({ role: roleValidator, isOwner: v.boolean() }),
+    viewer: v.object({
+      gameRole: gameRoleValidator,
+      campaignAccess: campaignAccessValidator,
+      isOwner: v.boolean(),
+      canAdminister: v.boolean(),
+    }),
     members: v.array(rosterEntryView),
     pending: v.optional(v.array(requestEntryView)),
     blocked: v.optional(v.array(requestEntryView)),
@@ -462,23 +555,27 @@ export const listRoster = query({
           userId: entry.userId,
           displayName: entry.displayName,
           handle: entry.handle,
-          role: membership.role,
+          gameRole: gameRoleFor(membership),
+          campaignAccess: campaignAccessFor(membership, campaign),
           isOwner: membership.userId === campaign.ownerId,
         });
     }
     const viewerSummary = {
-      role: viewer.role,
+      gameRole: gameRoleFor(viewer),
+      campaignAccess: campaignAccessFor(viewer, campaign),
       isOwner: campaign.ownerId === profile.userId,
+      canAdminister: campaignAccessFor(viewer, campaign) === 'admin',
     };
-    if (!viewerSummary.isOwner) return { viewer: viewerSummary, members };
+    if (!viewerSummary.canAdminister) return { viewer: viewerSummary, members };
 
-    const listByStatus = async (status: 'pending' | 'blocked') => {
+    const listByStatus = async (status: 'pending' | 'blocked', limit: number) => {
       const rows = await ctx.db
         .query('campaignMemberships')
         .withIndex('by_campaignId_status', (q) =>
           q.eq('campaignId', campaign._id).eq('status', status),
         )
-        .collect();
+        .order('desc')
+        .take(limit);
       const entries = [];
       for (const row of rows) {
         const entry = await entryFor(row);
@@ -495,8 +592,8 @@ export const listRoster = query({
     return {
       viewer: viewerSummary,
       members,
-      pending: await listByStatus('pending'),
-      blocked: await listByStatus('blocked'),
+      pending: await listByStatus('pending', MAX_PENDING_REQUESTS_PER_CAMPAIGN),
+      blocked: await listByStatus('blocked', MAX_BLOCKED_ROSTER_ENTRIES),
     };
   },
 });
@@ -506,6 +603,8 @@ export const requestToJoin = mutation({
   returns: v.union(v.literal('pending'), v.literal('active')),
   handler: async (ctx, args) => {
     const profile = await requireProfile(ctx);
+    const limit = await rateLimiter.limit(ctx, 'joinRequest', { key: profile.userId });
+    if (!limit.ok) throw new ConvexError('Too many join requests. Try again later.');
     const campaign = await resolveJoinTarget(ctx, profile.userId, args);
     const membership = await getMembership(ctx, campaign._id, profile.userId);
     if (membership?.status === 'active') return 'active';
@@ -523,12 +622,21 @@ export const requestToJoin = mutation({
       throw new ConvexError(
         `You have ${MAX_PENDING_JOIN_REQUESTS} pending join requests — cancel one first`,
       );
+    const campaignPending = await ctx.db
+      .query('campaignMemberships')
+      .withIndex('by_campaignId_status', (q) =>
+        q.eq('campaignId', campaign._id).eq('status', 'pending'),
+      )
+      .take(MAX_PENDING_REQUESTS_PER_CAMPAIGN);
+    if (campaignPending.length >= MAX_PENDING_REQUESTS_PER_CAMPAIGN)
+      throw new ConvexError('This campaign has too many pending join requests');
     const now = Date.now();
     await ctx.db.insert('campaignMemberships', {
       campaignId: campaign._id,
       userId: profile.userId,
       status: 'pending',
-      role: 'player',
+      campaignAccess: 'user',
+      gameRole: 'player',
       requestedAt: now,
       updatedAt: now,
     });
@@ -553,18 +661,35 @@ export const approveRequest = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     const membership = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!membership || membership.status !== 'pending')
       throw new ConvexError('No pending request for that user');
+    if ((await activeMembers(ctx, campaign._id)).length >= MAX_CAMPAIGN_MEMBERS)
+      throw new ConvexError('This campaign has reached its member limit');
+    const targetMemberships = await ctx.db
+      .query('campaignMemberships')
+      .withIndex('by_userId_status', (q) =>
+        q.eq('userId', args.targetUserId).eq('status', 'active'),
+      )
+      .take(MAX_ACTIVE_CAMPAIGNS_PER_USER);
+    if (targetMemberships.length >= MAX_ACTIVE_CAMPAIGNS_PER_USER)
+      throw new ConvexError('That user has reached their active campaign limit');
     const now = Date.now();
     await ctx.db.patch(membership._id, {
       status: 'active',
-      role: 'player',
+      campaignAccess: 'user',
+      gameRole: 'player',
       joinedAt: now,
       updatedAt: now,
     });
-    await adjustMemberCount(ctx, campaign, 1);
+    await reconcileMemberCount(ctx, campaign);
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: args.targetUserId,
+      type: 'member_approved',
+    });
     return null;
   },
 });
@@ -573,12 +698,18 @@ export const denyRequest = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     const membership = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!membership || membership.status !== 'pending')
       throw new ConvexError('No pending request for that user');
     // Deny deletes the row: the user may request again later.
     await ctx.db.delete(membership._id);
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: args.targetUserId,
+      type: 'member_denied',
+    });
     return null;
   },
 });
@@ -587,28 +718,42 @@ export const blockUser = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     if (args.targetUserId === campaign.ownerId)
       throw new ConvexError('The owner cannot be blocked');
     const membership = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!membership || membership.status === 'blocked')
       throw new ConvexError('No request or membership to block');
+    if (
+      profile.userId !== campaign.ownerId &&
+      membership.status === 'active' &&
+      campaignAccessFor(membership, campaign) === 'admin'
+    )
+      throw new ConvexError('Only the owner can block a campaign admin');
     const wasActive = membership.status === 'active';
-    const wasDirector = wasActive && membership.role === 'director';
+    const wasDirector = wasActive && gameRoleFor(membership) === 'director';
     await ctx.db.patch(membership._id, {
       status: 'blocked',
-      role: 'player',
+      campaignAccess: 'user',
+      gameRole: 'player',
       updatedAt: Date.now(),
     });
     if (wasActive) {
+      await removePresenceForMember(ctx, campaign._id, args.targetUserId);
       await detachCharactersForMembershipEnd(ctx, {
         campaignId: campaign._id,
         ownerUserId: args.targetUserId,
-        actorUserId: campaign.ownerId,
+        actorUserId: profile.userId,
       });
-      await adjustMemberCount(ctx, campaign, -1);
+      await reconcileMemberCount(ctx, campaign);
     }
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: args.targetUserId,
+      type: 'member_blocked',
+    });
     return null;
   },
 });
@@ -617,12 +762,18 @@ export const unblockUser = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     const membership = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!membership || membership.status !== 'blocked')
       throw new ConvexError('That user is not blocked');
     // Unblock deletes the row: the user may request again.
     await ctx.db.delete(membership._id);
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: args.targetUserId,
+      type: 'member_unblocked',
+    });
     return null;
   },
 });
@@ -631,17 +782,59 @@ export const setDirector = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     const target = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!target || target.status !== 'active')
       throw new ConvexError('Only an active member can be made director');
-    if (target.role === 'director') return null;
+    if (gameRoleFor(target) === 'director') return null;
     const now = Date.now();
     // Atomic swap keeps exactly one director: demote whoever holds it
     // (possibly the owner), then promote the target.
     const current = await directorMembership(ctx, campaign._id);
-    if (current) await ctx.db.patch(current._id, { role: 'player', updatedAt: now });
-    await ctx.db.patch(target._id, { role: 'director', updatedAt: now });
+    if (current) await ctx.db.patch(current._id, { gameRole: 'player', updatedAt: now });
+    await ctx.db.patch(target._id, { gameRole: 'director', updatedAt: now });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: target.userId,
+      ...(campaign.activeSessionId === undefined ? {} : { sessionId: campaign.activeSessionId }),
+      type: 'director_assigned',
+    });
+    await recordDirectorHandoff(ctx, {
+      campaignId: campaign._id,
+      sessionId: campaign.activeSessionId,
+      actorUserId: profile.userId,
+      targetUserId: target.userId,
+    });
+    return null;
+  },
+});
+
+export const setCampaignAccess = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    targetUserId: v.id('users'),
+    campaignAccess: campaignAccessValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { campaign, ownerId } = await requireOwner(ctx, args.campaignId);
+    if (args.targetUserId === campaign.ownerId)
+      throw new ConvexError('The owner is always a campaign admin');
+    const target = await getMembership(ctx, campaign._id, args.targetUserId);
+    if (!target || target.status !== 'active')
+      throw new ConvexError('Only an active member can be made campaign admin');
+    if (campaignAccessFor(target, campaign) === args.campaignAccess) return null;
+    await ctx.db.patch(target._id, {
+      campaignAccess: args.campaignAccess,
+      updatedAt: Date.now(),
+    });
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: ownerId,
+      subjectUserId: target.userId,
+      type: args.campaignAccess === 'admin' ? 'admin_granted' : 'admin_revoked',
+    });
     return null;
   },
 });
@@ -650,21 +843,30 @@ export const removeMember = mutation({
   args: { campaignId: v.id('campaigns'), targetUserId: v.id('users') },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { campaign } = await requireOwner(ctx, args.campaignId);
+    const { campaign, profile } = await requireCampaignAdmin(ctx, args.campaignId);
     if (args.targetUserId === campaign.ownerId)
       throw new ConvexError('The owner cannot be removed');
     const membership = await getMembership(ctx, campaign._id, args.targetUserId);
     if (!membership || membership.status !== 'active')
       throw new ConvexError('That user is not a member');
-    const wasDirector = membership.role === 'director';
+    if (profile.userId !== campaign.ownerId && campaignAccessFor(membership, campaign) === 'admin')
+      throw new ConvexError('Only the owner can remove a campaign admin');
+    const wasDirector = gameRoleFor(membership) === 'director';
+    await removePresenceForMember(ctx, campaign._id, args.targetUserId);
     await detachCharactersForMembershipEnd(ctx, {
       campaignId: campaign._id,
       ownerUserId: args.targetUserId,
-      actorUserId: campaign.ownerId,
+      actorUserId: profile.userId,
     });
     await ctx.db.delete(membership._id);
-    await adjustMemberCount(ctx, campaign, -1);
+    await reconcileMemberCount(ctx, campaign);
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);
+    await recordCampaignEvent(ctx, {
+      campaignId: campaign._id,
+      actorUserId: profile.userId,
+      subjectUserId: args.targetUserId,
+      type: 'member_removed',
+    });
     return null;
   },
 });
@@ -682,14 +884,15 @@ export const leaveCampaign = mutation({
     // Uniform not-found: a non-member must not be able to distinguish a real
     // private campaign from a nonexistent ID through this mutation either.
     if (!membership || membership.status !== 'active') throw new ConvexError(CAMPAIGN_NOT_FOUND);
-    const wasDirector = membership.role === 'director';
+    const wasDirector = gameRoleFor(membership) === 'director';
+    await removePresenceForMember(ctx, campaign._id, profile.userId);
     await detachCharactersForMembershipEnd(ctx, {
       campaignId: campaign._id,
       ownerUserId: profile.userId,
       actorUserId: profile.userId,
     });
     await ctx.db.delete(membership._id);
-    await adjustMemberCount(ctx, campaign, -1);
+    await reconcileMemberCount(ctx, campaign);
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);
     return null;
   },
