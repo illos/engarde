@@ -12,10 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CampaignsIndexRouteImport } from './routes/campaigns.index'
 import { Route as CampaignsCampaignIdRouteImport } from './routes/campaigns.$campaignId'
+import { Route as CharactersIndexRouteImport } from './routes/characters.index'
 import { Route as DirectoryIndexRouteImport } from './routes/directory.index'
 import { Route as DirectoryCampaignIdRouteImport } from './routes/directory.$campaignId'
 import { Route as JoinCodeRouteImport } from './routes/join.$code'
-import { Route as TableCampaignIdRouteImport } from './routes/table.$campaignId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -30,6 +30,11 @@ const CampaignsIndexRoute = CampaignsIndexRouteImport.update({
 const CampaignsCampaignIdRoute = CampaignsCampaignIdRouteImport.update({
   id: '/campaigns/$campaignId',
   path: '/campaigns/$campaignId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CharactersIndexRoute = CharactersIndexRouteImport.update({
+  id: '/characters/',
+  path: '/characters/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DirectoryIndexRoute = DirectoryIndexRouteImport.update({
@@ -47,19 +52,14 @@ const JoinCodeRoute = JoinCodeRouteImport.update({
   path: '/join/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TableCampaignIdRoute = TableCampaignIdRouteImport.update({
-  id: '/table/$campaignId',
-  path: '/table/$campaignId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/directory/$campaignId': typeof DirectoryCampaignIdRoute
   '/join/$code': typeof JoinCodeRoute
-  '/table/$campaignId': typeof TableCampaignIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
+  '/characters/': typeof CharactersIndexRoute
   '/directory/': typeof DirectoryIndexRoute
 }
 export interface FileRoutesByTo {
@@ -67,8 +67,8 @@ export interface FileRoutesByTo {
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/directory/$campaignId': typeof DirectoryCampaignIdRoute
   '/join/$code': typeof JoinCodeRoute
-  '/table/$campaignId': typeof TableCampaignIdRoute
   '/campaigns': typeof CampaignsIndexRoute
+  '/characters': typeof CharactersIndexRoute
   '/directory': typeof DirectoryIndexRoute
 }
 export interface FileRoutesById {
@@ -77,8 +77,8 @@ export interface FileRoutesById {
   '/campaigns/$campaignId': typeof CampaignsCampaignIdRoute
   '/directory/$campaignId': typeof DirectoryCampaignIdRoute
   '/join/$code': typeof JoinCodeRoute
-  '/table/$campaignId': typeof TableCampaignIdRoute
   '/campaigns/': typeof CampaignsIndexRoute
+  '/characters/': typeof CharactersIndexRoute
   '/directory/': typeof DirectoryIndexRoute
 }
 export interface FileRouteTypes {
@@ -88,8 +88,8 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId'
     | '/directory/$campaignId'
     | '/join/$code'
-    | '/table/$campaignId'
     | '/campaigns/'
+    | '/characters/'
     | '/directory/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -97,8 +97,8 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId'
     | '/directory/$campaignId'
     | '/join/$code'
-    | '/table/$campaignId'
     | '/campaigns'
+    | '/characters'
     | '/directory'
   id:
     | '__root__'
@@ -106,8 +106,8 @@ export interface FileRouteTypes {
     | '/campaigns/$campaignId'
     | '/directory/$campaignId'
     | '/join/$code'
-    | '/table/$campaignId'
     | '/campaigns/'
+    | '/characters/'
     | '/directory/'
   fileRoutesById: FileRoutesById
 }
@@ -116,8 +116,8 @@ export interface RootRouteChildren {
   CampaignsCampaignIdRoute: typeof CampaignsCampaignIdRoute
   DirectoryCampaignIdRoute: typeof DirectoryCampaignIdRoute
   JoinCodeRoute: typeof JoinCodeRoute
-  TableCampaignIdRoute: typeof TableCampaignIdRoute
   CampaignsIndexRoute: typeof CampaignsIndexRoute
+  CharactersIndexRoute: typeof CharactersIndexRoute
   DirectoryIndexRoute: typeof DirectoryIndexRoute
 }
 
@@ -144,6 +144,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CampaignsCampaignIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/characters/': {
+      id: '/characters/'
+      path: '/characters'
+      fullPath: '/characters/'
+      preLoaderRoute: typeof CharactersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/directory/': {
       id: '/directory/'
       path: '/directory'
@@ -165,13 +172,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/table/$campaignId': {
-      id: '/table/$campaignId'
-      path: '/table/$campaignId'
-      fullPath: '/table/$campaignId'
-      preLoaderRoute: typeof TableCampaignIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -180,8 +180,8 @@ const rootRouteChildren: RootRouteChildren = {
   CampaignsCampaignIdRoute: CampaignsCampaignIdRoute,
   DirectoryCampaignIdRoute: DirectoryCampaignIdRoute,
   JoinCodeRoute: JoinCodeRoute,
-  TableCampaignIdRoute: TableCampaignIdRoute,
   CampaignsIndexRoute: CampaignsIndexRoute,
+  CharactersIndexRoute: CharactersIndexRoute,
   DirectoryIndexRoute: DirectoryIndexRoute,
 }
 export const routeTree = rootRouteImport

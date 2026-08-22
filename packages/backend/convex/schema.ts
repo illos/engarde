@@ -70,6 +70,53 @@ export default defineSchema({
     // exists only on active rows: pending inserts, approvals, and blocks all
     // normalize role to 'player'.
     .index('by_campaignId_role', ['campaignId', 'role']),
+  // A character is a canonical user-owned object. Campaign participation is
+  // represented by a separate, revocable binding below: one character can be
+  // bound to at most one campaign, while one user can bind many characters to
+  // that campaign.
+  characters: defineTable({
+    ownerUserId: v.id('users'),
+    name: v.string(),
+    concept: v.string(),
+    level: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_ownerUserId', ['ownerUserId']),
+  characterCampaignBindings: defineTable({
+    characterId: v.id('characters'),
+    campaignId: v.id('campaigns'),
+    // Denormalized from the immutable character owner for bounded campaign
+    // roster reads and membership-removal cleanup.
+    ownerUserId: v.id('users'),
+    status: v.union(v.literal('pending'), v.literal('active')),
+    submittedAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+    reviewedBy: v.optional(v.id('users')),
+    updatedAt: v.number(),
+  })
+    .index('by_characterId', ['characterId'])
+    .index('by_campaignId_status', ['campaignId', 'status'])
+    .index('by_campaignId_ownerUserId', ['campaignId', 'ownerUserId']),
+  // Bindings disappear when denied/withdrawn/kicked/removed, but the history
+  // must remain intelligible for campaign and session audit trails.
+  characterCampaignEvents: defineTable({
+    characterId: v.id('characters'),
+    campaignId: v.id('campaigns'),
+    actorUserId: v.id('users'),
+    type: v.union(
+      v.literal('submitted'),
+      v.literal('auto_approved'),
+      v.literal('approved'),
+      v.literal('denied'),
+      v.literal('withdrawn'),
+      v.literal('removed'),
+      v.literal('kicked'),
+      v.literal('membership_ended'),
+    ),
+    occurredAt: v.number(),
+  })
+    .index('by_characterId', ['characterId'])
+    .index('by_campaignId', ['campaignId']),
   // The Table (lobby runtime). Presence is heartbeat-based: one row per
   // (campaign, user) while they sit at the Table; rows older than the stale
   // window read as absent and are swept opportunistically on heartbeats.

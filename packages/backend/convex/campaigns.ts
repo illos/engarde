@@ -3,6 +3,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { type MutationCtx, type QueryCtx, mutation, query } from './_generated/server';
 import { requireProfile } from './authz';
+import { detachCharactersForMembershipEnd } from './characters';
 
 // Model + invariants: docs/campaigns-plan.md. Owner authority comes from
 // campaigns.ownerId (never a membership role); exactly one active director
@@ -599,7 +600,14 @@ export const blockUser = mutation({
       role: 'player',
       updatedAt: Date.now(),
     });
-    if (wasActive) await adjustMemberCount(ctx, campaign, -1);
+    if (wasActive) {
+      await detachCharactersForMembershipEnd(ctx, {
+        campaignId: campaign._id,
+        ownerUserId: args.targetUserId,
+        actorUserId: campaign.ownerId,
+      });
+      await adjustMemberCount(ctx, campaign, -1);
+    }
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);
     return null;
   },
@@ -649,6 +657,11 @@ export const removeMember = mutation({
     if (!membership || membership.status !== 'active')
       throw new ConvexError('That user is not a member');
     const wasDirector = membership.role === 'director';
+    await detachCharactersForMembershipEnd(ctx, {
+      campaignId: campaign._id,
+      ownerUserId: args.targetUserId,
+      actorUserId: campaign.ownerId,
+    });
     await ctx.db.delete(membership._id);
     await adjustMemberCount(ctx, campaign, -1);
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);
@@ -670,6 +683,11 @@ export const leaveCampaign = mutation({
     // private campaign from a nonexistent ID through this mutation either.
     if (!membership || membership.status !== 'active') throw new ConvexError(CAMPAIGN_NOT_FOUND);
     const wasDirector = membership.role === 'director';
+    await detachCharactersForMembershipEnd(ctx, {
+      campaignId: campaign._id,
+      ownerUserId: profile.userId,
+      actorUserId: profile.userId,
+    });
     await ctx.db.delete(membership._id);
     await adjustMemberCount(ctx, campaign, -1);
     if (wasDirector) await revertDirectorToOwner(ctx, campaign);

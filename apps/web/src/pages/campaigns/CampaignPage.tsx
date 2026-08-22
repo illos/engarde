@@ -1,9 +1,10 @@
 import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery } from 'convex/react';
 import { useState } from 'react';
 import { Button, CopyPill, QueryBoundary } from '../../primitives';
+import { TableSurface } from '../table/TablePage';
 import { errorMessage } from './AppScreen';
 import { RoleBadge } from './CampaignsPage';
 
@@ -27,11 +28,17 @@ export function CampaignPage({ campaignId }: { campaignId: Id<'campaigns'> }) {
 
 function CampaignBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
   const roster = useQuery(api.campaigns.listRoster, { campaignId });
-  if (roster === undefined) return <p className="py-16 text-center text-text-dim">Loading…</p>;
+  const campaignCharacters = useQuery(api.characters.listForCampaign, { campaignId });
+  if (roster === undefined || campaignCharacters === undefined)
+    return <p className="py-16 text-center text-text-dim">Loading…</p>;
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-10">
-      <TableSection campaignId={campaignId} />
-      <MembersSection campaignId={campaignId} roster={roster} />
+    <div className="mx-auto flex max-w-4xl flex-col gap-10">
+      <TableSurface campaignId={campaignId} />
+      <MembersSection
+        campaignId={campaignId}
+        roster={roster}
+        campaignCharacters={campaignCharacters}
+      />
       {roster.viewer.isOwner ? (
         <>
           <PendingSection campaignId={campaignId} pending={roster.pending ?? []} />
@@ -46,6 +53,9 @@ function CampaignBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
 }
 
 type Roster = NonNullable<ReturnType<typeof useQuery<typeof api.campaigns.listRoster>>>;
+type CampaignCharacters = NonNullable<
+  ReturnType<typeof useQuery<typeof api.characters.listForCampaign>>
+>;
 
 // Shared runner for campaign actions: surfaces rejected mutations (network
 // failures, races with concurrent moderation) instead of looking successful,
@@ -68,10 +78,23 @@ function MutationError({ error }: { error: string | null }) {
   return error ? <p className="mt-2 text-sm text-foe">{error}</p> : null;
 }
 
-function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; roster: Roster }) {
+function MembersSection({
+  campaignId,
+  roster,
+  campaignCharacters,
+}: {
+  campaignId: Id<'campaigns'>;
+  roster: Roster;
+  campaignCharacters: CampaignCharacters;
+}) {
   const setDirector = useMutation(api.campaigns.setDirector);
   const removeMember = useMutation(api.campaigns.removeMember);
   const blockUser = useMutation(api.campaigns.blockUser);
+  const approveCharacter = useMutation(api.characters.approve);
+  const denyCharacter = useMutation(api.characters.deny);
+  const kickCharacter = useMutation(api.characters.kick);
+  const withdrawCharacter = useMutation(api.characters.withdraw);
+  const removeCharacter = useMutation(api.characters.removeFromCampaign);
   const { error, busy, run: moderate } = useMutationRunner();
 
   return (
@@ -79,60 +102,163 @@ function MembersSection({ campaignId, roster }: { campaignId: Id<'campaigns'>; r
       <h1 className="text-3xl">Members</h1>
       <ul className="mt-4 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
         {roster.members.map((member) => (
-          <li key={member.userId} className="flex flex-wrap items-center gap-3 p-4">
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-display text-lg">{member.displayName}</p>
-              <p className="truncate font-mono text-xs text-text-mute">@{member.handle}</p>
-            </div>
-            {member.isOwner ? <RoleBadge label="Owner" tone="accent" /> : null}
-            <RoleBadge label={member.role} tone={member.role === 'director' ? 'accent' : 'dim'} />
-            {roster.viewer.isOwner ? (
-              <span className="flex gap-2">
-                {/* Any active member can take the screen — including the owner
-                    reclaiming it after handing director to someone else. */}
-                {member.role !== 'director' ? (
-                  <Button
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      moderate(() => setDirector({ campaignId, targetUserId: member.userId }))
-                    }
-                  >
-                    Make Director
-                  </Button>
-                ) : null}
-                {!member.isOwner ? (
-                  <>
+          <li key={member.userId} className="p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-display text-lg">{member.displayName}</p>
+                <p className="truncate font-mono text-xs text-text-mute">@{member.handle}</p>
+              </div>
+              {member.isOwner ? <RoleBadge label="Owner" tone="accent" /> : null}
+              <RoleBadge label={member.role} tone={member.role === 'director' ? 'accent' : 'dim'} />
+              {roster.viewer.isOwner ? (
+                <span className="flex gap-2">
+                  {/* Any active member can take the screen — including the owner
+                      reclaiming it after handing director to someone else. */}
+                  {member.role !== 'director' ? (
                     <Button
                       size="sm"
-                      variant="danger"
                       disabled={busy}
-                      onClick={() => {
-                        if (window.confirm(`Remove ${member.displayName} from the campaign?`))
-                          moderate(() => removeMember({ campaignId, targetUserId: member.userId }));
-                      }}
+                      onClick={() =>
+                        moderate(() => setDirector({ campaignId, targetUserId: member.userId }))
+                      }
                     >
-                      Remove
+                      Make Director
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      disabled={busy}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Block ${member.displayName}? They won't be able to request to join again.`,
+                  ) : null}
+                  {!member.isOwner ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (window.confirm(`Remove ${member.displayName} from the campaign?`))
+                            moderate(() =>
+                              removeMember({ campaignId, targetUserId: member.userId }),
+                            );
+                        }}
+                      >
+                        Remove
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Block ${member.displayName}? They won't be able to request to join again.`,
+                            )
                           )
-                        )
-                          moderate(() => blockUser({ campaignId, targetUserId: member.userId }));
-                      }}
-                    >
-                      Block
-                    </Button>
-                  </>
-                ) : null}
-              </span>
-            ) : null}
+                            moderate(() => blockUser({ campaignId, targetUserId: member.userId }));
+                        }}
+                      >
+                        Block
+                      </Button>
+                    </>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
+            <ul className="mt-3 flex flex-col gap-2 border-t border-line-soft pt-3">
+              {campaignCharacters.characters
+                .filter((character) => character.ownerUserId === member.userId)
+                .map((character) => (
+                  <li
+                    key={character.characterId}
+                    className="flex flex-wrap items-center gap-2 bg-ink-2 px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-display">{character.name}</p>
+                      <p className="font-mono text-xs text-text-mute">Level {character.level}</p>
+                    </div>
+                    <RoleBadge
+                      label={character.status}
+                      tone={character.status === 'active' ? 'victory' : 'dim'}
+                    />
+                    {character.status === 'pending' && roster.viewer.isOwner ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={busy}
+                          onClick={() =>
+                            moderate(() =>
+                              approveCharacter({
+                                campaignId,
+                                characterId: character.characterId,
+                              }),
+                            )
+                          }
+                        >
+                          Approve character
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            moderate(() =>
+                              denyCharacter({
+                                campaignId,
+                                characterId: character.characterId,
+                              }),
+                            )
+                          }
+                        >
+                          Deny character
+                        </Button>
+                      </>
+                    ) : null}
+                    {character.status === 'pending' && character.isMine ? (
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          moderate(() => withdrawCharacter({ characterId: character.characterId }))
+                        }
+                      >
+                        Withdraw
+                      </Button>
+                    ) : null}
+                    {character.status === 'active' && character.isMine ? (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (window.confirm(`Remove ${character.name} from this campaign?`))
+                            moderate(() => removeCharacter({ characterId: character.characterId }));
+                        }}
+                      >
+                        Remove character
+                      </Button>
+                    ) : null}
+                    {character.status === 'active' && roster.viewer.isOwner && !character.isMine ? (
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        disabled={busy}
+                        onClick={() => {
+                          if (window.confirm(`Kick ${character.name} from this campaign?`))
+                            moderate(() =>
+                              kickCharacter({
+                                campaignId,
+                                characterId: character.characterId,
+                              }),
+                            );
+                        }}
+                      >
+                        Kick character
+                      </Button>
+                    ) : null}
+                  </li>
+                ))}
+              {campaignCharacters.characters.every(
+                (character) => character.ownerUserId !== member.userId,
+              ) ? (
+                <li className="text-sm text-text-mute">No characters attached.</li>
+              ) : null}
+            </ul>
           </li>
         ))}
       </ul>
@@ -327,22 +453,6 @@ function LeaveSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
         Leave campaign
       </Button>
       <MutationError error={error} />
-    </section>
-  );
-}
-
-// Doorway to the campaign's live lobby. Styled as the primary Button but a
-// real link, so the Table keeps a shareable URL.
-function TableSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
-  return (
-    <section>
-      <Link
-        to="/table/$campaignId"
-        params={{ campaignId }}
-        className="inline-flex h-11 items-center justify-center gap-1.5 border border-accent-strong bg-accent px-4 text-sm font-semibold text-ink-0 transition-colors hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
-      >
-        Enter the Table
-      </Link>
     </section>
   );
 }

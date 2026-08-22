@@ -62,6 +62,7 @@ import { JoinScreen } from './JoinScreen';
 const campaignId = 'campaign-1' as Id<'campaigns'>;
 const userA = 'user-a' as Id<'users'>;
 const userB = 'user-b' as Id<'users'>;
+const characterA = 'character-a' as Id<'characters'>;
 
 beforeEach(() => {
   queryResults.clear();
@@ -162,9 +163,24 @@ describe('CampaignPage', () => {
     ],
     blocked: [],
   };
+  const ownerCharacterView = {
+    viewer: { userId: userA, isOwner: true },
+    characters: [
+      {
+        characterId: characterA,
+        ownerUserId: userB,
+        name: 'Sefa',
+        concept: 'Shadow operative',
+        level: 1,
+        status: 'pending' as const,
+        isMine: false,
+      },
+    ],
+  };
 
   test('owner sees roster, join requests, and the settings card', () => {
     setQuery(api.campaigns.listRoster, ownerRoster);
+    setQuery(api.characters.listForCampaign, ownerCharacterView);
     setQuery(api.campaigns.getSettings, {
       campaignId,
       name: 'The Iron Vow',
@@ -178,6 +194,7 @@ describe('CampaignPage', () => {
     expect(screen.getByText('Cael')).toBeTruthy();
     expect(screen.getByText('Campaign settings')).toBeTruthy();
     expect(screen.getByText('ABCD2345')).toBeTruthy();
+    expect(screen.getByText('Sefa')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(spyFor(api.campaigns.approveRequest)).toHaveBeenCalledWith({
@@ -188,6 +205,11 @@ describe('CampaignPage', () => {
     expect(spyFor(api.campaigns.setVisibility)).toHaveBeenCalledWith({
       campaignId,
       visibility: 'public',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Approve character' }));
+    expect(spyFor(api.characters.approve)).toHaveBeenCalledWith({
+      campaignId,
+      characterId: characterA,
     });
   });
 
@@ -200,6 +222,10 @@ describe('CampaignPage', () => {
       ],
       pending: [],
       blocked: [],
+    });
+    setQuery(api.characters.listForCampaign, {
+      viewer: { userId: userA, isOwner: true },
+      characters: [],
     });
     setQuery(api.campaigns.getSettings, {
       campaignId,
@@ -226,11 +252,26 @@ describe('CampaignPage', () => {
       viewer: { role: 'player' as const, isOwner: false },
       members: ownerRoster.members,
     });
+    setQuery(api.characters.listForCampaign, {
+      viewer: { userId: userB, isOwner: false },
+      characters: [
+        {
+          characterId: characterA,
+          ownerUserId: userB,
+          name: 'Sefa',
+          concept: '',
+          level: 1,
+          status: 'active' as const,
+          isMine: true,
+        },
+      ],
+    });
     render(<CampaignPage campaignId={campaignId} />);
     expect(screen.getByText('Bren')).toBeTruthy();
     expect(screen.queryByText('Campaign settings')).toBeNull();
     expect(screen.queryByText('Join requests')).toBeNull();
     expect(screen.getByRole('button', { name: 'Leave campaign' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove character' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Make Director' })).toBeNull();
   });
 });

@@ -23,7 +23,7 @@ export function TablePage({ campaignId }: { campaignId: Id<'campaigns'> }) {
         </div>
       }
     >
-      <TableBody campaignId={campaignId} />
+      <TableSurface campaignId={campaignId} />
     </QueryBoundary>
   );
 }
@@ -46,7 +46,7 @@ function usePresence(campaignId: Id<'campaigns'>) {
   }, [campaignId, join, heartbeat, leave]);
 }
 
-function TableBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
+export function TableSurface({ campaignId }: { campaignId: Id<'campaigns'> }) {
   usePresence(campaignId);
   const players = useQuery(api.lobby.listPresent, { campaignId });
   const messages = useQuery(api.lobby.listMessages, { campaignId });

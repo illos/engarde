@@ -30,6 +30,12 @@ export function AppScreen({ children }: { children: ReactNode }) {
             Campaigns
           </Link>
           <Link
+            to="/characters"
+            className="type-label text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
+          >
+            Characters
+          </Link>
+          <Link
             to="/directory"
             className="type-label text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
           >
