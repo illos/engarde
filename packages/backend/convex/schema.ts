@@ -70,4 +70,21 @@ export default defineSchema({
     // exists only on active rows: pending inserts, approvals, and blocks all
     // normalize role to 'player'.
     .index('by_campaignId_role', ['campaignId', 'role']),
+  // The Table (lobby runtime). Presence is heartbeat-based: one row per
+  // (campaign, user) while they sit at the Table; rows older than the stale
+  // window read as absent and are swept opportunistically on heartbeats.
+  lobbyPresence: defineTable({
+    campaignId: v.id('campaigns'),
+    userId: v.id('users'),
+    joinedAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index('by_campaignId', ['campaignId'])
+    .index('by_campaignId_userId', ['campaignId', 'userId']),
+  lobbyMessages: defineTable({
+    campaignId: v.id('campaigns'),
+    authorUserId: v.id('users'),
+    body: v.string(),
+    sentAt: v.number(),
+  }).index('by_campaignId', ['campaignId']),
 });

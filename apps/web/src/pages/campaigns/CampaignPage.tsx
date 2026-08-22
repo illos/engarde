@@ -1,6 +1,6 @@
 import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery } from 'convex/react';
 import { useState } from 'react';
 import { Button, CopyPill, QueryBoundary } from '../../primitives';
@@ -30,6 +30,7 @@ function CampaignBody({ campaignId }: { campaignId: Id<'campaigns'> }) {
   if (roster === undefined) return <p className="py-16 text-center text-text-dim">Loading…</p>;
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-10">
+      <TableSection campaignId={campaignId} />
       <MembersSection campaignId={campaignId} roster={roster} />
       {roster.viewer.isOwner ? (
         <>
@@ -330,3 +331,18 @@ function LeaveSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
   );
 }
 
+// Doorway to the campaign's live lobby. Styled as the primary Button but a
+// real link, so the Table keeps a shareable URL.
+function TableSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
+  return (
+    <section>
+      <Link
+        to="/table/$campaignId"
+        params={{ campaignId }}
+        className="inline-flex h-11 items-center justify-center gap-1.5 border border-accent-strong bg-accent px-4 text-sm font-semibold text-ink-0 transition-colors hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
+      >
+        Enter the Table
+      </Link>
+    </section>
+  );
+}
