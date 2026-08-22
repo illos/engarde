@@ -24,6 +24,58 @@ import {
   RelativeSourcePathSchema,
 } from './schemas.js';
 import { inspectSourceStatus, readSourceLock } from './source.js';
+import {
+  ClassificationBatchSchema,
+  buildClassificationPackets,
+  renderClassificationReview,
+  validateClassificationCoverage,
+} from './taxonomy.js';
+
+const PilotScopeManifestHeadSchema = z.object({
+  schema: z.literal('engarde-pilot-scope-manifest-v1'),
+  scope: z.object({ entries: z.array(z.object({ id: z.string().min(1) })) }),
+});
+
+async function loadScopedArtifacts(manifestPath: string): Promise<{
+  manifestSha256: string;
+  scopedIds: string[];
+  records: Map<string, ArtifactRecord>;
+}> {
+  const manifestBytes = await readFile(manifestPath);
+  const manifest = PilotScopeManifestHeadSchema.parse(JSON.parse(manifestBytes.toString('utf8')));
+  const scopedIds = manifest.scope.entries.map((entry) => entry.id);
+
+  const records = new Map<string, ArtifactRecord>();
+  const bundleFiles = [
+    ...(await listBundleFiles(resolve(requiredArgument('structured-bundles')))),
+    ...(await listBundleFiles(resolve(requiredArgument('chapter-bundles')))),
+  ];
+  for (const file of bundleFiles) {
+    const parsed = ExtractionBundleSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+    for (const record of parsed.records) {
+      if (record.recordKind === 'artifact') records.set(record.id, record);
+    }
+  }
+  for (const id of scopedIds) {
+    if (!records.has(id)) throw new Error(`scoped artifact has no bundle record: ${id}`);
+  }
+  return { manifestSha256: sha256(manifestBytes), scopedIds, records };
+}
+
+async function loadClassificationBatches(
+  proposalsRoot: string,
+): Promise<ReturnType<typeof ClassificationBatchSchema.parse>[]> {
+  const entries = await readdir(proposalsRoot, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => join(proposalsRoot, entry.name))
+    .sort();
+  const batches = [];
+  for (const file of files) {
+    batches.push(ClassificationBatchSchema.parse(JSON.parse(await readFile(file, 'utf8'))));
+  }
+  return batches;
+}
 
 const defaultLockPath = fileURLToPath(
   new URL('../config/steelcompendium-source.json', import.meta.url),
@@ -119,7 +171,10 @@ function usage(): never {
   corpus cut --root <steelcompendium> --proposal <proposal.json> [--out <bundle.json>]
   corpus audit --root <steelcompendium> --bundle <bundle.json>
   corpus campaign-audit --root <steelcompendium> --inventory <inventory.json> --structured-bundles <directory> --chapter-bundles <directory> --classes-pilot <bundle.json> [--out <manifest.json>]
-  corpus pilot-scope --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <conditions-pilot.json>] [--out <manifest.json>]`);
+  corpus pilot-scope --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <conditions-pilot.json>] [--out <manifest.json>]
+  corpus classify-packets --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --out-dir <directory> [--lanes N]
+  corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
+  corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md>`);
 }
 
 async function main(): Promise<void> {
@@ -345,6 +400,71 @@ async function main(): Promise<void> {
       ok,
     });
     if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'classify-packets') {
+    const { manifestSha256, scopedIds, records } = await loadScopedArtifacts(
+      resolve(requiredArgument('manifest')),
+    );
+    const lanes = Number(argument('lanes') ?? '4');
+    const packets = buildClassificationPackets(
+      scopedIds.map((id) => {
+        const record = records.get(id);
+        if (!record) throw new Error(`scoped artifact has no bundle record: ${id}`);
+        return {
+          artifactId: record.id,
+          artifactVersion: record.version,
+          references: record.references,
+          text: record.text,
+        };
+      }),
+      manifestSha256,
+      lanes,
+    );
+    const outputRoot = resolve(requiredArgument('out-dir'));
+    await mkdir(outputRoot, { recursive: true });
+    for (const packet of packets) {
+      await writeFile(
+        join(outputRoot, `${packet.laneId}.packet.json`),
+        `${JSON.stringify(packet, null, 2)}\n`,
+        'utf8',
+      );
+    }
+    await emit({
+      manifestSha256,
+      lanes: packets.map((packet) => ({
+        laneId: packet.laneId,
+        artifacts: packet.artifacts.length,
+      })),
+      outputRoot,
+    });
+    return;
+  }
+
+  if (command === 'classify-validate' || command === 'classify-review') {
+    const { manifestSha256, scopedIds, records } = await loadScopedArtifacts(
+      resolve(requiredArgument('manifest')),
+    );
+    const expected = new Map<string, string>();
+    for (const id of scopedIds) {
+      const record = records.get(id);
+      if (record) expected.set(id, record.version);
+    }
+    const batches = await loadClassificationBatches(resolve(requiredArgument('proposals')));
+    const coverage = validateClassificationCoverage(expected, batches, manifestSha256);
+    if (command === 'classify-review') {
+      const review = renderClassificationReview(batches, coverage);
+      const output = resolve(requiredArgument('out'));
+      await mkdir(dirname(output), { recursive: true });
+      await writeFile(output, review, 'utf8');
+      process.stdout.write(
+        `${JSON.stringify({ ok: coverage.ok, classified: coverage.classified, expected: coverage.expected, uncertain: coverage.uncertain.length, findings: coverage.findings.length, output }, null, 2)}\n`,
+      );
+    } else {
+      await emit(coverage);
+    }
+    if (!coverage.ok) process.exitCode = 1;
     return;
   }
 

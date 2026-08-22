@@ -202,3 +202,48 @@ inclusion carries provenance (`seed` / `dependency` / `resolution` /
 condition core are pulled in as machinery via the inbound pass; structured
 inbound hits are enumerated as candidates, not silently included. Any edge the
 walk cannot account for is a finding and fails the run.
+
+## Classification (ROAD-0004, engine-plan §Pilot step 3)
+
+Classification is discovery metadata layered over artifacts — models propose,
+a human approves in batches, and misclassification is always recoverable
+because artifact text is never model-produced. Content type is mechanical
+(derived from the artifact id) and never asked of a model. A proposal pins the
+artifact version, so a re-cut artifact automatically invalidates its
+classification.
+
+```sh
+# 1. deterministic work packets (id, version, references, verbatim text)
+pnpm --filter @engarde/canon corpus classify-packets \
+  --root ../../.reference/steelcompendium \
+  --manifest ../../.artifacts/canon/pilot/pilot-scope.manifest.json \
+  --structured-bundles ../../.artifacts/canon/bundles \
+  --chapter-bundles ../../.artifacts/canon/campaign/accepted \
+  --out-dir ../../.artifacts/canon/pilot/classify/packets --lanes 4
+
+# 2. agents write lane proposals (engarde-classification-proposal-v1) to
+#    .artifacts/canon/pilot/classify/proposals/
+
+# 3. total coverage validation — every scoped artifact classified exactly
+#    once at the pinned version; anything else is a blocking finding
+pnpm --filter @engarde/canon corpus classify-validate \
+  --root ../../.reference/steelcompendium \
+  --manifest ../../.artifacts/canon/pilot/pilot-scope.manifest.json \
+  --structured-bundles ../../.artifacts/canon/bundles \
+  --chapter-bundles ../../.artifacts/canon/campaign/accepted \
+  --proposals ../../.artifacts/canon/pilot/classify/proposals
+
+# 4. batch-review surface v0 — a markdown table for the human skim
+pnpm --filter @engarde/canon corpus classify-review \
+  --root ../../.reference/steelcompendium \
+  --manifest ../../.artifacts/canon/pilot/pilot-scope.manifest.json \
+  --structured-bundles ../../.artifacts/canon/bundles \
+  --chapter-bundles ../../.artifacts/canon/campaign/accepted \
+  --proposals ../../.artifacts/canon/pilot/classify/proposals \
+  --out ../../.artifacts/canon/pilot/classify/review.md
+```
+
+Uncertainty is a first-class outcome: a proposal may set `uncertain=true` with
+a note instead of guessing, and the review surface surfaces the queue. Batch
+approval is a human act; the pilot records it in the working note / decisions
+log, not by self-clearing.
