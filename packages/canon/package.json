@@ -1,0 +1,26 @@
+{
+  "name": "@engarde/canon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:corpus": "ENGARDE_CORPUS_ROOT=../../.reference/steelcompendium vitest run src/corpus.integration.test.ts",
+    "corpus": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11"
+  }
+}

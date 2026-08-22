@@ -29,6 +29,9 @@ build/
 # test coverage
 coverage/
 
+# local corpus extraction work products
+.artifacts/
+
 # logs
 *.log
 

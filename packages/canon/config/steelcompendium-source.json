@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "source": "steelcompendium-data-unified",
+  "remote": "https://github.com/SteelCompendium/data-unified.git",
+  "commit": "520553438a4e8d199bfaaf676b8aa9bd273f4d61",
+  "tag": "v4.20260803143953",
+  "commitDate": "2026-08-03T10:39:51-04:00",
+  "books": [
+    {
+      "id": "heroes",
+      "disposition": "include",
+      "reason": "Core Heroes rules and player content are in the engine baseline.",
+      "categories": {
+        "ancestry": "structured",
+        "career": "structured",
+        "chapter": "chunk",
+        "class": "structured",
+        "complication": "structured",
+        "condition": "structured",
+        "culture": "structured",
+        "feature": "structured",
+        "kit": "structured",
+        "movement": "structured",
+        "negotiation": "structured",
+        "perk": "structured",
+        "project": "structured",
+        "religion": "structured",
+        "rule": "structured",
+        "skill": "structured",
+        "title": "structured",
+        "treasure": "structured"
+      }
+    },
+    {
+      "id": "monsters",
+      "disposition": "include",
+      "reason": "Core Monsters rules and bestiary content are in the engine baseline.",
+      "categories": {
+        "chapter": "chunk",
+        "dynamic-terrain": "structured",
+        "monster": "structured",
+        "rule": "structured"
+      }
+    },
+    {
+      "id": "beastheart",
+      "disposition": "exclude",
+      "reason": "Supplement content is inventoried but deferred until the core-book baseline closes.",
+      "categories": {
+        "chapter": "chunk",
+        "class": "structured",
+        "feature": "structured",
+        "monster": "structured",
+        "perk": "structured",
+        "treasure": "structured"
+      }
+    },
+    {
+      "id": "summoner",
+      "disposition": "exclude",
+      "reason": "Supplement content is inventoried but deferred until the core-book baseline closes.",
+      "categories": {
+        "chapter": "chunk",
+        "class": "structured",
+        "feature": "structured",
+        "monster": "structured",
+        "title": "structured",
+        "treasure": "structured"
+      }
+    }
+  ]
+}

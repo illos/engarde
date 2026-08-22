@@ -1,0 +1,281 @@
+#!/usr/bin/env node
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+import { auditExtractionBundle } from './audit.js';
+import { auditCampaignSet } from './campaign.js';
+import { computeReferenceClosure } from './dependency.js';
+import {
+  type PairedSource,
+  createChapterWorkPacket,
+  cutChapterProposal,
+  ingestStructuredRecord,
+} from './extract.js';
+import { buildCorpusInventory } from './inventory.js';
+import {
+  type ArtifactRecord,
+  ArtifactRecordSchema,
+  ChapterChunkProposalSchema,
+  CorpusInventorySchema,
+  ExtractionBundleSchema,
+  RelativeSourcePathSchema,
+} from './schemas.js';
+import { inspectSourceStatus, readSourceLock } from './source.js';
+
+const defaultLockPath = fileURLToPath(
+  new URL('../config/steelcompendium-source.json', import.meta.url),
+);
+
+function argument(name: string): string | undefined {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+function argumentsNamed(name: string): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < process.argv.length; index += 1) {
+    if (process.argv[index] === `--${name}` && process.argv[index + 1]) {
+      values.push(process.argv[index + 1] ?? '');
+    }
+  }
+  return values;
+}
+
+function requiredArgument(name: string): string {
+  const value = argument(name);
+  if (!value) throw new Error(`missing required --${name}`);
+  return value;
+}
+
+function hasFlag(name: string): boolean {
+  return process.argv.includes(`--${name}`);
+}
+
+function safeSourceFile(sourceRoot: string, sourcePath: string): string {
+  RelativeSourcePathSchema.parse(sourcePath);
+  const root = resolve(sourceRoot);
+  const file = resolve(root, sourcePath);
+  const fromRoot = relative(root, file);
+  if (isAbsolute(fromRoot) || fromRoot.startsWith('..')) {
+    throw new Error(`source path escapes corpus root: ${sourcePath}`);
+  }
+  return file;
+}
+
+function pairedJsonPath(markdownPath: string): string {
+  if (!markdownPath.includes('/md/') || !markdownPath.endsWith('.md')) {
+    throw new Error('Markdown path must point into a book md/ directory');
+  }
+  return markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+}
+
+async function loadPairedSource(sourceRoot: string, markdownPath: string): Promise<PairedSource> {
+  const jsonPath = pairedJsonPath(markdownPath);
+  return {
+    markdownPath,
+    markdown: await readFile(safeSourceFile(sourceRoot, markdownPath)),
+    jsonPath,
+    json: await readFile(safeSourceFile(sourceRoot, jsonPath)),
+  };
+}
+
+async function emit(value: unknown): Promise<void> {
+  const serialized = `${JSON.stringify(value, null, 2)}\n`;
+  const output = argument('out');
+  if (!output) {
+    process.stdout.write(serialized);
+    return;
+  }
+  await mkdir(dirname(resolve(output)), { recursive: true });
+  await writeFile(resolve(output), serialized, 'utf8');
+}
+
+async function listBundleFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  async function visit(directory: string): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile() && entry.name.endsWith('.bundle.json')) files.push(path);
+    }
+  }
+  await visit(root);
+  return files.sort();
+}
+
+function usage(): never {
+  throw new Error(`Usage:
+  corpus proposal-schema [--out <schema.json>]
+  corpus source-status --root <steelcompendium> [--check-upstream]
+  corpus inventory --root <steelcompendium> [--out <inventory.json>] [--strict]
+  corpus ingest --root <steelcompendium> --path <en/books/.../md/...md> [--out <bundle.json>]
+  corpus ingest-all --root <steelcompendium> --inventory <inventory.json> --out-dir <directory> [--book id] [--category id]
+  corpus closure --root <steelcompendium> --bundles <directory> --seed <artifact-id> [--seed <artifact-id>...] [--max-depth N] [--out <closure.json>]
+  corpus packet --root <steelcompendium> --path <chapter.md> [--from-line N --to-line N --reason text] [--out <packet.json>]
+  corpus cut --root <steelcompendium> --proposal <proposal.json> [--out <bundle.json>]
+  corpus audit --root <steelcompendium> --bundle <bundle.json>
+  corpus campaign-audit --root <steelcompendium> --inventory <inventory.json> --structured-bundles <directory> --chapter-bundles <directory> --classes-pilot <bundle.json> [--out <manifest.json>]`);
+}
+
+async function main(): Promise<void> {
+  const command = process.argv[2] ?? usage();
+
+  if (command === 'proposal-schema') {
+    await emit(z.toJSONSchema(ChapterChunkProposalSchema));
+    return;
+  }
+
+  const sourceRoot = resolve(requiredArgument('root'));
+  const lock = await readSourceLock(resolve(argument('lock') ?? defaultLockPath));
+
+  if (command === 'source-status') {
+    const status = await inspectSourceStatus(sourceRoot, lock, hasFlag('check-upstream'));
+    await emit(status);
+    if (!status.clean || !status.checkoutMatchesPin || status.upstreamMatchesPin === false) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  const localStatus = await inspectSourceStatus(sourceRoot, lock);
+  if (!localStatus.checkoutMatchesPin || !localStatus.clean) {
+    throw new Error('source checkout must be clean and match the tracked pin');
+  }
+
+  if (command === 'inventory') {
+    const inventory = await buildCorpusInventory(sourceRoot, lock);
+    await emit(inventory);
+    const errors = inventory.entries.flatMap((entry) =>
+      entry.findings.filter((finding) => finding.severity === 'error'),
+    );
+    if (hasFlag('strict') && errors.length > 0) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'ingest') {
+    const paired = await loadPairedSource(sourceRoot, requiredArgument('path'));
+    await emit(ingestStructuredRecord(paired));
+    return;
+  }
+
+  if (command === 'ingest-all') {
+    const inventory = CorpusInventorySchema.parse(
+      JSON.parse(await readFile(resolve(requiredArgument('inventory')), 'utf8')),
+    );
+    if (inventory.sourceCommit !== lock.commit) {
+      throw new Error('inventory source commit does not match the pinned source lock');
+    }
+    const inventoryErrors = inventory.entries.flatMap((entry) =>
+      entry.findings.filter((finding) => finding.severity === 'error'),
+    );
+    if (inventoryErrors.length > 0) {
+      throw new Error(`inventory contains ${inventoryErrors.length} blocking finding(s)`);
+    }
+    const outputRoot = resolve(requiredArgument('out-dir'));
+    const requestedBook = argument('book');
+    const requestedCategory = argument('category');
+    const selected = inventory.entries.filter(
+      (entry) =>
+        entry.disposition === 'structured' &&
+        (!requestedBook || entry.book === requestedBook) &&
+        (!requestedCategory || entry.category === requestedCategory),
+    );
+    let artifacts = 0;
+    for (const entry of selected) {
+      const paired = await loadPairedSource(sourceRoot, entry.markdownPath);
+      const extracted = ingestStructuredRecord(paired);
+      const audit = auditExtractionBundle(paired.markdown, extracted);
+      if (!audit.ok) throw new Error(`${entry.markdownPath}: ${audit.errors.join('; ')}`);
+      const outputPath = join(outputRoot, entry.markdownPath.replace(/\.md$/, '.bundle.json'));
+      await mkdir(dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `${JSON.stringify(extracted, null, 2)}\n`, 'utf8');
+      artifacts += audit.artifactCount;
+    }
+    await emit({ files: selected.length, artifacts, outputRoot });
+    return;
+  }
+
+  if (command === 'closure') {
+    const seeds = argumentsNamed('seed');
+    if (seeds.length === 0) throw new Error('closure requires at least one --seed');
+    const artifacts: ArtifactRecord[] = [];
+    for (const file of await listBundleFiles(resolve(requiredArgument('bundles')))) {
+      const parsed = ExtractionBundleSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+      artifacts.push(
+        ...parsed.records
+          .filter((record) => record.recordKind === 'artifact')
+          .map((record) => ArtifactRecordSchema.parse(record)),
+      );
+    }
+    const maximumDepth = Number(argument('max-depth') ?? '2');
+    await emit(computeReferenceClosure(artifacts, seeds, { maxDepth: maximumDepth }));
+    return;
+  }
+
+  if (command === 'packet') {
+    const paired = await loadPairedSource(sourceRoot, requiredArgument('path'));
+    const from = argument('from-line');
+    const to = argument('to-line');
+    const requestedScope =
+      from || to
+        ? {
+            startLine: Number(from ?? requiredArgument('from-line')),
+            endLine: Number(to ?? requiredArgument('to-line')),
+            reason: argument('reason') ?? 'declared extraction scope',
+          }
+        : undefined;
+    await emit(createChapterWorkPacket(paired, requestedScope));
+    return;
+  }
+
+  if (command === 'cut') {
+    const proposalPath = resolve(requiredArgument('proposal'));
+    const proposal = ChapterChunkProposalSchema.parse(
+      JSON.parse(await readFile(proposalPath, 'utf8')),
+    );
+    const paired = await loadPairedSource(sourceRoot, proposal.source.path);
+    await emit(cutChapterProposal(paired, proposal));
+    return;
+  }
+
+  if (command === 'audit') {
+    const bundle = ExtractionBundleSchema.parse(
+      JSON.parse(await readFile(resolve(requiredArgument('bundle')), 'utf8')),
+    );
+    const source = await readFile(safeSourceFile(sourceRoot, bundle.source.path));
+    const auxiliarySources = new Map<string, Buffer>();
+    for (const auxiliary of bundle.source.auxiliarySources) {
+      auxiliarySources.set(
+        auxiliary.path,
+        await readFile(safeSourceFile(sourceRoot, auxiliary.path)),
+      );
+    }
+    const result = auditExtractionBundle(source, bundle, auxiliarySources);
+    await emit(result);
+    if (!result.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'campaign-audit') {
+    const manifest = await auditCampaignSet({
+      sourceRoot,
+      lock,
+      inventoryPath: resolve(requiredArgument('inventory')),
+      structuredBundlesRoot: resolve(requiredArgument('structured-bundles')),
+      chapterBundlesRoot: resolve(requiredArgument('chapter-bundles')),
+      classesPilotBundlePath: resolve(requiredArgument('classes-pilot')),
+    });
+    await emit(manifest);
+    if (manifest.findings.some((finding) => finding.severity === 'error')) process.exitCode = 1;
+    return;
+  }
+
+  usage();
+}
+
+main().catch((error: unknown) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
+});
