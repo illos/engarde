@@ -1,20 +1,20 @@
 # Engine plan — books-to-engine pipeline
 
-> Status: **draft for review** (designed 2026-08-22, five-exchange design session).
+> Status: **ratified** (designed 2026-08-22, five-exchange design session;
+> ratified by the user 2026-08-22 — logged as DEC-0009).
 > This is the implementation plan for `packages/engine` and the content pipeline that
 > feeds it. It is a **greenfield** design: it learns from Ironyard's canon-gating
 > workflow but imports none of its content or code. Ironyard stays frozen reference.
 
-## Relationship to prior strategy (requires ratification)
+## Relationship to prior strategy (ratified 2026-08-22)
 
 This plan **supersedes the verbatim engine port** promised by ROAD-0002,
 `docs/architecture.md`, and `docs/sessions-plan.md`: the engine is rebuilt
 greenfield around the pipeline (pure core, dice-as-input, spatial resolvers)
 rather than ported from Ironyard's `packages/rules`. Ironyard's engine remains
-readable reference for mechanism design; no code or content crosses over. On
-approval, update the architecture / roadmap / host-contract language together
-and log the supersession as a DEC — until then those documents still describe
-the old strategy.
+readable reference for mechanism design; no code or content crosses over. The
+supersession is logged as **DEC-0009**; the architecture / sessions-plan /
+roadmap language has been updated to match.
 
 ## Prerequisites (pre-Phase-0 gate)
 

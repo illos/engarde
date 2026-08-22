@@ -57,10 +57,14 @@ Boundary rules:
 2. **Collaborative layer:** auth (password default, optional magic link; Cloudflare
    Email Service delivery), users, campaigns, memberships, invite codes, lobby
    presence, sharing.
-3. **Engine port (last):** the rules engine, canon registry, and content pipeline
-   arrive from the predecessor repo (`Ironyard_v2`, frozen at `pre-convex`) once
-   the app is healthy. Ported verbatim, gated by its own ~22k LOC test suite.
+3. **Engine (last, greenfield):** `packages/engine` is built new around the
+   books-to-engine pipeline — a canon artifact store cut byte-verbatim from the
+   pinned SteelCompendium corpus, compiled into content interpreted by a small
+   pure engine core (dice-as-input, spatial-facts interface). Full plan:
+   `docs/engine-plan.md`; supersession of the earlier verbatim-port strategy is
+   logged as DEC-0009 (ratified 2026-08-22).
 
-The predecessor repo remains the reference implementation and copy source; its
-`docs/convex-migration-plan.md` and `docs/engarde-bootstrap.md` carry the full
-strategy and history.
+The predecessor repo (`Ironyard_v2`, frozen at `pre-convex`) remains readable
+reference for mechanism design — no code or content crosses over; its
+`docs/convex-migration-plan.md` and `docs/engarde-bootstrap.md` carry the
+pre-supersession strategy and history.

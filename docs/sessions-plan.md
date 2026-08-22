@@ -24,8 +24,9 @@ never consulted.
 
 The runtime freezes the pre-engine resource-generation basis as the initial
 character count and total level, with its generation timestamp and revision. This is
-the stable host contract for the later verbatim engine port. Mid-session roster adds
-and removals append events but never rewrite that basis.
+the stable host contract for the later engine integration (greenfield per
+`docs/engine-plan.md`, DEC-0009). Mid-session roster adds and removals append events
+but never rewrite that basis.
 
 Roster rows retain character name, owner, level, and binding-incarnation snapshots.
 Removing a character binding or ending its owner's membership removes any active
