@@ -14,16 +14,15 @@ every extracted piece now inherits its category mechanically from where it
 lives in the book. All 3,529 pieces categorized, zero unmatched, same result
 every run.
 
-The one human judgment left is a ~45-row map (chapter and record family →
-chapter bucket), drafted from the book's own structure and its own topic
-index. It's in `packages/canon/config/category-attribution.json`, marked
-"proposed" until you approve. Most rows are obvious (ancestry records →
-Ancestries). The handful worth your eyes carry a REVIEW note:
+The one human judgment left is the map itself: 57 rows, each saying "pieces
+from this part of the book go in this bucket." The full map is right below —
+each row shows how many pieces it captures and real examples, so you can
+judge it here. The four amber rows at the top are the ones I flagged for
+you: rules terms the book itself spreads across two chapters. One default
+worth knowing: signature abilities named after kits or ancestries currently
+land in the classes bucket with the rest of the abilities.
 
-- rules terms that could sit in two chapters (rule.general, rule.health,
-  rule.character, rule.world)
-- signature abilities named after kits or ancestries currently defaulting to
-  the Classes bucket
+MAP-TABLE-HERE
 
 Tell me "map approved" or list row changes, and I flip it to accepted.
 
