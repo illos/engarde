@@ -248,7 +248,9 @@ export function parseEffectText(text: string): GrammarParse {
       }
       continue;
     }
-    const powerRoll = POWER_ROLL_LINE.exec(trimmed);
+    // Like tier payloads and header tables, the power-roll heading is
+    // matched with scc links stripped (the span keeps the raw bytes).
+    const powerRoll = POWER_ROLL_LINE.exec(stripSccLinks(trimmed));
     if (powerRoll) {
       flushResidue();
       clauses.push({ kind: 'power-roll', span: span([line]), bonus: powerRoll[1] ?? '' });

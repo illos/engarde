@@ -16,6 +16,7 @@ import {
   ingestStructuredRecord,
 } from './extract.js';
 import { buildGrammarReport, renderGrammarReportHtml } from './grammar-report.js';
+import { buildGrammarSweep, renderGrammarSweepHtml } from './grammar-sweep.js';
 import {
   IndependentExpectationsSchema,
   compareChannels,
@@ -188,6 +189,7 @@ function usage(): never {
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
   corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
   corpus grammar-report --root <steelcompendium> --path <ability.md> [--path ...] [--html <grammar.html>] [--out <report.json>]
+  corpus grammar-sweep --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--attribution <category-attribution.json>] [--html <sweep.html>] [--out <report.json>]
   corpus attribute --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <category-attribution.json>] [--out <report.json>]
   corpus pilot-encounter --root <steelcompendium> [--out <transcript.json>]
   corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
@@ -517,6 +519,54 @@ async function main(): Promise<void> {
       await writeFile(resolve(htmlOutput), renderGrammarReportHtml(entries, report), 'utf8');
     }
     await emit(report);
+    return;
+  }
+
+  if (command === 'grammar-sweep') {
+    const attributionConfig = AttributionConfigSchema.parse(
+      JSON.parse(
+        await readFile(
+          resolve(
+            argument('attribution') ??
+              fileURLToPath(new URL('../config/category-attribution.json', import.meta.url)),
+          ),
+          'utf8',
+        ),
+      ),
+    );
+    const artifacts: ArtifactRecord[] = [];
+    for (const root of [
+      requiredArgument('structured-bundles'),
+      requiredArgument('chapter-bundles'),
+    ]) {
+      for (const file of await listBundleFiles(resolve(root))) {
+        const parsed = ExtractionBundleSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+        for (const record of parsed.records) {
+          if (record.recordKind === 'artifact') artifacts.push(record);
+        }
+      }
+    }
+    const attribution = attributeArtifacts(
+      artifacts.map((artifact) => artifact.id),
+      attributionConfig,
+    );
+    const bucketById = new Map(
+      attribution.attributed.map((entry) => [entry.artifactId, entry.bucket]),
+    );
+    const report = buildGrammarSweep(
+      artifacts.map((artifact) => ({
+        artifactId: artifact.id,
+        bucket: bucketById.get(artifact.id) ?? 'unmatched',
+        text: artifact.text,
+      })),
+    );
+    const htmlOutput = argument('html');
+    if (htmlOutput) {
+      await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+      await writeFile(resolve(htmlOutput), renderGrammarSweepHtml(report), 'utf8');
+    }
+    await emit(report);
+    if (report.headline.conservationViolations > 0) process.exitCode = 1;
     return;
   }
 

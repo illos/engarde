@@ -90,6 +90,8 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
       ]);
       expect(clause.data.ending).toBe('save-ends');
     }
+    const powerRoll = parse.clauses.find((clause) => clause.kind === 'power-roll');
+    expect(powerRoll?.bonus).toBe('Might');
     const header = parse.clauses.find((clause) => clause.kind === 'ability-header');
     expect(header?.keywords).toEqual(['Melee', 'Strike', 'Weapon']);
     expect(header?.actionType).toBe('Main action');

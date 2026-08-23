@@ -26,7 +26,7 @@ export interface GrammarReport {
   backlog: Array<{ mechanism: string; artifacts: string[]; occurrences: number }>;
 }
 
-function constructsOf(clause: EffectClause): string[] {
+export function constructsOf(clause: EffectClause): string[] {
   switch (clause.kind) {
     case 'tier-outcome': {
       const parts: string[] = ['tier-outcome'];
@@ -46,7 +46,7 @@ function constructsOf(clause: EffectClause): string[] {
 }
 
 /** Mechanisms a parsed construct needs at runtime; absent = already served. */
-const CONSTRUCT_MECHANISM: Record<string, string> = {
+export const CONSTRUCT_MECHANISM: Record<string, string> = {
   'tier-damage': 'damage / Stamina application',
   'potency-gate': 'potency resolution (characteristic vs threshold)',
   'power-roll': 'power roll resolution (2d10 + characteristic, tier banding)',
