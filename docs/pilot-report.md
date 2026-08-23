@@ -1,110 +1,157 @@
-# Conditions vertical pilot — judgment report (ROAD-0004, step 9)
+# Conditions pilot — what it proved, and the four decisions it needs from you
 
-> Status: **delivered for user judgment** (2026-08-22). The pilot is graded on
-> completeness of flagging, not coverage: implementing 60% while precisely
-> enumerating the other 40% succeeds; 90% with a silent hole fails.
-> Regenerable evidence lives under gitignored `.artifacts/canon/pilot/`;
-> every number below traces to a manifest, queue, or transcript there.
+> 2026-08-22. Written for the judge, not the builder: every term is explained
+> where it first appears, and each decision tells you exactly what to check.
+> The one-line technical accounting lives in the appendix at the bottom.
 
-## Exit criterion check
+## What this pilot was
 
-**Zero artifacts in unknown state within pilot scope: PASS.** All 196 scoped
-artifacts validate against the total lifecycle contract
-(`extracted/unclassified→proposed/unparsed/none`); classification for all 196
-is `proposed` (awaiting batch approval — a human act by design).
+We are building a factory that turns the Draw Steel rulebooks into a running
+rules engine **without any AI ever writing rule text** — models only point at
+locations and propose labels; deterministic code does all cutting and
+checking, and you review exceptions in batches instead of every rule. Before
+running that factory over the whole book set (about 3,500 extracted pieces),
+we ran every layer of it once over the smallest real slice: the nine
+conditions (bleeding, dazed, frightened, grabbed, prone, restrained, slowed,
+taunted, weakened) and everything they depend on — 196 pieces in total.
 
-**Every not-implemented item in an explicit queue with a reason: PASS,
-with one caught lapse.** The step-8 transcript review found that the
-encounter script's *declared* known-unknowns were narrower than the
-project's actual known gaps (declared per instance, not per rule class).
-The last verification layer caught it — which is the design working — and
-the declaration discipline is now fixed (see §Lessons). Nothing was lost;
-seven findings were re-attributed to already-known gap classes and the
-queue now names the classes.
+Throughout this report, an **artifact** means one such piece: a rule,
+ability, or book section cut byte-for-byte from the official text, with a
+checksum proving it was never altered.
 
-## Total accounting
+**The pilot's grading standard:** nothing may fall through silently. A layer
+is allowed to *not implement* something — but only if it explicitly says so,
+in a queue, with a reason. Implementing 60% and precisely listing the other
+40% is a pass; 90% with one silent hole is a fail.
+
+## The short verdict (my assessment — yours is decision 4)
+
+Every layer ran end to end in one day. The engine now genuinely applies,
+tracks, and expires conditions with every behavior traceable to a quoted
+rulebook sentence. The verification net caught the one place where our own
+bookkeeping over-claimed — the exact failure mode that killed version 1,
+caught by the system instead of discovered later as a bug. Nothing surfaced
+outside a queue. I recommend accepting the pipeline for corpus scale, with
+one fix first (sharpen the tier definitions — see decision 2).
+
+---
+
+## Decision 1 — Approve (or correct) the classification batch
+
+**Where:** https://presidium-iv.tail41404c.ts.net:9500/
+
+**What happened:** AI workers read all 196 artifacts and attached four labels
+to each. The labels are routing metadata — they decide which pipeline path
+each artifact takes later. They are cheap to correct and never alter the
+rulebook text itself. The labels:
+
+- **Tier** — how the rule reaches the player. Tier 1: the engine does it
+  automatically (e.g. a condition expiring). Tier 2: a player presses a
+  button, the engine resolves it (e.g. using an ability). Tier 3: the engine
+  can only offer options once a player asserts facts the software can't know
+  (e.g. things depending on table positioning). "Not a rule" = flavor prose.
+- **Implementability** — does this need engine code, is it pure data, or is
+  it just displayed as text?
+- **Play category** — combat, downtime, character building, etc.
+- **Spatial profile** — which position-dependent concepts the rule touches.
+
+**How to review it:** each card on the page shows the proposed labels
+directly above the exact rulebook text they describe. You never need the
+books. Two passes:
+
+1. **Read the "Uncertainty queue" (35 cards, at the top).** These are the
+   ones the AI flagged as genuine judgment calls instead of guessing. For
+   each: read the text, pick the label you'd want, or leave it queued.
+2. **Spot-check ~10 random cards from the rest.** For each, ask one
+   question: *"Do these labels match what the text in front of me says?"*
+   A card is wrong if, e.g., a rule that clearly needs automatic engine
+   behavior is labeled "display-only", or button-press ability is labeled
+   tier 3.
+
+**What your answer decides:** your correction rate on the spot-checks is the
+measured error rate for cheap-model classification. Roughly: if you correct
+0–1 of 10, the batch process works as designed; 2–3, it needs the sharpened
+instructions from decision 2 first; more, we escalate the model tier.
+
+## Decision 2 — Who read the rules right: Sonnet or Opus?
+
+**Where:** https://presidium-iv.tail41404c.ts.net:9500/compare.html
+
+**What happened:** to measure how much to trust the cheap model, a stronger
+model independently re-labeled the same 196 artifacts. They fully agreed on
+99. The page shows the 97 disagreements — each card has both models' labels
+side by side (differences highlighted) above the rulebook text.
+
+**The one pattern that matters:** most tier conflicts are Sonnet saying
+tier 3 where Opus says tier 2 (Sonnet used tier 3 twenty times, Opus twice).
+That's systematic, not random — which usually means my one-line definition
+of the 2-vs-3 boundary is ambiguous, not that either model is careless.
+
+**How to review it:** you do *not* need all 97. Sample ~10 cards where the
+tier row is highlighted and ask: *"Reading this text, which model's tier is
+right?"* Note roughly how often each side wins.
+
+**What your answer decides:** the model tier for classifying the remaining
+~3,300 artifacts. If Opus is consistently right, cheap-model classification
+still survives — we sharpen the tier definitions with worked examples and
+keep Sonnet (with spot-verification). If wins look random, the taxonomy
+needs the rewrite regardless. (You've also commissioned a third run from
+Sol — if you want, adjudicate after that lands for a three-way read.)
+
+## Decision 3 — One actual rules question
+
+During the simulated fight, a character ended an effect they had imposed on
+someone else. The rulebook says doing that costs a "free maneuver" — but the
+character did it *outside their own turn*, and the rules text we have in
+scope never says when a free maneuver may be used. The reviewer flagged it
+as genuinely ambiguous rather than guessing.
+
+**Your options:** (a) rule it at the table yourself ("only on your turn" /
+"any time"), or (b) have me run a proper canon search across the wider
+rulebook for a timing rule the pilot's slice didn't include. Either answer
+just gets recorded; nothing is blocked on it.
+
+## Decision 4 — The verdict: scale this factory or not?
+
+Both pilot exit criteria pass:
+
+- **No artifact in an unknown state.** All 196 are tracked through every
+  stage; none is in limbo.
+- **Every unimplemented thing is queued with a reason.** 24 queue items
+  total — and notably, seven of them exist because the final review layer
+  caught our own status declarations being narrower than the real gaps.
+  That lapse is fixed as a standing rule, and the fact the system caught it
+  is the strongest evidence in this report.
+
+**What "yes" sets in motion:** the same pipeline runs over the full corpus,
+while the engine grows mechanism by mechanism in measured order — the
+grammar counted which missing mechanism unlocks the most content: potency
+resolution first, then damage, then power-roll math, then conditions'
+derived effects, riders, action economy, and position facts. The compendium
+browser (bestiary, ability cards) falls out of the artifact store early;
+the live combat tracker arrives as those mechanisms land.
+
+**What "no" or "not yet" looks like:** name the layer you don't trust and
+we deepen the pilot there before scaling — that is exactly what the pilot
+format is for.
+
+---
+
+## Appendix — technical accounting (the builder's view)
 
 | Layer | Result |
 |---|---|
-| Scope (discovered closure) | 196 artifacts: 14 seed / 142 dependency / 7 resolution / 31 inbound-machinery / 2 reviewed supplements; 10 context-only edges; 661 inbound candidates enumerated-not-included; **0 findings** |
-| Byte conservation | 169 contributing bundles audited, **0 failures** |
-| Classification (sonnet) | 196/196 at pinned versions, 0 coverage findings, 35 uncertain (queued, not guessed) |
-| Classification (opus, independent) | 196/196, 29 uncertain; dual-reader agreement: tier 78.1%, implementability 83.7%, playCategory 90.8%, spatial 83.2%; 97 disagreements await adjudication |
-| Effect grammar (5 abilities) | Full consumption on all 5; parsed ratios: blood-for-blood 81.5%, sentenced 69.9%, toxic-plants 32.4%, mark 12.4%, grab 0.9% (pointer record) |
-| Channel-1 conformance | Grammar→engine exhaustive-delta green on real blood-for-blood; damage/potency explicit unexecuted backlog |
-| Channel-2 expectations | 5 independent readers, 94 assertions, 0 provenance violations, 36 matches, 0 value conflicts; 10 channel-2-only witnesses of grammar residue |
-| Invariants | 7 universal properties incl. exact state↔log reconciliation; negative tests prove each violation class fires |
-| Mini-encounter | 3 corpus actors, 8 steps, **0 invariant violations**, deterministic transcript |
-| Transcript review (step 8) | 14 findings, all evidence machine-verified verbatim: 2 protocol/economy catches, 7 under-declared gaps (now class-declared), 4 confirmed known-unknowns, 1 canon ambiguity |
+| Scope discovery | 196 artifacts, every inclusion with a mechanical reason; 0 unaccounted references |
+| Byte fidelity | 169 source bundles re-audited during the pilot; 0 deviations from the books |
+| Classification | 196/196 labeled by two independent models; 0 coverage gaps; 35 + 29 uncertainty flags |
+| Effect grammar | 5 abilities parsed with every byte either understood or explicitly listed as residue (82% down to 1% parsed depending on the ability — prose-heavy records are the frontier) |
+| Dual-channel check | An independent reader's 94 quoted assertions vs the grammar: 36 matches, 0 conflicts, 10 witnessed residue items |
+| Engine + invariants | Condition lifecycle live; 7 universal safety properties incl. exact state↔log reconciliation; tampering tests prove each fires |
+| Simulated encounter | 3 real corpus actors, 8 steps, 0 invariant violations, fully deterministic |
+| Transcript review | 14 machine-verified findings: 2 protocol catches, 7 under-declared gaps (now class-declared), 4 confirmations, 1 ambiguity (decision 3) |
 
-## The mechanism backlog (expressibility report in miniature)
-
-Ranked by artifacts unlocked over the pilot's five abilities — the phase-6.1
-corpus-wide report will have exactly this shape over 3,529 artifacts:
-
-1. **Potency resolution** (characteristic vs threshold) — 3 artifacts, 9 occurrences
-2. **Damage / Stamina application** — 2 artifacts, 6 occurrences
-3. **Power-roll resolution** (2d10 + characteristic, tier banding) — 1 artifact
-4. **Derived condition effects** (banes, speed changes, action restrictions,
-   granted edges) — every applied condition; surfaced by transcript review
-5. **Imposing-effect riders carried on condition instances** (sentenced's
-   forced-movement override, sleep-spores' prone rider)
-6. **Action economy** (budgets, canonical prohibitions, free-maneuver costs)
-7. **Spatial facts for ability use** (melee distance/targeting) + an
-   **area-membership** fact the vocabulary lacks (hazard triggers)
-8. **Per-hero keep attribution** at end of encounter (intent-protocol change)
-
-Already shipped: condition lifecycle (apply/remove/expiry/stacking/replace)
-and saving throws.
-
-## Exception queue
-
-`.artifacts/canon/pilot/exception-queue.json` — 24 items: the 14 review
-findings (each carrying its engine backlog item **and** its pipeline hole,
-per the two-findings rule) and the 10 dual-channel residue witnesses. Plus
-four open user decisions (below).
-
-## Did anything surprise us that the system didn't flag?
-
-**One process surprise, caught by the system's last layer:** steps 4–7
-declared known-unknowns per instance ("the free-maneuver cost is not
-budgeted") when the true gap was a class ("action economy including
-prohibitions"). The step-8 reviewer, reading only the transcript packet,
-correctly refused to accept the narrow declarations. No rule content was
-lost — but if step 8 had not existed, the transcript would have silently
-over-claimed fidelity. Verdict: the layered design worked, and the
-declaration discipline it exposed is now a standing rule (declare gap
-CLASSES). Nothing else surfaced outside a queue.
-
-Secondary surprises, all flagged by the system itself: pointer-only corpus
-records (grab/knockback/escape-grab texts point at abilities defined
-elsewhere), the classification tier-2/3 boundary being under-specified
-(structured sonnet→opus disagreement), and corpus link markup splitting
-words inside quotes (provenance validator hardened).
-
-## Lessons → standing rules
-
-1. **Review surfaces embed the evidence being judged** (user feedback,
-   step 3). Every surface since (classification, comparison, grammar) does.
-2. **Declare known-unknowns by rule class, not instance** (step 8).
-3. **Models point, code cuts held everywhere**: no model output became
-   canonical text at any layer; provenance was mechanical at every step.
-4. **Comparison-layer canonicalization belongs in the comparator**, never in
-   stored data (dual-channel normalization).
-5. Chunk **hierarchy completion** is a candidate mechanical rule for scope
-   assembly (the two supplements were hierarchy-reachable).
-6. Classification **rationales drift into rule summaries** — tighten packet
-   instructions or mechanically strip before corpus scale.
-
-## Open user decisions (pilot gate)
-
-1. **Classification batch approval** — 196 proposals, 35-item uncertainty
-   queue: https://presidium-iv.tail41404c.ts.net:9500/
-2. **Dual-reader adjudication** — 97 disagreements, decides the corpus-scale
-   classification model tier: /compare.html
-3. **Canon question** — off-turn free-maneuver timing (review finding f10):
-   needs a wider canon read (rulebot-class research) or a table ruling.
-4. **The pilot verdict itself** — accept this pipeline for corpus scale, and
-   set the scale parameters it was built to inform: chunking throughput,
-   review-UX investment, classification model tier, and mechanism-backlog
-   order (the ranked list above is the recommended build order).
+Full queues and evidence: `.artifacts/canon/pilot/exception-queue.json` and
+the served pages above. Standing rules adopted during the pilot: review
+surfaces always embed the evidence being judged; known-unknowns are declared
+by rule class, never by instance; comparison normalization lives in the
+comparator, never in stored data.
