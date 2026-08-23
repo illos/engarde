@@ -27,8 +27,10 @@ import { inspectSourceStatus, readSourceLock } from './source.js';
 import {
   ClassificationBatchSchema,
   buildClassificationPackets,
+  compareClassificationRuns,
   renderClassificationReview,
   renderClassificationReviewHtml,
+  renderComparisonHtml,
   validateClassificationCoverage,
 } from './taxonomy.js';
 
@@ -175,7 +177,8 @@ function usage(): never {
   corpus pilot-scope --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <conditions-pilot.json>] [--out <manifest.json>]
   corpus classify-packets --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --out-dir <directory> [--lanes N]
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
-  corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]`);
+  corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
+  corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
 }
 
 async function main(): Promise<void> {
@@ -474,6 +477,25 @@ async function main(): Promise<void> {
       await emit(coverage);
     }
     if (!coverage.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'classify-compare') {
+    const { records } = await loadScopedArtifacts(resolve(requiredArgument('manifest')));
+    const aBatches = await loadClassificationBatches(resolve(requiredArgument('a')));
+    const bBatches = await loadClassificationBatches(resolve(requiredArgument('b')));
+    const comparison = compareClassificationRuns(aBatches, bBatches, {
+      a: argument('a-label') ?? 'run-a',
+      b: argument('b-label') ?? 'run-b',
+    });
+    const htmlOutput = argument('html');
+    if (htmlOutput) {
+      const texts = new Map<string, string>();
+      for (const [id, record] of records) texts.set(id, record.text);
+      await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+      await writeFile(resolve(htmlOutput), renderComparisonHtml(comparison, texts), 'utf8');
+    }
+    await emit(comparison);
     return;
   }
 

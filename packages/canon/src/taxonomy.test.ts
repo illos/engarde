@@ -3,9 +3,11 @@ import {
   type ClassificationBatch,
   type ClassificationProposal,
   buildClassificationPackets,
+  compareClassificationRuns,
   contentTypeOf,
   renderClassificationReview,
   renderClassificationReviewHtml,
+  renderComparisonHtml,
   validateClassificationCoverage,
 } from './taxonomy.js';
 
@@ -187,5 +189,44 @@ describe('renderClassificationReviewHtml', () => {
     expect(html).toContain('beta body');
     expect(html).toContain('Uncertainty queue (1)');
     expect(html).toContain('needs a closer look');
+  });
+});
+
+describe('compareClassificationRuns', () => {
+  it('measures per-field agreement and routes disagreements with both proposals', () => {
+    const runA = [batch([proposal(), proposal({ artifactId: 'ns/condition/b', tier: '2' })])];
+    const runB = [
+      batch([
+        proposal(),
+        proposal({ artifactId: 'ns/condition/b', tier: '1', spatialProfile: ['movement'] }),
+        proposal({ artifactId: 'ns/condition/extra' }),
+      ]),
+    ];
+    const comparison = compareClassificationRuns(runA, runB, { a: 'left', b: 'right' });
+    expect(comparison.compared).toBe(2);
+    expect(comparison.fullAgreement).toBe(1);
+    expect(comparison.fields.tier).toEqual({ agree: 1, disagree: 1, rate: 0.5 });
+    expect(comparison.fields.spatialProfile?.disagree).toBe(1);
+    expect(comparison.disagreements).toHaveLength(1);
+    expect(comparison.disagreements[0]?.fields.sort()).toEqual(['spatialProfile', 'tier']);
+    expect(comparison.onlyInB).toEqual(['ns/condition/extra']);
+  });
+
+  it('treats spatial profiles as order-insensitive sets', () => {
+    const runA = [batch([proposal({ spatialProfile: ['movement', 'distance'] })])];
+    const runB = [batch([proposal({ spatialProfile: ['distance', 'movement'] })])];
+    const comparison = compareClassificationRuns(runA, runB, { a: 'a', b: 'b' });
+    expect(comparison.fullAgreement).toBe(1);
+  });
+
+  it('renders an adjudication card per disagreement with the verbatim text', () => {
+    const runA = [batch([proposal({ tier: '1' })])];
+    const runB = [batch([proposal({ tier: '2' })])];
+    const comparison = compareClassificationRuns(runA, runB, { a: 'left', b: 'right' });
+    const html = renderComparisonHtml(comparison, new Map([['ns/condition/a', 'body <x>']]));
+    expect(html).toContain('Disagreements (1)');
+    expect(html).toContain('body &lt;x&gt;');
+    expect(html).toContain('left');
+    expect(html).toContain('right');
   });
 });

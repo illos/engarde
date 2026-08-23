@@ -452,3 +452,181 @@ ${sections.join('\n')}
 </body></html>
 `;
 }
+
+/**
+ * Dual-reader comparison (engine-plan principle 6 applied to classification):
+ * two independent runs over the identical packets; agreement is evidence,
+ * disagreement routes to human adjudication. Spatial profiles compare as
+ * sets. The comparison never merges runs — it only measures and routes.
+ */
+export interface ClassificationComparison {
+  labels: { a: string; b: string };
+  compared: number;
+  fullAgreement: number;
+  fields: Record<string, { agree: number; disagree: number; rate: number }>;
+  onlyInA: string[];
+  onlyInB: string[];
+  uncertainty: { aOnly: string[]; bOnly: string[]; both: string[] };
+  disagreements: Array<{
+    artifactId: string;
+    fields: string[];
+    a: ClassificationProposal;
+    b: ClassificationProposal;
+  }>;
+}
+
+export function compareClassificationRuns(
+  aBatches: readonly ClassificationBatch[],
+  bBatches: readonly ClassificationBatch[],
+  labels: { a: string; b: string },
+): ClassificationComparison {
+  const index = (batches: readonly ClassificationBatch[]): Map<string, ClassificationProposal> => {
+    const map = new Map<string, ClassificationProposal>();
+    for (const batch of batches) {
+      for (const proposal of batch.proposals) map.set(proposal.artifactId, proposal);
+    }
+    return map;
+  };
+  const a = index(aBatches);
+  const b = index(bBatches);
+
+  const sameSpatial = (left: readonly string[], right: readonly string[]): boolean => {
+    const l = new Set(left);
+    const r = new Set(right);
+    return l.size === r.size && [...l].every((facet) => r.has(facet));
+  };
+  const comparators: Array<
+    [string, (x: ClassificationProposal, y: ClassificationProposal) => boolean]
+  > = [
+    ['tier', (x, y) => x.tier === y.tier],
+    ['implementability', (x, y) => x.implementability === y.implementability],
+    ['playCategory', (x, y) => x.playCategory === y.playCategory],
+    ['spatialProfile', (x, y) => sameSpatial(x.spatialProfile, y.spatialProfile)],
+  ];
+
+  const shared = [...a.keys()].filter((id) => b.has(id)).sort();
+  const fields: ClassificationComparison['fields'] = {};
+  for (const [name] of comparators) fields[name] = { agree: 0, disagree: 0, rate: 0 };
+  const disagreements: ClassificationComparison['disagreements'] = [];
+  let fullAgreement = 0;
+
+  for (const id of shared) {
+    const left = a.get(id);
+    const right = b.get(id);
+    if (!left || !right) continue;
+    const differing = comparators.filter(([, equal]) => !equal(left, right)).map(([name]) => name);
+    for (const [name] of comparators) {
+      const bucket = fields[name];
+      if (!bucket) continue;
+      if (differing.includes(name)) bucket.disagree += 1;
+      else bucket.agree += 1;
+    }
+    if (differing.length === 0) fullAgreement += 1;
+    else disagreements.push({ artifactId: id, fields: differing, a: left, b: right });
+  }
+  for (const bucket of Object.values(fields)) {
+    const total = bucket.agree + bucket.disagree;
+    bucket.rate = total === 0 ? 1 : bucket.agree / total;
+  }
+
+  const uncertainIn = (map: Map<string, ClassificationProposal>): Set<string> =>
+    new Set([...map.values()].filter((proposal) => proposal.uncertain).map((p) => p.artifactId));
+  const aUncertain = uncertainIn(a);
+  const bUncertain = uncertainIn(b);
+
+  return {
+    labels,
+    compared: shared.length,
+    fullAgreement,
+    fields,
+    onlyInA: [...a.keys()].filter((id) => !b.has(id)).sort(),
+    onlyInB: [...b.keys()].filter((id) => !a.has(id)).sort(),
+    uncertainty: {
+      aOnly: [...aUncertain].filter((id) => !bUncertain.has(id)).sort(),
+      bOnly: [...bUncertain].filter((id) => !aUncertain.has(id)).sort(),
+      both: [...aUncertain].filter((id) => bUncertain.has(id)).sort(),
+    },
+    disagreements,
+  };
+}
+
+/** Verify-in-place adjudication surface for dual-reader disagreements. */
+export function renderComparisonHtml(
+  comparison: ClassificationComparison,
+  artifactText: ReadonlyMap<string, string>,
+): string {
+  const escapeHtml = (value: string): string =>
+    value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+  const renderText = (value: string): string =>
+    escapeHtml(value).replace(
+      /\[([^\]]+)\]\((scc\.v1:[^)]+)\)/g,
+      '<span class="scc" title="$2">$1</span>',
+    );
+  const pct = (rate: number): string => `${(rate * 100).toFixed(1)}%`;
+  const spatial = (profile: readonly string[]): string =>
+    profile.length > 0 ? profile.join(' · ') : '—';
+
+  const fieldRows = Object.entries(comparison.fields)
+    .map(
+      ([name, bucket]) =>
+        `<tr><td>${escapeHtml(name)}</td><td>${bucket.agree}</td><td>${bucket.disagree}</td><td>${pct(bucket.rate)}</td></tr>`,
+    )
+    .join('\n');
+
+  const cards = comparison.disagreements
+    .map(({ artifactId, fields: differing, a, b }) => {
+      const text = artifactText.get(artifactId);
+      const row = (name: string, left: string, right: string): string => {
+        const differs = differing.includes(name);
+        return `<tr${differs ? ' class="diff"' : ''}><td>${escapeHtml(name)}</td><td>${escapeHtml(left)}</td><td>${escapeHtml(right)}</td></tr>`;
+      };
+      return `<details class="card" open>
+<summary><code>${escapeHtml(artifactId)}</code> <span class="chip">${escapeHtml(differing.join(', '))}</span></summary>
+<table class="cmp"><tr><th></th><th>${escapeHtml(comparison.labels.a)}</th><th>${escapeHtml(comparison.labels.b)}</th></tr>
+${row('tier', a.tier, b.tier)}
+${row('implementability', a.implementability, b.implementability)}
+${row('playCategory', a.playCategory, b.playCategory)}
+${row('spatialProfile', spatial(a.spatialProfile), spatial(b.spatialProfile))}
+${row('uncertain', String(a.uncertain), String(b.uncertain))}
+</table>
+<p class="rationale"><b>${escapeHtml(comparison.labels.a)}:</b> ${escapeHtml(a.rationale)}${a.uncertaintyNote ? ` <i>⚠ ${escapeHtml(a.uncertaintyNote)}</i>` : ''}</p>
+<p class="rationale"><b>${escapeHtml(comparison.labels.b)}:</b> ${escapeHtml(b.rationale)}${b.uncertaintyNote ? ` <i>⚠ ${escapeHtml(b.uncertaintyNote)}</i>` : ''}</p>
+${text === undefined ? '<p class="note">⚠ artifact text unavailable</p>' : `<pre class="text">${renderText(text.trim())}</pre>`}
+</details>`;
+    })
+    .join('\n');
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dual-reader comparison — conditions pilot</title><style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:1rem;line-height:1.45;color:#1a1a18;background:#faf9f6;max-width:60rem}
+h1{font-size:1.35rem} h2{font-size:1.1rem;margin-top:1.6rem;border-bottom:1px solid #ddd9d0;padding-bottom:0.2rem}
+code{font-family:ui-monospace,Menlo,monospace;font-size:0.8em;word-break:break-all}
+.chip{display:inline-block;background:#e8e4da;border-radius:9px;padding:0.05em 0.55em;font-size:0.72rem;margin-left:0.25em}
+.card{border:1px solid #ddd9d0;border-radius:8px;margin:0.6rem 0;padding:0.35rem 0.7rem;background:#fff}
+.card summary{cursor:pointer;padding:0.25rem 0}
+table{border-collapse:collapse;margin:0.5rem 0;font-size:0.85rem}
+th,td{border:1px solid #ddd9d0;padding:4px 10px;text-align:left}
+th{background:#eeece6}
+tr.diff td{background:#fdf3d8;font-weight:600}
+.rationale{font-size:0.85rem;margin:0.3rem 0}
+.note{font-size:0.85rem;background:#fdf3d8;padding:0.35rem 0.6rem;border-radius:6px}
+.text{white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:0.78rem;background:#f4f2ec;border-left:3px solid #c9c3b4;padding:0.6rem 0.8rem;border-radius:0 6px 6px 0;overflow-x:auto}
+.scc{text-decoration:underline dotted #a89f8c}
+.meta{font-size:0.9rem}
+</style></head><body>
+<h1>Dual-reader comparison — conditions pilot</h1>
+<p class="meta"><b>${escapeHtml(comparison.labels.a)}</b> vs <b>${escapeHtml(comparison.labels.b)}</b> over ${comparison.compared} shared artifacts · full agreement on ${comparison.fullAgreement} (${pct(comparison.compared === 0 ? 1 : comparison.fullAgreement / comparison.compared)}) · ${comparison.disagreements.length} to adjudicate</p>
+<table><tr><th>Field</th><th>Agree</th><th>Disagree</th><th>Rate</th></tr>
+${fieldRows}</table>
+<p class="meta">Uncertainty: both flagged ${comparison.uncertainty.both.length} · only ${escapeHtml(comparison.labels.a)} ${comparison.uncertainty.aOnly.length} · only ${escapeHtml(comparison.labels.b)} ${comparison.uncertainty.bOnly.length}${comparison.onlyInA.length + comparison.onlyInB.length > 0 ? ` · coverage gaps: ${comparison.onlyInA.length}/${comparison.onlyInB.length}` : ''}</p>
+<h2>Disagreements (${comparison.disagreements.length})</h2>
+<p class="meta">Differing fields are highlighted; the verbatim source text is below each card — adjudicate in place.</p>
+${cards}
+</body></html>
+`;
+}
