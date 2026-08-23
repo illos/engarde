@@ -2,63 +2,22 @@
 
 We test-drove the whole books-to-engine pipeline on one small slice: the nine
 conditions and the 196 rulebook excerpts they depend on. It worked end to
-end. Before I scale it to the full books, I need three things from you.
+end. Before I scale it to the full books, One decision left (two others settled below).
 
-## 1. Review the category map (~10 min) — replaces the old items 1 and 2
+## Settled since the last version
 
-You called it: four AI runs plus a same-model repeat showed the labels were
-judgment calls, not facts (the same model disagreed with itself on 36% of
-cards). So we dropped AI classification entirely. Instead, per your design:
-MCDM already organized the books — their 20 chapters are the categories, and
-every extracted piece now inherits its category mechanically from where it
-lives in the book. All 3,529 pieces categorized, zero unmatched, same result
-every run.
+- **Categories:** AI labeling is dropped (you called it — measured as
+  irreproducible). Every piece now inherits its category mechanically from
+  its chapter in the books; all 3,529 attributed, zero unmatched, identical
+  on every re-run. You waived the map review — it has no engine-blocking
+  importance and any bucket can be fixed in one line later.
+- **Free maneuvers are turn-only:** researched across both books + the print
+  PDF, signed off by you 2026-08-23, recorded as ruling R-0001
+  (`docs/canon-rulings.md`). One consequence: the test fight's step 7 is now
+  a known rule violation the engine should warn about — it becomes the first
+  test case for the action-economy work.
 
-The one human judgment left is the map itself: 57 rows, each saying "pieces
-from this part of the book go in this bucket." The full map is right below —
-each row shows how many pieces it captures and real examples, so you can
-judge it here. The four amber rows at the top are the ones I flagged for
-you: rules terms the book itself spreads across two chapters. One default
-worth knowing: signature abilities named after kits or ancestries currently
-land in the classes bucket with the rest of the abilities.
-
-MAP-TABLE-HERE
-
-Tell me "map approved" or list row changes, and I flip it to accepted.
-
-## 2. Sign off one rules ruling: free maneuvers are turn-only
-
-You sent this to a rulebot division. It swept every "free maneuver" in both
-core books and checked the print PDF. Verdict: **turn-only.** The evidence,
-verbatim:
-
-- The book's glossary says it outright (Heroes p.13, pointing at p.267):
-  "Free Maneuver: A maneuver that doesn't count against the one maneuver per
-  turn a creature can take. **A free maneuver can only be used by a creature
-  on their turn.**"
-- The body rule (Combat, book p.267) frames them the same way: "you can
-  undertake such straightforward activities as free maneuvers **on your
-  turn**."
-- Off-turn simple activities are a *separate* category (same page): "When it
-  isn't your turn, you can typically undertake even simpler activities
-  requiring no action with the Director's approval."
-- And the design pattern confirms it: eight abilities that want anytime
-  ending say "**(no action required)**" explicitly — that's the "unless the
-  ability says otherwise" escape hatch in the Ending Effects rule. If free
-  maneuvers worked off-turn, that phrasing would be pointless.
-
-One honest caveat for your sign-off: the word "only" appears just in the
-glossary; the body rule implies it without stating it. Our own canon
-standards treat glossaries as pointers, not authorities — so this needs your
-blessing rather than mine.
-
-**If you sign off:** the ruling is recorded, and our test fight's step 7
-(the fury ending an effect during someone else's turn) becomes a real rule
-violation the engine should have warned about — which goes into the
-action-economy work as its first concrete test case. Say "ruling approved"
-(or overrule it) and I'll record it.
-
-## 3. Tell me: scale it or not?
+## The one remaining decision: scale it or not?
 
 My case for yes: every rule the engine now applies traces to an exact quoted
 sentence from the books; two independent AI readings of the same abilities
