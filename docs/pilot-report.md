@@ -26,17 +26,37 @@ MAP-TABLE-HERE
 
 Tell me "map approved" or list row changes, and I flip it to accepted.
 
-## 2. Answer one rules question
+## 2. Sign off one rules ruling: free maneuvers are turn-only
 
-In the test fight, a character ended an effect they'd put on someone else.
-The book says doing that costs a "free maneuver" — but they did it when it
-**wasn't their turn**, and nothing in the rules slice we pulled says whether
-free maneuvers are turn-only. Two ways to settle it:
+You sent this to a rulebot division. It swept every "free maneuver" in both
+core books and checked the print PDF. Verdict: **turn-only.** The evidence,
+verbatim:
 
-- You rule it ("only on your own turn" or "any time"), or
-- I run a search of the full books for a timing rule outside our slice.
+- The book's glossary says it outright (Heroes p.13, pointing at p.267):
+  "Free Maneuver: A maneuver that doesn't count against the one maneuver per
+  turn a creature can take. **A free maneuver can only be used by a creature
+  on their turn.**"
+- The body rule (Combat, book p.267) frames them the same way: "you can
+  undertake such straightforward activities as free maneuvers **on your
+  turn**."
+- Off-turn simple activities are a *separate* category (same page): "When it
+  isn't your turn, you can typically undertake even simpler activities
+  requiring no action with the Director's approval."
+- And the design pattern confirms it: eight abilities that want anytime
+  ending say "**(no action required)**" explicitly — that's the "unless the
+  ability says otherwise" escape hatch in the Ending Effects rule. If free
+  maneuvers worked off-turn, that phrasing would be pointless.
 
-Which do you want?
+One honest caveat for your sign-off: the word "only" appears just in the
+glossary; the body rule implies it without stating it. Our own canon
+standards treat glossaries as pointers, not authorities — so this needs your
+blessing rather than mine.
+
+**If you sign off:** the ruling is recorded, and our test fight's step 7
+(the fury ending an effect during someone else's turn) becomes a real rule
+violation the engine should have warned about — which goes into the
+action-economy work as its first concrete test case. Say "ruling approved"
+(or overrule it) and I'll record it.
 
 ## 3. Tell me: scale it or not?
 
