@@ -345,3 +345,110 @@ export function renderClassificationReview(
   lines.push('');
   return lines.join('\n');
 }
+
+/**
+ * Batch-review surface v1: self-contained HTML with the VERBATIM artifact
+ * text embedded beside every proposed classification, so the reviewer
+ * verifies in place — no book lookups. (Pilot feedback 2026-08-22: a
+ * classification table without its source material cannot be reviewed.)
+ * Rendering only; the canonical bytes live in the bundles.
+ */
+export function renderClassificationReviewHtml(
+  batches: readonly ClassificationBatch[],
+  coverage: ClassificationCoverageReport,
+  artifactText: ReadonlyMap<string, string>,
+): string {
+  const escapeHtml = (value: string): string =>
+    value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+  // Presentation-only link reduction: [text](scc.v1:id) renders as the text
+  // with the target in a tooltip. The canonical bytes are untouched.
+  const renderText = (value: string): string =>
+    escapeHtml(value).replace(
+      /\[([^\]]+)\]\((scc\.v1:[^)]+)\)/g,
+      '<span class="scc" title="$2">$1</span>',
+    );
+  const anchorOf = (id: string): string => id.replace(/[^a-zA-Z0-9]+/g, '-');
+
+  const all = batches
+    .flatMap((batch) => batch.proposals.map((proposal) => ({ batch, proposal })))
+    .sort((a, b) => a.proposal.artifactId.localeCompare(b.proposal.artifactId));
+
+  const card = ({ batch, proposal }: (typeof all)[number], open: boolean): string => {
+    const text = artifactText.get(proposal.artifactId);
+    const chips = [
+      `tier ${proposal.tier}`,
+      proposal.implementability,
+      proposal.playCategory,
+      ...(proposal.spatialProfile.length > 0 ? [proposal.spatialProfile.join(' · ')] : []),
+    ]
+      .map((chip) => `<span class="chip">${escapeHtml(chip)}</span>`)
+      .join(' ');
+    const warn = proposal.uncertain ? ' warn' : '';
+    const note = proposal.uncertaintyNote
+      ? `<p class="note">⚠ ${escapeHtml(proposal.uncertaintyNote)}</p>`
+      : '';
+    return `<details id="${anchorOf(proposal.artifactId)}" class="card${warn}"${open ? ' open' : ''}>
+<summary><code>${escapeHtml(proposal.artifactId)}</code>${proposal.uncertain ? ' ⚠' : ''} ${chips}</summary>
+<p class="rationale">${escapeHtml(proposal.rationale)} <span class="lane">(${escapeHtml(batch.laneId)})</span></p>
+${note}
+${text === undefined ? '<p class="note">⚠ artifact text unavailable</p>' : `<pre class="text">${renderText(text.trim())}</pre>`}
+</details>`;
+  };
+
+  const uncertainCards = all.filter((entry) => entry.proposal.uncertain);
+  const byType = new Map<string, typeof all>();
+  for (const entry of all) {
+    const list = byType.get(entry.proposal.contentType) ?? [];
+    list.push(entry);
+    byType.set(entry.proposal.contentType, list);
+  }
+
+  const countLine = (counts: Record<string, number>): string =>
+    Object.entries(counts)
+      .map(([key, count]) => `${escapeHtml(key)}: ${count}`)
+      .join(' · ');
+
+  const sections: string[] = [];
+  if (uncertainCards.length > 0) {
+    sections.push(`<h2>Uncertainty queue (${uncertainCards.length})</h2>`);
+    sections.push(...uncertainCards.map((entry) => card(entry, true)));
+  }
+  for (const [contentType, entries] of [...byType.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    sections.push(`<h2>${escapeHtml(contentType)} (${entries.length})</h2>`);
+    sections.push(...entries.map((entry) => card(entry, false)));
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classification review — conditions pilot</title><style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:1rem;line-height:1.45;color:#1a1a18;background:#faf9f6;max-width:60rem}
+h1{font-size:1.35rem} h2{font-size:1.1rem;margin-top:1.6rem;border-bottom:1px solid #ddd9d0;padding-bottom:0.2rem}
+code{font-family:ui-monospace,Menlo,monospace;font-size:0.8em;word-break:break-all}
+.chip{display:inline-block;background:#e8e4da;border-radius:9px;padding:0.05em 0.55em;font-size:0.72rem;margin-left:0.25em;white-space:nowrap}
+.card{border:1px solid #ddd9d0;border-radius:8px;margin:0.45rem 0;padding:0.35rem 0.7rem;background:#fff}
+.card.warn{background:#fdf6dd;border-color:#e4cf7c}
+.card summary{cursor:pointer;padding:0.25rem 0}
+.rationale{font-size:0.88rem;margin:0.5rem 0 0.2rem}
+.lane{color:#8a857a;font-size:0.78rem}
+.note{font-size:0.85rem;background:#fdf3d8;padding:0.35rem 0.6rem;border-radius:6px}
+.text{white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:0.78rem;background:#f4f2ec;border-left:3px solid #c9c3b4;padding:0.6rem 0.8rem;border-radius:0 6px 6px 0;overflow-x:auto}
+.scc{text-decoration:underline dotted #a89f8c}
+.meta{font-size:0.85rem}
+</style></head><body>
+<h1>Classification review — conditions pilot</h1>
+<p class="meta">Coverage: <b>${coverage.classified}/${coverage.expected}</b> classified · ${coverage.uncertain.length} uncertain · ${coverage.findings.length} findings · ok=${coverage.ok}</p>
+<p class="meta">Tier — ${countLine(coverage.counts.byTier)}<br>
+Implementability — ${countLine(coverage.counts.byImplementability)}<br>
+Play category — ${countLine(coverage.counts.byPlayCategory)}<br>
+Content type — ${countLine(coverage.counts.byContentType)}</p>
+<p class="meta">Each card shows the model's proposed classification above the <b>verbatim source text</b> it classified — verify in place, tap to expand. Dotted-underlined words are corpus cross-links (target in the tooltip); the canonical bytes live in the artifact bundles.</p>
+${sections.join('\n')}
+</body></html>
+`;
+}

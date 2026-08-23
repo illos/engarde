@@ -5,6 +5,7 @@ import {
   buildClassificationPackets,
   contentTypeOf,
   renderClassificationReview,
+  renderClassificationReviewHtml,
   validateClassificationCoverage,
 } from './taxonomy.js';
 
@@ -153,5 +154,38 @@ describe('renderClassificationReview', () => {
     expect(review).toContain('## Uncertainty queue');
     expect(review).toContain('needs a closer look');
     expect(review.match(/^\| `ns\//gm)).toHaveLength(2);
+  });
+});
+
+describe('renderClassificationReviewHtml', () => {
+  it('embeds the verbatim source text beside each classification', () => {
+    const batches = [
+      batch([
+        proposal(),
+        proposal({
+          artifactId: 'ns/condition/b',
+          uncertain: true,
+          uncertaintyNote: 'needs a closer look',
+        }),
+      ]),
+    ];
+    const expected = new Map([
+      ['ns/condition/a', HASH],
+      ['ns/condition/b', HASH],
+    ]);
+    const texts = new Map([
+      ['ns/condition/a', 'alpha <text> with [link](scc.v1:ns/condition/b)'],
+      ['ns/condition/b', 'beta body'],
+    ]);
+    const html = renderClassificationReviewHtml(
+      batches,
+      validateClassificationCoverage(expected, batches, HASH),
+      texts,
+    );
+    expect(html).toContain('alpha &lt;text&gt;');
+    expect(html).toContain('<span class="scc" title="scc.v1:ns/condition/b">link</span>');
+    expect(html).toContain('beta body');
+    expect(html).toContain('Uncertainty queue (1)');
+    expect(html).toContain('needs a closer look');
   });
 });

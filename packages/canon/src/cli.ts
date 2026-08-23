@@ -28,6 +28,7 @@ import {
   ClassificationBatchSchema,
   buildClassificationPackets,
   renderClassificationReview,
+  renderClassificationReviewHtml,
   validateClassificationCoverage,
 } from './taxonomy.js';
 
@@ -174,7 +175,7 @@ function usage(): never {
   corpus pilot-scope --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <conditions-pilot.json>] [--out <manifest.json>]
   corpus classify-packets --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --out-dir <directory> [--lanes N]
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
-  corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md>`);
+  corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]`);
 }
 
 async function main(): Promise<void> {
@@ -458,8 +459,16 @@ async function main(): Promise<void> {
       const output = resolve(requiredArgument('out'));
       await mkdir(dirname(output), { recursive: true });
       await writeFile(output, review, 'utf8');
+      const htmlOutput = argument('html');
+      if (htmlOutput) {
+        const texts = new Map<string, string>();
+        for (const [id, record] of records) texts.set(id, record.text);
+        const html = renderClassificationReviewHtml(batches, coverage, texts);
+        await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+        await writeFile(resolve(htmlOutput), html, 'utf8');
+      }
       process.stdout.write(
-        `${JSON.stringify({ ok: coverage.ok, classified: coverage.classified, expected: coverage.expected, uncertain: coverage.uncertain.length, findings: coverage.findings.length, output }, null, 2)}\n`,
+        `${JSON.stringify({ ok: coverage.ok, classified: coverage.classified, expected: coverage.expected, uncertain: coverage.uncertain.length, findings: coverage.findings.length, output, htmlOutput: htmlOutput ?? null }, null, 2)}\n`,
       );
     } else {
       await emit(coverage);
