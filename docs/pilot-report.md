@@ -1,157 +1,76 @@
-# Conditions pilot — what it proved, and the four decisions it needs from you
+# Conditions pilot — what I need from you
 
-> 2026-08-22. Written for the judge, not the builder: every term is explained
-> where it first appears, and each decision tells you exactly what to check.
-> The one-line technical accounting lives in the appendix at the bottom.
+We test-drove the whole books-to-engine pipeline on one small slice: the nine
+conditions and the 196 rulebook excerpts they depend on. It worked end to
+end. Before I scale it to the full books, I need four things from you.
 
-## What this pilot was
+## 1. Check the AI's labels (~20 min)
 
-We are building a factory that turns the Draw Steel rulebooks into a running
-rules engine **without any AI ever writing rule text** — models only point at
-locations and propose labels; deterministic code does all cutting and
-checking, and you review exceptions in batches instead of every rule. Before
-running that factory over the whole book set (about 3,500 extracted pieces),
-we ran every layer of it once over the smallest real slice: the nine
-conditions (bleeding, dazed, frightened, grabbed, prone, restrained, slowed,
-taunted, weakened) and everything they depend on — 196 pieces in total.
+Open **https://presidium-iv.tail41404c.ts.net:9500/**
 
-Throughout this report, an **artifact** means one such piece: a rule,
-ability, or book section cut byte-for-byte from the official text, with a
-checksum proving it was never altered.
+Each card shows a rulebook excerpt with the AI's labels above it — which tier
+it plays at, whether it needs engine code, and so on. I need you to look at
+the cards and tell me if the labels sound right based on the rule text shown
+on the card. Specifically:
 
-**The pilot's grading standard:** nothing may fall through silently. A layer
-is allowed to *not implement* something — but only if it explicitly says so,
-in a queue, with a reason. Implementing 60% and precisely listing the other
-40% is a pass; 90% with one silent hole is a fail.
+- The **35 cards at the top** are ones the AI wasn't sure about. Read those.
+- Then pick **any 10 other cards** at random and check them too.
 
-## The short verdict (my assessment — yours is decision 4)
+Tell me which cards are wrong and what they should say. If you correct only
+one or two out of your ten random ones, the cheap AI is good enough for the
+full books. Lots of corrections means I use a stronger model.
 
-Every layer ran end to end in one day. The engine now genuinely applies,
-tracks, and expires conditions with every behavior traceable to a quoted
-rulebook sentence. The verification net caught the one place where our own
-bookkeeping over-claimed — the exact failure mode that killed version 1,
-caught by the system instead of discovered later as a bug. Nothing surfaced
-outside a queue. I recommend accepting the pipeline for corpus scale, with
-one fix first (sharpen the tier definitions — see decision 2).
+## 2. Break the tie between the two AIs (~15 min)
 
----
+Open **https://presidium-iv.tail41404c.ts.net:9500/compare.html**
 
-## Decision 1 — Approve (or correct) the classification batch
+I ran the same labeling job twice, with a cheap AI (Sonnet) and an expensive
+one (Opus). They disagreed on 97 excerpts. Each card shows both answers over
+the rule text, differences highlighted in yellow.
 
-**Where:** https://presidium-iv.tail41404c.ts.net:9500/
+Pick about **10 cards where the "tier" row is yellow** and tell me who read
+the rule right. Most of these are Sonnet saying "the player has to tell the
+software what happened" where Opus says "the software can resolve this
+itself" — I suspect my instructions were vague there, but your read decides
+it. (You've also asked Sol to run this same job — feel free to wait for that
+before answering.)
 
-**What happened:** AI workers read all 196 artifacts and attached four labels
-to each. The labels are routing metadata — they decide which pipeline path
-each artifact takes later. They are cheap to correct and never alter the
-rulebook text itself. The labels:
+## 3. Answer one rules question
 
-- **Tier** — how the rule reaches the player. Tier 1: the engine does it
-  automatically (e.g. a condition expiring). Tier 2: a player presses a
-  button, the engine resolves it (e.g. using an ability). Tier 3: the engine
-  can only offer options once a player asserts facts the software can't know
-  (e.g. things depending on table positioning). "Not a rule" = flavor prose.
-- **Implementability** — does this need engine code, is it pure data, or is
-  it just displayed as text?
-- **Play category** — combat, downtime, character building, etc.
-- **Spatial profile** — which position-dependent concepts the rule touches.
+In the test fight, a character ended an effect they'd put on someone else.
+The book says doing that costs a "free maneuver" — but they did it when it
+**wasn't their turn**, and nothing in the rules slice we pulled says whether
+free maneuvers are turn-only. Two ways to settle it:
 
-**How to review it:** each card on the page shows the proposed labels
-directly above the exact rulebook text they describe. You never need the
-books. Two passes:
+- You rule it ("only on your own turn" or "any time"), or
+- I run a search of the full books for a timing rule outside our slice.
 
-1. **Read the "Uncertainty queue" (35 cards, at the top).** These are the
-   ones the AI flagged as genuine judgment calls instead of guessing. For
-   each: read the text, pick the label you'd want, or leave it queued.
-2. **Spot-check ~10 random cards from the rest.** For each, ask one
-   question: *"Do these labels match what the text in front of me says?"*
-   A card is wrong if, e.g., a rule that clearly needs automatic engine
-   behavior is labeled "display-only", or button-press ability is labeled
-   tier 3.
+Which do you want?
 
-**What your answer decides:** your correction rate on the spot-checks is the
-measured error rate for cheap-model classification. Roughly: if you correct
-0–1 of 10, the batch process works as designed; 2–3, it needs the sharpened
-instructions from decision 2 first; more, we escalate the model tier.
+## 4. Tell me: scale it or not?
 
-## Decision 2 — Who read the rules right: Sonnet or Opus?
+My case for yes: every rule the engine now applies traces to an exact quoted
+sentence from the books; two independent AI readings of the same abilities
+agreed on everything both could read; and when our own progress notes claimed
+slightly more than was true, the review step caught it — that's the v1
+disease, caught by machinery instead of by you finding a bug months later.
+Everything not built yet sits in a list of 24 items, each with a reason.
 
-**Where:** https://presidium-iv.tail41404c.ts.net:9500/compare.html
-
-**What happened:** to measure how much to trust the cheap model, a stronger
-model independently re-labeled the same 196 artifacts. They fully agreed on
-99. The page shows the 97 disagreements — each card has both models' labels
-side by side (differences highlighted) above the rulebook text.
-
-**The one pattern that matters:** most tier conflicts are Sonnet saying
-tier 3 where Opus says tier 2 (Sonnet used tier 3 twenty times, Opus twice).
-That's systematic, not random — which usually means my one-line definition
-of the 2-vs-3 boundary is ambiguous, not that either model is careless.
-
-**How to review it:** you do *not* need all 97. Sample ~10 cards where the
-tier row is highlighted and ask: *"Reading this text, which model's tier is
-right?"* Note roughly how often each side wins.
-
-**What your answer decides:** the model tier for classifying the remaining
-~3,300 artifacts. If Opus is consistently right, cheap-model classification
-still survives — we sharpen the tier definitions with worked examples and
-keep Sonnet (with spot-verification). If wins look random, the taxonomy
-needs the rewrite regardless. (You've also commissioned a third run from
-Sol — if you want, adjudicate after that lands for a three-way read.)
-
-## Decision 3 — One actual rules question
-
-During the simulated fight, a character ended an effect they had imposed on
-someone else. The rulebook says doing that costs a "free maneuver" — but the
-character did it *outside their own turn*, and the rules text we have in
-scope never says when a free maneuver may be used. The reviewer flagged it
-as genuinely ambiguous rather than guessing.
-
-**Your options:** (a) rule it at the table yourself ("only on your turn" /
-"any time"), or (b) have me run a proper canon search across the wider
-rulebook for a timing rule the pilot's slice didn't include. Either answer
-just gets recorded; nothing is blocked on it.
-
-## Decision 4 — The verdict: scale this factory or not?
-
-Both pilot exit criteria pass:
-
-- **No artifact in an unknown state.** All 196 are tracked through every
-  stage; none is in limbo.
-- **Every unimplemented thing is queued with a reason.** 24 queue items
-  total — and notably, seven of them exist because the final review layer
-  caught our own status declarations being narrower than the real gaps.
-  That lapse is fixed as a standing rule, and the fact the system caught it
-  is the strongest evidence in this report.
-
-**What "yes" sets in motion:** the same pipeline runs over the full corpus,
-while the engine grows mechanism by mechanism in measured order — the
-grammar counted which missing mechanism unlocks the most content: potency
-resolution first, then damage, then power-roll math, then conditions'
-derived effects, riders, action economy, and position facts. The compendium
-browser (bestiary, ability cards) falls out of the artifact store early;
-the live combat tracker arrives as those mechanisms land.
-
-**What "no" or "not yet" looks like:** name the layer you don't trust and
-we deepen the pilot there before scaling — that is exactly what the pilot
-format is for.
+If you say go, I run this same pipeline over the full books and build the
+engine features in the order that unlocks the most content: potency checks
+first, then damage, then power rolls, then the conditions' side effects.
+If anything above made you trust a layer less, say which one and I'll deepen
+the test there instead.
 
 ---
 
-## Appendix — technical accounting (the builder's view)
+## Appendix: what "worked end to end" means, layer by layer
 
-| Layer | Result |
+| Step | Plain result |
 |---|---|
-| Scope discovery | 196 artifacts, every inclusion with a mechanical reason; 0 unaccounted references |
-| Byte fidelity | 169 source bundles re-audited during the pilot; 0 deviations from the books |
-| Classification | 196/196 labeled by two independent models; 0 coverage gaps; 35 + 29 uncertainty flags |
-| Effect grammar | 5 abilities parsed with every byte either understood or explicitly listed as residue (82% down to 1% parsed depending on the ability — prose-heavy records are the frontier) |
-| Dual-channel check | An independent reader's 94 quoted assertions vs the grammar: 36 matches, 0 conflicts, 10 witnessed residue items |
-| Engine + invariants | Condition lifecycle live; 7 universal safety properties incl. exact state↔log reconciliation; tampering tests prove each fires |
-| Simulated encounter | 3 real corpus actors, 8 steps, 0 invariant violations, fully deterministic |
-| Transcript review | 14 machine-verified findings: 2 protocol catches, 7 under-declared gaps (now class-declared), 4 confirmations, 1 ambiguity (decision 3) |
-
-Full queues and evidence: `.artifacts/canon/pilot/exception-queue.json` and
-the served pages above. Standing rules adopted during the pilot: review
-surfaces always embed the evidence being judged; known-unknowns are declared
-by rule class, never by instance; comparison normalization lives in the
-comparator, never in stored data.
+| Find the slice | Followed the books' own cross-references outward from the 9 conditions: 196 excerpts, each with a recorded reason for inclusion |
+| Copy fidelity | All 196 are byte-identical to the books — checksummed, re-verified during the pilot, zero deviations |
+| Label them | Both AIs labeled all 196 with none skipped; disagreements are your item 2 |
+| Parse abilities | 5 real abilities parsed into engine data; every sentence the parser could NOT handle is listed, not dropped |
+| Run the engine | Conditions actually apply, get saved against, expire, and end with the encounter — in a simulated 3-actor fight, with an automatic checker verifying every step's bookkeeping (zero errors) |
+| Audit the fight | A separate AI read the fight log against the quoted rules and filed 14 findings — 2 real protocol gaps, 7 things we knew were missing but had described too narrowly (now fixed), 4 confirmations, and the rules question in item 3 |
