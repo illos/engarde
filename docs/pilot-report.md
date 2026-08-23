@@ -1,8 +1,8 @@
-# Conditions pilot — what I need from you
+# Conditions pilot — CLOSED: verdict GO (2026-08-23)
 
 We test-drove the whole books-to-engine pipeline on one small slice: the nine
 conditions and the 196 rulebook excerpts they depend on. It worked end to
-end. Before I scale it to the full books, One decision left (two others settled below).
+end. Before I scale it to the full books, 
 
 ## Settled since the last version
 
