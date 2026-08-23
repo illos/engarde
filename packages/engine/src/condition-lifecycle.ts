@@ -106,7 +106,11 @@ export function applyConditionInstance(
       'mutation',
       `${instance.conditionId} applied to ${target.id}`,
       [instance.conditionId],
-      { instanceId: instance.instanceId, ending: instance.ending, source: instance.source },
+      {
+        addedInstanceIds: [instance.instanceId],
+        ending: instance.ending,
+        source: instance.source,
+      },
     ),
   );
   return {
@@ -139,7 +143,7 @@ export function removeConditionInstance(
     state: withParticipant(state, { ...target, conditions }),
     log: [
       entry(context, 'mutation', message, [instance.conditionId, ...canonRefs], {
-        instanceId,
+        removedInstanceIds: [instanceId],
         conditionId: instance.conditionId,
       }),
     ],
@@ -171,7 +175,7 @@ export function endOfTurnSweep(
             'mutation',
             `${target.id} saves against ${instance.conditionId} (rolled ${roll})`,
             [instance.conditionId, CANON.savingThrow],
-            { instanceId: instance.instanceId, roll, asserted },
+            { removedInstanceIds: [instance.instanceId], roll, asserted },
           ),
         );
       } else {
@@ -195,7 +199,7 @@ export function endOfTurnSweep(
           'mutation',
           `${instance.conditionId} on ${target.id} ends at the end of their turn`,
           [instance.conditionId],
-          { instanceId: instance.instanceId },
+          { removedInstanceIds: [instance.instanceId] },
         ),
       );
       continue;
@@ -228,7 +232,7 @@ export function endEncounterSweep(
           'mutation',
           `conditions on ${participant.id} end with the encounter`,
           [CANON.endingEffects, ...new Set(ended.map((instance) => instance.conditionId))],
-          { endedInstanceIds: ended.map((instance) => instance.instanceId) },
+          { removedInstanceIds: ended.map((instance) => instance.instanceId) },
         ),
       );
     }

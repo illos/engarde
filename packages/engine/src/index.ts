@@ -14,3 +14,4 @@ export { createFixedClock, createSeededRandomSource } from './determinism.js';
 export * from './schemas.js';
 export * from './condition-lifecycle.js';
 export * from './apply-intent.js';
+export * from './invariants.js';
