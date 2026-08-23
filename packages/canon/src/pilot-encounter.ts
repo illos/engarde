@@ -89,8 +89,25 @@ export async function runPilotEncounter(
     abilitiesUsed: [],
     unexecuted: [],
     knownUnknowns: [
-      'toxic-plants triggers on area membership ("starts their turn in the area"); the spatial-fact vocabulary (adjacent / line-of-effect) cannot assert area membership yet',
-      'action economy is not modeled: ability use, maneuvers, and the free-maneuver cost of ending an imposed effect are not budgeted',
+      // Declared by RULE CLASS, not instance (step-8 lesson: the reviewer
+      // caught instance-scoped declarations under-covering their class).
+      'derived condition effects are not modeled: none of the applied conditions' +
+        " impose their canon side effects (bleeding's Stamina loss on actions," +
+        " weakened's bane, restrained's speed 0 / edge granted / forced-move" +
+        ' immunity, dazed action restrictions) — pending the effect grammar +' +
+        ' derived-effect mechanism',
+      'imposing-effect riders are not carried on condition instances (sentenced' +
+        " forced-movement override, sleep-spores' prone rider) — pending grammar" +
+        ' residue mechanisms',
+      'spatial facts are not asserted for ability use: melee distance/targeting' +
+        ' on strikes and area membership for hazard triggers (the vocabulary' +
+        ' also lacks an area-membership fact)',
+      'action economy is not modeled: action/maneuver budgets, canonical' +
+        ' prohibitions (e.g. dazed forbidding free maneuvers), and the' +
+        ' free-maneuver cost and timing of ending an imposed effect',
+      'the end-of-encounter keep choice canonically belongs to the hero' +
+        ' suffering the effect; the intent protocol does not yet attribute' +
+        ' keeps per hero (the Director dispatches the sweep)',
     ],
   };
 
