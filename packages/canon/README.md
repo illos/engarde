@@ -247,3 +247,23 @@ Uncertainty is a first-class outcome: a proposal may set `uncertain=true` with
 a note instead of guessing, and the review surface surfaces the queue. Batch
 approval is a human act; the pilot records it in the working note / decisions
 log, not by self-clearing.
+
+## Effect grammar + dual-channel verification (ROAD-0004, pilot step 5)
+
+`corpus grammar-report` parses ability texts with the thin effect grammar and
+publishes the residue/expressibility report (the mechanism backlog ranked by
+artifacts unlocked). Full consumption is enforced: every byte is a parsed
+clause or explicit residue; the grammar consumes a whole line or none of it,
+so no clause tail is silently dropped. `--html` renders the verify-in-place
+surface (parsed spans green, residue amber).
+
+`corpus expectations-validate --path <ability.md> --expectations <file>`
+checks a channel-2 independent reading: leaf provenance (every assertion must
+quote the artifact text verbatim, with its value inside the quote) and the
+channel-1-vs-channel-2 comparison (matches, value mismatches, one-sided
+claims — the disagreement queue). Channel agreement is evidence; disagreement
+routes to the human; nothing merges automatically.
+
+Channel 1 itself is `effect-conformance.ts`: parsed tier outcomes compile to
+engine intents, and conformance tests assert exhaustive state deltas.
+Deliberately unexecuted parts (damage, potency) are explicit backlog items.

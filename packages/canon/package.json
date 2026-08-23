@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "yaml": "^2.8.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@engarde/engine": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

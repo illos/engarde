@@ -176,6 +176,9 @@ importers:
 
   packages/canon:
     dependencies:
+      '@engarde/engine':
+        specifier: workspace:*
+        version: link:../engine
       yaml:
         specifier: ^2.8.1
         version: 2.9.0

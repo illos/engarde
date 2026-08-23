@@ -7,12 +7,19 @@ import { auditExtractionBundle } from './audit.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
+import { auditGrammarConservation, parseEffectText } from './effect-grammar.js';
 import {
   type PairedSource,
   createChapterWorkPacket,
   cutChapterProposal,
   ingestStructuredRecord,
 } from './extract.js';
+import { buildGrammarReport, renderGrammarReportHtml } from './grammar-report.js';
+import {
+  IndependentExpectationsSchema,
+  compareChannels,
+  validateLeafProvenance,
+} from './independent-expectations.js';
 import { buildCorpusInventory } from './inventory.js';
 import { PilotConfigSchema, assemblePilotScope } from './pilot-scope.js';
 import {
@@ -178,6 +185,7 @@ function usage(): never {
   corpus classify-packets --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --out-dir <directory> [--lanes N]
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
   corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
+  corpus grammar-report --root <steelcompendium> --path <ability.md> [--path ...] [--html <grammar.html>] [--out <report.json>]
   corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
 }
 
@@ -477,6 +485,57 @@ async function main(): Promise<void> {
       await emit(coverage);
     }
     if (!coverage.ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'grammar-report') {
+    const paths = argumentsNamed('path');
+    if (paths.length === 0) throw new Error('grammar-report requires at least one --path');
+    const entries = [];
+    for (const markdownPath of paths) {
+      const paired = await loadPairedSource(sourceRoot, markdownPath);
+      const extracted = ingestStructuredRecord(paired);
+      const artifact = extracted.records.find((record) => record.recordKind === 'artifact');
+      if (!artifact || artifact.recordKind !== 'artifact') {
+        throw new Error(`no artifact record in ${markdownPath}`);
+      }
+      const parse = parseEffectText(artifact.text);
+      const problems = auditGrammarConservation(artifact.text, parse);
+      if (problems.length > 0) {
+        throw new Error(`${markdownPath}: grammar conservation failed: ${problems.join('; ')}`);
+      }
+      entries.push({ artifactId: artifact.id, parse });
+    }
+    const report = buildGrammarReport(entries);
+    const htmlOutput = argument('html');
+    if (htmlOutput) {
+      await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+      await writeFile(resolve(htmlOutput), renderGrammarReportHtml(entries, report), 'utf8');
+    }
+    await emit(report);
+    return;
+  }
+
+  if (command === 'expectations-validate') {
+    const paired = await loadPairedSource(sourceRoot, requiredArgument('path'));
+    const extracted = ingestStructuredRecord(paired);
+    const artifact = extracted.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact record');
+    const expectations = IndependentExpectationsSchema.parse(
+      JSON.parse(await readFile(resolve(requiredArgument('expectations')), 'utf8')),
+    );
+    if (expectations.artifactId !== artifact.id) {
+      throw new Error(`expectations are for ${expectations.artifactId}, not ${artifact.id}`);
+    }
+    if (expectations.artifactVersion !== artifact.version) {
+      throw new Error('expectations pinned to a different artifact version');
+    }
+    const provenance = validateLeafProvenance(artifact.text, expectations);
+    const parse = parseEffectText(artifact.text);
+    const comparison = compareChannels(parse, expectations);
+    const ok = provenance.length === 0;
+    await emit({ artifactId: artifact.id, ok, provenance, comparison });
+    if (!ok) process.exitCode = 1;
     return;
   }
 
