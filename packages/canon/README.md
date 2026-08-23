@@ -267,3 +267,13 @@ routes to the human; nothing merges automatically.
 Channel 1 itself is `effect-conformance.ts`: parsed tier outcomes compile to
 engine intents, and conformance tests assert exhaustive state deltas.
 Deliberately unexecuted parts (damage, potency) are explicit backlog items.
+
+## Category attribution (DEC-0010)
+
+Model classification is NOT a pipeline stage (measured as irreproducible in
+the pilot; the `classify-*` commands remain as diagnostic instruments only).
+Categories come from the book's own organization: `corpus attribute` maps
+every artifact to one of MCDM's 20 chapters via the human-reviewed
+`config/category-attribution.json` (longest-prefix on book/namespace; chapter
+chunks map to their own chapter). Deterministic and total: any unmatched
+artifact is a finding and fails the run.

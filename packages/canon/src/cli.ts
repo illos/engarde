@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { AttributionConfigSchema, attributeArtifacts } from './attribution.js';
 import { auditExtractionBundle } from './audit.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
@@ -187,6 +188,7 @@ function usage(): never {
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
   corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
   corpus grammar-report --root <steelcompendium> --path <ability.md> [--path ...] [--html <grammar.html>] [--out <report.json>]
+  corpus attribute --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <category-attribution.json>] [--out <report.json>]
   corpus pilot-encounter --root <steelcompendium> [--out <transcript.json>]
   corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
 }
@@ -538,6 +540,39 @@ async function main(): Promise<void> {
     const ok = provenance.length === 0;
     await emit({ artifactId: artifact.id, ok, provenance, comparison });
     if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'attribute') {
+    const configPath = resolve(
+      argument('config') ??
+        fileURLToPath(new URL('../config/category-attribution.json', import.meta.url)),
+    );
+    const attributionConfig = AttributionConfigSchema.parse(
+      JSON.parse(await readFile(configPath, 'utf8')),
+    );
+    const ids: string[] = [];
+    for (const root of [
+      requiredArgument('structured-bundles'),
+      requiredArgument('chapter-bundles'),
+    ]) {
+      for (const file of await listBundleFiles(resolve(root))) {
+        const parsed = ExtractionBundleSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+        for (const record of parsed.records) {
+          if (record.recordKind === 'artifact') ids.push(record.id);
+        }
+      }
+    }
+    const result = attributeArtifacts(ids, attributionConfig);
+    await emit({
+      configPath,
+      configStatus: attributionConfig.status,
+      totalArtifacts: ids.length,
+      byBucket: result.byBucket,
+      unmatched: result.unmatched,
+      ok: result.ok,
+    });
+    if (!result.ok) process.exitCode = 1;
     return;
   }
 

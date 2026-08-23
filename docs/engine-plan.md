@@ -196,17 +196,35 @@ driver harness                — programmatic: campaign/character/encounter/
 > abilities), so statblock artifacts carry child spans per ability, with the
 > conservation auditor applying within the file.
 
-### Phase 2 — Classification and enrichment
+### Phase 2 — Mechanical metadata (amended 2026-08-23, DEC-0010)
 
-- **2.1 Taxonomy schema.** Fixed, Zod-validated: content type, play category,
-  dependencies, three-tier assignment, implementability, spatial dependency
-  profile (none / target-only / distance / area / movement / line-of-effect —
-  seeded from existing frontmatter keywords).
-- **2.2 Agent classification pass.** Cheap models, schema-validated output,
-  batched. Misclassification is recoverable (text is never model-produced).
-- **2.3 Batch review surface.** Table-skim UX for the human: approve batches,
-  spot-check samples, work the exception queue. This is where the human load
-  target is won or lost — design it as a product surface, not a chore.
+> **Model classification is dropped as a pipeline stage.** The pilot ran the
+> original 2.1–2.3 with four independent model runs plus a same-model repeat
+> and measured the labels as judgment calls, not discovered facts (a model
+> disagreed with *itself* on 36% of artifacts; four models produced no tier
+> majority on 16% — largely records that genuinely mix tiers, a category
+> error no prompt fixes). Nothing correctness-bearing ever consumed the
+> labels. Every metadata need is served deterministically instead:
+
+- **2.1 Mechanical metadata.** Content type derives from the artifact id.
+  Spatial/targeting facts parse from ability headers. "Needs an engine
+  mechanism" is the grammar's output (parsed constructs vs residue), not an
+  opinion. **Tier at the table is emergent implementation state, not an
+  intrinsic label**: a rule whose constructs are parsed and mechanised is
+  automatic; anything else renders as a verbatim card (tier 3) until its
+  mechanism lands — tracked by the artifact lifecycle state machine.
+- **2.2 Category attribution by source location.** Human judgment applied
+  once, at chapter scale: a committed map assigns each book chapter and each
+  structured-record category namespace to a category bucket; every artifact
+  **inherits mechanically** from its place in the book. ~40 human-reviewed
+  rows replace ~3,500 per-artifact judgments; reproducible by construction;
+  a deterministic totality check proves every artifact is attributed or
+  explicitly unmatched.
+- **2.3 Review surface.** Unchanged in spirit but re-scoped: the human
+  reviews the ~40-row attribution map and the exception queues — never
+  per-artifact label batches. Model-classification tooling from the pilot is
+  retained as a diagnostic instrument (reader-agreement experiments), not a
+  pipeline stage.
 
 ### Phase 3 — Engine core
 
@@ -293,8 +311,10 @@ never a judgment call:
 - **P1:** conservation auditor green over the in-scope corpus; fidelity audit
   (1.5) run with findings queued; dashboard live with 0 artifacts in unknown
   state.
-- **P2:** 100% of ingested artifacts classified or explicitly queued; one real
-  batch taken through the review surface end to end.
+- **P2:** (amended, DEC-0010) 100% of ingested artifacts mechanically
+  attributed to a category bucket via the reviewed source-location map, or
+  explicitly unmatched in the totality report; the map itself reviewed by the
+  user end to end.
 - **P3:** pilot mechanisms green under TDD suites; grammar residue fully
   accounted (byte-span partition holds over pilot artifacts).
 - **P4:** dual-channel conformance run over pilot artifacts with the
@@ -342,8 +362,10 @@ Ordered steps:
    lifecycle machinery the seed artifacts reference but don't contain is
    located, chunked, and added to pilot scope (the pilot's first exercise of
    flagged-not-assumed gaps). Conservation auditor over the resulting closure.
-3. **Classify** — agent pass over the resulting artifacts; first exercise of the
-   batch-review surface (even if it's a generated markdown table at this stage).
+3. **Classify** — *(as run, 2026-08-22/23)* agent pass over the resulting
+   artifacts plus three replication runs; measured label irreproducibility led
+   to DEC-0010 (drop model classification; mechanical attribution instead).
+   The experiment fulfilled this step's purpose — it tested the layer.
 4. **Mechanisms** — minimal intent/state/log skeleton + the condition lifecycle
    substrate (apply/remove/expiry as shared helpers), built from what the
    artifacts say. TDD.

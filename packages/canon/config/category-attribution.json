@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "schema": "engarde-category-attribution-v1",
+  "status": "proposed",
+  "description": "Category attribution by source location (DEC-0010). Buckets are MCDM's own 20 chapters — the designers' organization of the core books is the classification. Chapter chunks map to their own chapter; structured record families map to their home chapter, grounded where possible in the book's own topic index (the Ancestries chapter's 'Other Sections' navigation block names each topic's home chapter) and the source directory structure. Rows carrying a note are the ones needing user review. Status flips to 'accepted' only on user sign-off.",
+  "buckets": [
+    "introduction",
+    "the-basics",
+    "making-a-hero",
+    "ancestries",
+    "background",
+    "classes",
+    "complications",
+    "kits",
+    "perks",
+    "tests",
+    "combat",
+    "negotiation",
+    "downtime-projects",
+    "rewards",
+    "gods-and-religion",
+    "for-the-director",
+    "monster-basics",
+    "monsters",
+    "retainers",
+    "dynamic-terrain"
+  ],
+  "rules": [
+    { "match": "heroes/chapter/introduction", "bucket": "introduction" },
+    { "match": "heroes/chapter/the-basics", "bucket": "the-basics" },
+    { "match": "heroes/chapter/making-a-hero", "bucket": "making-a-hero" },
+    { "match": "heroes/chapter/ancestries", "bucket": "ancestries" },
+    { "match": "heroes/chapter/background", "bucket": "background" },
+    { "match": "heroes/chapter/classes", "bucket": "classes" },
+    { "match": "heroes/chapter/complications", "bucket": "complications" },
+    { "match": "heroes/chapter/kits", "bucket": "kits" },
+    { "match": "heroes/chapter/perks", "bucket": "perks" },
+    { "match": "heroes/chapter/tests", "bucket": "tests" },
+    { "match": "heroes/chapter/combat", "bucket": "combat" },
+    { "match": "heroes/chapter/negotiation", "bucket": "negotiation" },
+    { "match": "heroes/chapter/downtime-projects", "bucket": "downtime-projects" },
+    { "match": "heroes/chapter/rewards", "bucket": "rewards" },
+    { "match": "heroes/chapter/gods-and-religion", "bucket": "gods-and-religion" },
+    { "match": "heroes/chapter/for-the-director", "bucket": "for-the-director" },
+    { "match": "monsters/chapter/monster-basics", "bucket": "monster-basics" },
+    { "match": "monsters/chapter/monsters", "bucket": "monsters" },
+    { "match": "monsters/chapter/retainers", "bucket": "retainers" },
+    { "match": "monsters/chapter/dynamic-terrain", "bucket": "dynamic-terrain" },
+
+    { "match": "heroes/ancestry", "bucket": "ancestries" },
+    {
+      "match": "heroes/career",
+      "bucket": "background",
+      "note": "careers are part of the Background chapter"
+    },
+    {
+      "match": "heroes/culture",
+      "bucket": "background",
+      "note": "culture is part of the Background chapter"
+    },
+    { "match": "heroes/class", "bucket": "classes" },
+    { "match": "heroes/complication", "bucket": "complications" },
+    {
+      "match": "heroes/condition",
+      "bucket": "classes",
+      "note": "the book's own index: 'conditions ... Chapter 5: Classes'"
+    },
+    {
+      "match": "heroes/feature",
+      "bucket": "classes",
+      "note": "default for class features and abilities; see overrides below"
+    },
+    {
+      "match": "heroes/feature.trait",
+      "bucket": "ancestries",
+      "note": "ancestry traits (feature.trait.devil etc.)"
+    },
+    {
+      "match": "heroes/feature.common",
+      "bucket": "combat",
+      "note": "common main actions / maneuvers / move actions are Combat-chapter content"
+    },
+    { "match": "heroes/kit", "bucket": "kits" },
+    {
+      "match": "heroes/movement",
+      "bucket": "combat",
+      "note": "movement rules live in the Combat chapter"
+    },
+    { "match": "heroes/negotiation", "bucket": "negotiation" },
+    { "match": "heroes/perk", "bucket": "perks" },
+    { "match": "heroes/project", "bucket": "downtime-projects" },
+    { "match": "heroes/religion", "bucket": "gods-and-religion" },
+    {
+      "match": "heroes/skill",
+      "bucket": "tests",
+      "note": "the book's own index: 'Skills, tests: Chapter 9: Tests'"
+    },
+    { "match": "heroes/title", "bucket": "rewards" },
+    { "match": "heroes/treasure", "bucket": "rewards" },
+    {
+      "match": "heroes/rule.character",
+      "bucket": "the-basics",
+      "note": "REVIEW: characteristic/size/speed basics — split candidates exist"
+    },
+    { "match": "heroes/rule.combat", "bucket": "combat" },
+    { "match": "heroes/rule.damage", "bucket": "combat" },
+    {
+      "match": "heroes/rule.dice",
+      "bucket": "the-basics",
+      "note": "the book's own index: 'Edges and banes ... Chapter 1: The Basics'"
+    },
+    { "match": "heroes/rule.downtime", "bucket": "downtime-projects" },
+    {
+      "match": "heroes/rule.general",
+      "bucket": "classes",
+      "note": "REVIEW: contains saving-throw ('Chapter 5: Classes' per the index) but also general terms — split candidate"
+    },
+    {
+      "match": "heroes/rule.health",
+      "bucket": "combat",
+      "note": "REVIEW: damage/Stamina/dying named under Combat in the index; recoveries named under The Basics"
+    },
+    { "match": "heroes/rule.negotiation", "bucket": "negotiation" },
+    {
+      "match": "heroes/rule.resource",
+      "bucket": "the-basics",
+      "note": "'Recoveries, respites: Chapter 1: The Basics' per the index"
+    },
+    { "match": "heroes/rule.test", "bucket": "tests" },
+    { "match": "heroes/rule.treasure", "bucket": "rewards" },
+    {
+      "match": "heroes/rule.world",
+      "bucket": "introduction",
+      "note": "REVIEW: setting/world terms (Orden) — introduction vs for-the-director"
+    },
+
+    { "match": "monsters/monster", "bucket": "monsters" },
+    { "match": "monsters/monster.retainer", "bucket": "retainers" },
+    { "match": "monsters/rule.keyword", "bucket": "monster-basics" },
+    { "match": "monsters/rule.monster", "bucket": "monster-basics" },
+    { "match": "monsters/rule.organization", "bucket": "monster-basics" },
+    { "match": "monsters/rule.role", "bucket": "monster-basics" },
+    { "match": "monsters/dynamic-terrain", "bucket": "dynamic-terrain" }
+  ]
+}
