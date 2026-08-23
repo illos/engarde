@@ -2,6 +2,12 @@ import { z } from 'zod';
 import type { GrammarParse } from './effect-grammar.js';
 import { Sha256Schema } from './schemas.js';
 
+const SCC_LINK = /\[([^\]]+)\]\(scc\.v1:[^)]+\)/g;
+
+function stripSccLinks(value: string): string {
+  return value.replace(SCC_LINK, '$1');
+}
+
 /**
  * Channel 2 of the verification stack (engine-plan 4.3, pilot thin form):
  * an independent reader turns the verbatim artifact text into structured
@@ -47,7 +53,10 @@ export function validateLeafProvenance(
       findings.push({ assertionId: assertion.id, code: 'quote-not-in-text' });
       continue;
     }
-    if (assertion.kind !== 'other' && !assertion.quote.includes(assertion.value)) {
+    // The value must appear in the quote — checked through the corpus link
+    // markup too, since a word inside [word](scc.v1:...) is still that word.
+    const quoteForms = [assertion.quote, stripSccLinks(assertion.quote)];
+    if (assertion.kind !== 'other' && !quoteForms.some((form) => form.includes(assertion.value))) {
       findings.push({ assertionId: assertion.id, code: 'value-not-in-quote' });
     }
   }
@@ -60,8 +69,17 @@ interface Claim {
   value: string;
 }
 
+/**
+ * Comparison-layer canonicalization only (never touches stored data): link
+ * markup reduces to its text, surrounding parentheses and a trailing
+ * "damage" noun drop, whitespace and case fold.
+ */
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+  let canonical = stripSccLinks(value).toLowerCase().replace(/\s+/g, ' ').trim();
+  if (canonical.startsWith('(') && canonical.endsWith(')')) {
+    canonical = canonical.slice(1, -1).trim();
+  }
+  return canonical.replace(/ damage$/, '');
 }
 
 function channelOneClaims(parse: GrammarParse): Claim[] {

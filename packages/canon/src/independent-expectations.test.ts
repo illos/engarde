@@ -98,3 +98,41 @@ describe('compareChannels', () => {
     expect(mismatch?.channel2).toBe('12 + m');
   });
 });
+
+describe('markup-tolerant provenance and normalization', () => {
+  it('accepts a value whose words are split by corpus link markup in the quote', () => {
+    const findings = validateLeafProvenance(
+      'x ([save](scc.v1:ns/rule/saving-throw) ends) x',
+      expectations([
+        {
+          id: 'a1',
+          onTier: null,
+          kind: 'duration',
+          value: '(save ends)',
+          quote: '([save](scc.v1:ns/rule/saving-throw) ends)',
+        },
+      ]),
+    );
+    expect(findings).toEqual([]);
+  });
+
+  it('treats damage-noun, parens, and link-markup variants as the same claim', () => {
+    const comparison = compareChannels(
+      tierParse(),
+      expectations([
+        { id: 'a1', onTier: '17+', kind: 'damage', value: '10 + M damage', quote: 'x' },
+        { id: 'a2', onTier: '17+', kind: 'duration', value: '(save ends)', quote: 'x' },
+        {
+          id: 'a3',
+          onTier: '17+',
+          kind: 'condition',
+          value: '[a](scc.v1:ns/condition/a)',
+          quote: 'x',
+        },
+        { id: 'a4', onTier: '17+', kind: 'potency', value: 'M < STRONG', quote: 'x' },
+      ]),
+    );
+    expect(comparison.matches).toBe(4);
+    expect(comparison.disagreements).toEqual([]);
+  });
+});
