@@ -43,6 +43,8 @@ export type ConditionInstance = z.infer<typeof ConditionInstanceSchema>;
 export const ParticipantStateSchema = z.object({
   id: ParticipantIdSchema,
   conditions: z.array(ConditionInstanceSchema),
+  /** The real corpus record this actor embodies (actors are never invented). */
+  sourceRecordId: z.string().min(1).nullable().optional(),
 });
 
 export type ParticipantState = z.infer<typeof ParticipantStateSchema>;

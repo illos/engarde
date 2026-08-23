@@ -21,6 +21,7 @@ import {
   validateLeafProvenance,
 } from './independent-expectations.js';
 import { buildCorpusInventory } from './inventory.js';
+import { runPilotEncounter } from './pilot-encounter.js';
 import { PilotConfigSchema, assemblePilotScope } from './pilot-scope.js';
 import {
   type ArtifactRecord,
@@ -186,6 +187,7 @@ function usage(): never {
   corpus classify-validate --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> [--out <report.json>]
   corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
   corpus grammar-report --root <steelcompendium> --path <ability.md> [--path ...] [--html <grammar.html>] [--out <report.json>]
+  corpus pilot-encounter --root <steelcompendium> [--out <transcript.json>]
   corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
 }
 
@@ -536,6 +538,15 @@ async function main(): Promise<void> {
     const ok = provenance.length === 0;
     await emit({ artifactId: artifact.id, ok, provenance, comparison });
     if (!ok) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'pilot-encounter') {
+    const run = await runPilotEncounter((markdownPath) =>
+      loadPairedSource(sourceRoot, markdownPath),
+    );
+    await emit({ summary: run.summary, transcript: run.transcript });
+    if (run.transcript.violationCount > 0) process.exitCode = 1;
     return;
   }
 

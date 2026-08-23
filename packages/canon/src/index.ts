@@ -14,3 +14,4 @@ export * from './grammar-report.js';
 export * from './independent-expectations.js';
 export * from './schemas.js';
 export * from './source.js';
+export * from './pilot-encounter.js';
