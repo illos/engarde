@@ -17,10 +17,16 @@ const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     participants: {
-      hero: { id: 'hero', conditions: [] },
-      cultist: { id: 'cultist', conditions: [] },
+      hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null },
+      cultist: {
+        id: 'cultist',
+        conditions: [],
+        kind: 'director-creature',
+        stats: null,
+        stamina: null,
+      },
     },
   };
 }

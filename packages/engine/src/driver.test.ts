@@ -10,8 +10,8 @@ const CENSOR = 'mcdm.heroes.v1/class/censor';
 function driver(seed = 1) {
   return createDriver(
     [
-      { id: 'fury', sourceRecordId: FURY },
-      { id: 'censor', sourceRecordId: CENSOR },
+      { id: 'fury', sourceRecordId: FURY, kind: 'hero' as const },
+      { id: 'censor', sourceRecordId: CENSOR, kind: 'hero' as const },
     ],
     { random: createSeededRandomSource(seed) },
   );
@@ -77,7 +77,13 @@ describe('driver harness', () => {
       /needs participants/,
     );
     expect(() =>
-      createDriver([{ id: 'x' }, { id: 'x' }], { random: createSeededRandomSource(1) }),
+      createDriver(
+        [
+          { id: 'x', kind: 'hero' as const },
+          { id: 'x', kind: 'hero' as const },
+        ],
+        { random: createSeededRandomSource(1) },
+      ),
     ).toThrow(/duplicate participant/);
   });
 

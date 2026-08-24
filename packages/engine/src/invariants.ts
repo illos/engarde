@@ -1,4 +1,5 @@
 import type { ApplyResult } from './apply-intent.js';
+import { POWER_ROLL_DIE, type PowerRollResolution, resolvePowerRoll } from './power-roll.js';
 import {
   type EncounterState,
   EncounterStateSchema,
@@ -28,7 +29,12 @@ export interface InvariantViolation {
     | 'unattributed-add'
     | 'unattributed-remove'
     | 'phantom-claim'
-    | 'refusal-with-change';
+    | 'refusal-with-change'
+    | 'unattributed-stamina-change'
+    | 'phantom-stamina-claim'
+    | 'dice-out-of-range'
+    | 'breakdown-mismatch'
+    | 'potency-gate-bypassed';
   detail: string;
 }
 
@@ -145,6 +151,139 @@ export function checkInvariants(
         violations.push({
           code: 'phantom-claim',
           detail: `mutation entry claims ${claim.id} but the state shows no such change`,
+        });
+      }
+    }
+  }
+
+  // ── Stamina↔log reconciliation (power-roll cluster) ─────────────────────
+  // Every participant's stamina delta must be walked, in log order, by the
+  // machine-readable `staminaDeltas` claims; every claim must be real.
+  interface StaminaClaim {
+    participantId: string;
+    from: number;
+    to: number;
+    temporaryFrom: number;
+    temporaryTo: number;
+  }
+  const staminaClaims = new Map<string, StaminaClaim[]>();
+  for (const entry of mutations) {
+    const rows = entry.data.staminaDeltas;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const claim = row as StaminaClaim;
+      if (typeof claim?.participantId !== 'string') continue;
+      const list = staminaClaims.get(claim.participantId) ?? [];
+      list.push(claim);
+      staminaClaims.set(claim.participantId, list);
+    }
+  }
+  for (const participant of Object.values(result.state.participants)) {
+    const beforeParticipant = before.participants[participant.id];
+    const beforeStamina = beforeParticipant?.stamina ?? null;
+    const afterStamina = participant.stamina;
+    const claims = staminaClaims.get(participant.id) ?? [];
+    if (beforeStamina === null || afterStamina === null) {
+      if (claims.length > 0) {
+        violations.push({
+          code: 'phantom-stamina-claim',
+          detail: `claims for ${participant.id}, whose stamina is untracked`,
+        });
+      }
+      continue;
+    }
+    let current = beforeStamina.current;
+    let temporary = beforeStamina.temporary;
+    for (const claim of claims) {
+      if (claim.from !== current || claim.temporaryFrom !== temporary) {
+        violations.push({
+          code: 'phantom-stamina-claim',
+          detail: `claim on ${participant.id} starts at ${claim.from}/${claim.temporaryFrom}, state was ${current}/${temporary}`,
+        });
+      }
+      current = claim.to;
+      temporary = claim.temporaryTo;
+    }
+    if (current !== afterStamina.current || temporary !== afterStamina.temporary) {
+      violations.push({
+        code: 'unattributed-stamina-change',
+        detail: `${participant.id} ended at ${afterStamina.current}/${afterStamina.temporary}; claims walk to ${current}/${temporary}`,
+      });
+    }
+  }
+
+  // ── power-roll breakdown recompute (design SE-8) ────────────────────────
+  // Re-derive the resolution from the logged inputs; any total/tier drift is
+  // a violation. The roll path is self-auditing on every dispatch.
+  for (const entry of result.log) {
+    const rollData = entry.data.powerRoll as
+      | {
+          dice: [number, number];
+          characteristicValue: number;
+          bonuses: { value: number; reason: string }[];
+          penalties: { value: number; reason: string }[];
+          edges: number;
+          banes: number;
+          automaticOutcomes: (1 | 2 | 3)[];
+          downgradeToTier: 1 | 2 | null;
+          resolution: PowerRollResolution;
+        }
+      | undefined;
+    if (rollData === undefined) continue;
+    for (const die of rollData.dice) {
+      if (!Number.isInteger(die) || die < 1 || die > POWER_ROLL_DIE) {
+        violations.push({ code: 'dice-out-of-range', detail: `die ${die}` });
+      }
+    }
+    if (rollData.dice.every((die) => Number.isInteger(die) && die >= 1 && die <= POWER_ROLL_DIE)) {
+      const recomputed = resolvePowerRoll({
+        dice: rollData.dice,
+        characteristicValue: rollData.characteristicValue,
+        bonuses: rollData.bonuses,
+        penalties: rollData.penalties,
+        edges: rollData.edges,
+        banes: rollData.banes,
+        automaticOutcomes: rollData.automaticOutcomes,
+        downgradeToTier: rollData.downgradeToTier ?? undefined,
+      });
+      if (
+        recomputed.total !== rollData.resolution.total ||
+        recomputed.tier !== rollData.resolution.tier
+      ) {
+        violations.push({
+          code: 'breakdown-mismatch',
+          detail: `logged total ${rollData.resolution.total}/tier ${rollData.resolution.tier}, recomputed ${recomputed.total}/${recomputed.tier}`,
+        });
+      }
+    }
+  }
+
+  // ── potency-gate consistency ────────────────────────────────────────────
+  // A logged resisted/unresolved gate for target T + conditions C means no C
+  // instance may have been added to T by this intent.
+  for (const entry of result.log) {
+    const gate = entry.data.potency as
+      | { targetId: string; applies: boolean; conditionIds: string[] }
+      | undefined;
+    const unresolved = entry.data.potencyUnresolved as
+      | { targetId: string; conditionIds: string[] }
+      | undefined;
+    const blocked =
+      gate !== undefined && gate.applies === false
+        ? gate
+        : unresolved !== undefined
+          ? { targetId: unresolved.targetId, conditionIds: unresolved.conditionIds }
+          : null;
+    if (blocked === null) continue;
+    for (const conditionId of blocked.conditionIds) {
+      const participant = result.state.participants[blocked.targetId];
+      const gained = participant?.conditions.some(
+        (instance) => instance.conditionId === conditionId && added.includes(instance.instanceId),
+      );
+      if (gained) {
+        violations.push({
+          code: 'potency-gate-bypassed',
+          detail: `${conditionId} applied to ${blocked.targetId} despite a failed/unresolved potency gate`,
         });
       }
     }

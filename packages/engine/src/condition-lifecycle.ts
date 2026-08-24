@@ -212,19 +212,25 @@ export function endOfTurnSweep(
 /**
  * classes#ending-effects: conditions imposed during the encounter end when
  * it is over — ending is the default; keeping is the explicit, player-
- * asserted exception the caller passes in.
+ * asserted exception the caller passes in. Health-sourced instances (the
+ * knock-out unconscious, the dying-mandated bleeding while its stamina
+ * precondition holds) are exempt: "…except for being winded, unconscious,
+ * or dying" [classes#ending-effects].
  */
 export function endEncounterSweep(
   state: EncounterState,
   keepInstanceIds: readonly string[],
   context: LifecycleContext,
+  isExempt: (participant: ParticipantState, instance: ConditionInstance) => boolean = () => false,
 ): { state: EncounterState; log: LogEntry[] } {
   const keep = new Set(keepInstanceIds);
   const log: LogEntry[] = [];
   let nextState = state;
   for (const participant of Object.values(state.participants)) {
-    const ended = participant.conditions.filter((instance) => !keep.has(instance.instanceId));
-    const kept = participant.conditions.filter((instance) => keep.has(instance.instanceId));
+    const exempt = (instance: ConditionInstance): boolean =>
+      keep.has(instance.instanceId) || isExempt(participant, instance);
+    const ended = participant.conditions.filter((instance) => !exempt(instance));
+    const kept = participant.conditions.filter((instance) => exempt(instance));
     if (ended.length > 0) {
       log.push(
         entry(
@@ -236,14 +242,27 @@ export function endEncounterSweep(
         ),
       );
     }
-    if (kept.length > 0) {
+    const keptByChoice = kept.filter((instance) => keep.has(instance.instanceId));
+    const keptByExemption = kept.filter((instance) => !keep.has(instance.instanceId));
+    if (keptByChoice.length > 0) {
       log.push(
         entry(
           context,
           'informational',
           `conditions kept past the encounter on ${participant.id} by explicit choice`,
           [CANON.endingEffects],
-          { keptInstanceIds: kept.map((instance) => instance.instanceId) },
+          { keptInstanceIds: keptByChoice.map((instance) => instance.instanceId) },
+        ),
+      );
+    }
+    if (keptByExemption.length > 0) {
+      log.push(
+        entry(
+          context,
+          'informational',
+          `health-sourced conditions on ${participant.id} persist past the encounter (winded, unconscious, and dying are exempt from the end-of-encounter default)`,
+          [CANON.endingEffects],
+          { keptInstanceIds: keptByExemption.map((instance) => instance.instanceId) },
         ),
       );
     }

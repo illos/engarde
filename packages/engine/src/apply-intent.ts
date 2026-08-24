@@ -1,3 +1,4 @@
+import { executeUseAbility } from './ability-execution.js';
 import {
   CANON,
   SAVING_THROW,
@@ -6,7 +7,9 @@ import {
   endOfTurnSweep,
   removeConditionInstance,
 } from './condition-lifecycle.js';
+import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 
 /**
@@ -72,7 +75,10 @@ export function applyIntent(
       if (!target) {
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
-      return removeConditionInstance(
+      const instance = target.conditions.find(
+        (candidate) => candidate.instanceId === intent.payload.instanceId,
+      );
+      const result = removeConditionInstance(
         state,
         target,
         intent.payload.instanceId,
@@ -80,6 +86,64 @@ export function applyIntent(
         [CANON.creatureEndsAbilityEffect],
         `condition instance removed from ${target.id}${intent.payload.reason ? `: ${intent.payload.reason}` : ''}`,
       );
+      // Permissive engine (Gate-3 Q3 default): removing the dying-mandated
+      // bleeding while still dying warns and applies — "this instance of the
+      // condition can't be negated or removed in any way until you are no
+      // longer dying" [rule.health/dying].
+      if (
+        instance !== undefined &&
+        isHealthSourcedInstance(instance) &&
+        instance.source.effectArtifactId === HEALTH_CANON.dying &&
+        target.stamina !== null &&
+        isDying(target.stamina.current)
+      ) {
+        result.log.unshift({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [HEALTH_CANON.dying],
+          message: `${target.id} is still dying — canon says this bleeding instance can't be removed until they are no longer dying; applied anyway (Director adjudicates)`,
+          data: { instanceId: instance.instanceId },
+        });
+      }
+      return result;
+    }
+    case 'use-ability':
+      return executeUseAbility(state, intent, context.random);
+    case 'apply-damage': {
+      const target = state.participants[intent.payload.target];
+      if (!target) {
+        return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
+      }
+      const blocker = damageAutomationBlocker(target);
+      if (blocker !== null) {
+        return {
+          state,
+          log: [
+            {
+              kind: 'table-directive',
+              intentId: intent.intentId,
+              actor: intent.actor,
+              canonRefs: [HEALTH_CANON.damage],
+              message: `${target.id} takes ${intent.payload.amount}${intent.payload.damageType ? ` ${intent.payload.damageType}` : ''} damage (${intent.payload.reason}) — ${blocker}`,
+              data: {
+                unautomatedDamage: {
+                  targetId: target.id,
+                  amount: intent.payload.amount,
+                  damageType: intent.payload.damageType ?? null,
+                },
+              },
+            },
+          ],
+        };
+      }
+      const outcome = applyDamage(
+        target,
+        { amount: intent.payload.amount, type: intent.payload.damageType ?? null },
+        { knockOut: intent.payload.knockOut, reason: intent.payload.reason },
+        lifecycleContext,
+      );
+      return { state: withParticipant(state, outcome.participant), log: outcome.log };
     }
     case 'end-turn': {
       const target = state.participants[intent.payload.participantId];
@@ -97,7 +161,48 @@ export function applyIntent(
         lifecycleContext,
       );
     }
-    case 'end-encounter':
-      return endEncounterSweep(state, intent.payload.keepInstanceIds, lifecycleContext);
+    case 'end-encounter': {
+      const swept = endEncounterSweep(
+        state,
+        intent.payload.keepInstanceIds,
+        lifecycleContext,
+        (participant, instance) =>
+          isHealthSourcedInstance(instance) &&
+          (instance.source.effectArtifactId !== HEALTH_CANON.dying ||
+            (participant.stamina !== null && isDying(participant.stamina.current))),
+      );
+      // Temporary Stamina disappears at the end of an encounter
+      // [rule.health/temporary-stamina].
+      let nextState = swept.state;
+      const log = [...swept.log];
+      for (const participant of Object.values(nextState.participants)) {
+        if (participant.stamina !== null && participant.stamina.temporary > 0) {
+          const cleared = {
+            ...participant,
+            stamina: { ...participant.stamina, temporary: 0 },
+          };
+          nextState = withParticipant(nextState, cleared);
+          log.push({
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [HEALTH_CANON.temporaryStamina],
+            message: `temporary Stamina on ${participant.id} disappears with the encounter`,
+            data: {
+              staminaDeltas: [
+                {
+                  participantId: participant.id,
+                  from: participant.stamina.current,
+                  to: participant.stamina.current,
+                  temporaryFrom: participant.stamina.temporary,
+                  temporaryTo: 0,
+                },
+              ],
+            },
+          });
+        }
+      }
+      return { state: nextState, log };
+    }
   }
 }

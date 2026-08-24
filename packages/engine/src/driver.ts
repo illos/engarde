@@ -1,6 +1,6 @@
 import { type ApplyResult, type EngineContext, applyIntent } from './apply-intent.js';
 import { type InvariantViolation, checkInvariants } from './invariants.js';
-import type { EncounterState, Intent, LogEntry } from './schemas.js';
+import type { EncounterState, Intent, LogEntry, ParticipantStats } from './schemas.js';
 
 /**
  * Driver harness v0 (engine-plan 4.1, pilot thin form): the programmatic
@@ -41,10 +41,17 @@ export interface DriverParticipant {
   /** The real corpus record this actor embodies (prime directive: actors
    * are corpus records, never invented stat blocks). */
   sourceRecordId?: string;
+  /** Heroes vs Director-controlled creatures split on death rules — explicit
+   * at seed time, no default (design SE-6). */
+  kind: 'hero' | 'director-creature';
+  /** Stat-block-sourced or Director-asserted stats; omitted = table-mode
+   * actor (no stat automation, receipts only). */
+  stats?: ParticipantStats;
 }
 
 /** The one home for initial encounter state — every host (driver, CLI,
- * Convex) starts an encounter through this, never by hand-building state. */
+ * Convex) starts an encounter through this, never by hand-building state.
+ * Stamina starts at its maximum [rule.health/stamina]. */
 export function initialEncounterState(participants: readonly DriverParticipant[]): EncounterState {
   if (participants.length === 0) throw new Error('an encounter needs participants');
   const seen = new Set<string>();
@@ -53,11 +60,20 @@ export function initialEncounterState(participants: readonly DriverParticipant[]
     seen.add(participant.id);
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
-        { id: participant.id, conditions: [], sourceRecordId: participant.sourceRecordId ?? null },
+        {
+          id: participant.id,
+          conditions: [],
+          sourceRecordId: participant.sourceRecordId ?? null,
+          kind: participant.kind,
+          stats: participant.stats ?? null,
+          stamina: participant.stats
+            ? { current: participant.stats.staminaMax, temporary: 0 }
+            : null,
+        },
       ]),
     ),
   };
