@@ -17,6 +17,17 @@ type SearchHits = NonNullable<ReturnType<typeof useQuery<typeof api.encounters.s
 const BANDS = ['≤11', '12-16', '17+'] as const;
 type Band = (typeof BANDS)[number];
 
+/** The engine's persisted power-roll breakdown (LogEntry.data.powerRoll). */
+interface PowerRollLogData {
+  dice: [number, number];
+  diceAsserted: boolean;
+  characteristicValue: number;
+  characteristicLabel: string;
+  edges: number;
+  banes: number;
+  resolution: { total: number; tier: number; naturalTopEnd: boolean };
+}
+
 function useRun() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,9 +87,12 @@ function RecordSearch({
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-mono text-xs">{hit.slug}</p>
                   <p className="truncate text-xs text-text-mute">
-                    {hit.parsedTiers.length > 0
-                      ? `tiers parsed: ${hit.parsedTiers.join(', ')}`
-                      : 'nothing automatable yet — plays as a verbatim card'}
+                    {hit.autoRollable
+                      ? 'rolls automatically'
+                      : hit.parsedTiers.length > 0
+                        ? `tiers parsed: ${hit.parsedTiers.join(', ')}`
+                        : 'nothing automatable yet — plays as a verbatim card'}
+                    {hit.hasStats ? ' · stat block' : ''}
                     {hit.residueSpans > 0 ? ' · has table-card text' : ''}
                   </p>
                 </div>
@@ -206,6 +220,11 @@ function ActiveEncounter({
   const [keeps, setKeeps] = useState<Record<string, boolean>>({});
   const [pickedAbility, setPickedAbility] = useState<SearchHits[number] | null>(null);
   const [band, setBand] = useState<Band>('17+');
+  const [assertTier, setAssertTier] = useState(false);
+  const [edges, setEdges] = useState('0');
+  const [banes, setBanes] = useState('0');
+  const [diceText, setDiceText] = useState('');
+  const [knockOut, setKnockOut] = useState(false);
   const first = encounter.participants[0]?.id ?? '';
   const second = encounter.participants[1]?.id ?? first;
   const [actorId, setActorId] = useState(first);
@@ -271,6 +290,39 @@ function ActiveEncounter({
             {participant.recordSlug ? (
               <p className="truncate font-mono text-xs text-text-mute">{participant.recordSlug}</p>
             ) : null}
+            {participant.vitals ? (
+              <div className="mt-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-mono">
+                    {participant.vitals.staminaCurrent}
+                    {participant.vitals.staminaTemporary > 0
+                      ? ` (+${participant.vitals.staminaTemporary} temp)`
+                      : ''}
+                    /{participant.vitals.staminaMax}
+                  </span>
+                  <span className="type-label text-text-mute">Stamina</span>
+                  {participant.vitals.dead ? (
+                    <span className="border border-foe px-1 text-foe">dead</span>
+                  ) : participant.vitals.dying ? (
+                    <span className="border border-foe px-1 text-foe">dying</span>
+                  ) : participant.vitals.winded ? (
+                    <span className="border border-accent px-1 text-accent">winded</span>
+                  ) : null}
+                </div>
+                <div className="mt-1 h-1.5 w-full bg-ink-1" aria-hidden>
+                  <div
+                    className={`h-full ${participant.vitals.dying ? 'bg-foe' : 'bg-accent'}`}
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (participant.vitals.staminaCurrent / participant.vitals.staminaMax) * 100))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-text-mute italic">
+                Table mode — no stat automation for this record
+              </p>
+            )}
             {participant.conditions.length === 0 ? (
               <p className="mt-2 text-xs text-text-dim">No conditions</p>
             ) : (
@@ -355,6 +407,7 @@ function ActiveEncounter({
             requireParsedTier
             onPick={(hit) => {
               setPickedAbility(hit);
+              setAssertTier(false);
               const parsedBand = hit.parsedTiers.find((tier): tier is Band =>
                 BANDS.includes(tier as Band),
               );
@@ -363,55 +416,147 @@ function ActiveEncounter({
           />
         </div>
         {pickedAbility ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs">{pickedAbility.slug}</span>
-            <select
-              aria-label="Tier outcome"
-              className="h-9 border border-line bg-ink-1 px-2 text-sm"
-              value={band}
-              onChange={(event) => setBand(event.target.value as Band)}
-            >
-              {pickedAbility.parsedTiers.map((tier) => (
-                <option key={tier} value={tier}>
-                  {tier}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Acting participant"
-              className="h-9 border border-line bg-ink-1 px-2 text-sm"
-              value={actorId}
-              onChange={(event) => setActorId(event.target.value)}
-            >
-              {participantOptions}
-            </select>
-            <span className="text-xs text-text-mute">on</span>
-            <select
-              aria-label="Target participant"
-              className="h-9 border border-line bg-ink-1 px-2 text-sm"
-              value={targetId}
-              onChange={(event) => setTargetId(event.target.value)}
-            >
-              {participantOptions}
-            </select>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={busy}
-              onClick={() =>
-                run(() =>
-                  useAbility({
-                    campaignId,
-                    artifactId: pickedAbility.artifactId,
-                    band,
-                    actorParticipantId: actorId,
-                    targetParticipantId: targetId,
-                  }),
-                )
-              }
-            >
-              Use
-            </Button>
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs">{pickedAbility.slug}</span>
+              <select
+                aria-label="Acting participant"
+                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                value={actorId}
+                onChange={(event) => setActorId(event.target.value)}
+              >
+                {participantOptions}
+              </select>
+              <span className="text-xs text-text-mute">on</span>
+              <select
+                aria-label="Target participant"
+                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                value={targetId}
+                onChange={(event) => setTargetId(event.target.value)}
+              >
+                {participantOptions}
+              </select>
+            </div>
+            {pickedAbility.autoRollable && !assertTier ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  edges
+                  <input
+                    value={edges}
+                    onChange={(event) => setEdges(event.target.value)}
+                    inputMode="numeric"
+                    aria-label="Edges"
+                    className="h-9 w-10 border border-line bg-ink-1 px-1 text-center text-xs"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  banes
+                  <input
+                    value={banes}
+                    onChange={(event) => setBanes(event.target.value)}
+                    inputMode="numeric"
+                    aria-label="Banes"
+                    className="h-9 w-10 border border-line bg-ink-1 px-1 text-center text-xs"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  dice
+                  <input
+                    value={diceText}
+                    onChange={(event) => setDiceText(event.target.value)}
+                    placeholder="auto"
+                    aria-label="Asserted dice (e.g. 7 4)"
+                    className="h-9 w-16 border border-line bg-ink-1 px-1 text-center text-xs"
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  <input
+                    type="checkbox"
+                    checked={knockOut}
+                    onChange={(event) => setKnockOut(event.target.checked)}
+                  />
+                  knock out, not kill
+                </label>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    const diceRaw = diceText.trim();
+                    const dice =
+                      diceRaw.length > 0
+                        ? diceRaw
+                            .split(/[\s,+]+/)
+                            .map(Number)
+                            .filter((die) => Number.isFinite(die))
+                        : undefined;
+                    run(() =>
+                      useAbility({
+                        campaignId,
+                        artifactId: pickedAbility.artifactId,
+                        actorParticipantId: actorId,
+                        targetParticipantIds: [targetId],
+                        dice,
+                        edges: Number(edges) || 0,
+                        banes: Number(banes) || 0,
+                        knockOut: knockOut || undefined,
+                      }),
+                    );
+                  }}
+                >
+                  Roll
+                </Button>
+                <button
+                  type="button"
+                  className="text-xs text-text-mute underline"
+                  onClick={() => setAssertTier(true)}
+                >
+                  assert a tier instead
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  aria-label="Tier outcome"
+                  className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                  value={band}
+                  onChange={(event) => setBand(event.target.value as Band)}
+                >
+                  {pickedAbility.parsedTiers.map((tier) => (
+                    <option key={tier} value={tier}>
+                      {tier}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() =>
+                    run(() =>
+                      useAbility({
+                        campaignId,
+                        artifactId: pickedAbility.artifactId,
+                        band,
+                        actorParticipantId: actorId,
+                        targetParticipantIds: [targetId],
+                      }),
+                    )
+                  }
+                >
+                  Use (asserted tier)
+                </Button>
+                {pickedAbility.autoRollable ? (
+                  <button
+                    type="button"
+                    className="text-xs text-text-mute underline"
+                    onClick={() => setAssertTier(false)}
+                  >
+                    back to rolling
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : null}
       </div>
@@ -453,6 +598,22 @@ function EncounterLog({
                 <div key={entry.entryId} className="border border-line bg-ink-1 p-2">
                   <p className="type-label text-xs text-text-mute">Resolve at the table</p>
                   <p className="mt-1 whitespace-pre-wrap font-mono text-xs">{entry.message}</p>
+                </div>
+              );
+            const rollData = (entry.data as { powerRoll?: PowerRollLogData } | null)?.powerRoll;
+            if (rollData)
+              return (
+                <div key={entry.entryId} className="border border-line-soft bg-ink-1 p-2">
+                  <p className="text-sm">{entry.message}</p>
+                  <p className="mt-1 font-mono text-xs text-text-mute">
+                    {rollData.dice[0]}+{rollData.dice[1]}
+                    {rollData.diceAsserted ? ' (asserted)' : ''} · +{rollData.characteristicValue} (
+                    {rollData.characteristicLabel})
+                    {rollData.edges > 0 ? ` · ${rollData.edges} edge(s)` : ''}
+                    {rollData.banes > 0 ? ` · ${rollData.banes} bane(s)` : ''} · total{' '}
+                    {rollData.resolution.total} → tier {rollData.resolution.tier}
+                    {rollData.resolution.naturalTopEnd ? ' · natural 19–20' : ''}
+                  </p>
                 </div>
               );
             const tone =

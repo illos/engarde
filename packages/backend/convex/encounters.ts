@@ -1,14 +1,21 @@
-import { tierOutcomeToIntents } from '@engarde/canon/effect-conformance';
+import { compileAbility, tierOutcomeToIntents } from '@engarde/canon/effect-conformance';
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
+import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
-  EncounterStateSchema,
+  type EncounterState,
   type Intent,
   type InvariantViolation,
   type LogEntry,
+  type ParticipantStats,
+  ParticipantStatsSchema,
   applyIntent,
   checkInvariants,
   createSeededRandomSource,
   initialEncounterState,
+  isDead,
+  isDying,
+  isWinded,
+  upgradeEncounterState,
 } from '@engarde/engine';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
@@ -54,6 +61,20 @@ const encounterView = v.union(
         id: v.string(),
         recordId: v.union(v.string(), v.null()),
         recordSlug: v.union(v.string(), v.null()),
+        // Vitals from engine state + the health selectors (derived flags are
+        // computed, never stored). null = table-mode actor (no automation).
+        vitals: v.union(
+          v.null(),
+          v.object({
+            staminaCurrent: v.number(),
+            staminaTemporary: v.number(),
+            staminaMax: v.number(),
+            winded: v.boolean(),
+            dying: v.boolean(),
+            dead: v.boolean(),
+            organization: v.union(v.string(), v.null()),
+          }),
+        ),
         conditions: v.array(
           v.object({
             instanceId: v.string(),
@@ -112,6 +133,8 @@ interface LogRowInput {
   message: string;
   canonRefs: string[];
   engineActorLabel?: string;
+  /** Engine LogEntry.data — persisted verbatim (power-roll-design SE-3). */
+  data?: Record<string, unknown>;
 }
 
 function engineActorLabel(actor: LogEntry['actor']): string {
@@ -135,6 +158,7 @@ async function appendLog(
       message: row.message,
       canonRefs: row.canonRefs,
       engineActorLabel: row.engineActorLabel,
+      data: row.data,
       actorUserId: actor.userId,
       actorName: actor.name,
       occurredAt: Date.now(),
@@ -154,7 +178,9 @@ async function runIntents(
   intents: readonly Intent[],
   hostRows: { before?: LogRowInput[]; after?: LogRowInput[] } = {},
 ): Promise<{ violations: InvariantViolation[] }> {
-  let state = EncounterStateSchema.parse(encounter.state);
+  // Stored states may predate schema v2 — the engine's pure upgrade lifts
+  // them losslessly on read (power-roll-design SE-2).
+  let state = upgradeEncounterState(encounter.state);
   let dispatchCount = encounter.dispatchCount;
   const rows: LogRowInput[] = [...(hostRows.before ?? [])];
   const allViolations: InvariantViolation[] = [];
@@ -170,6 +196,7 @@ async function runIntents(
         message: entry.message,
         canonRefs: entry.canonRefs,
         engineActorLabel: engineActorLabel(entry.actor),
+        data: entry.data,
       });
     }
     for (const violation of violations) {
@@ -199,7 +226,7 @@ export const getActive = query({
     const { membership } = await requireActiveMember(ctx, args.campaignId);
     const encounter = await activeEncounter(ctx, args.campaignId);
     if (!encounter) return null;
-    const state = EncounterStateSchema.parse(encounter.state);
+    const state = upgradeEncounterState(encounter.state);
     return {
       encounterId: encounter._id,
       status: encounter.status,
@@ -209,6 +236,18 @@ export const getActive = query({
         id: participant.id,
         recordId: participant.sourceRecordId ?? null,
         recordSlug: participant.sourceRecordId ? slugOf(participant.sourceRecordId) : null,
+        vitals:
+          participant.stats && participant.stamina
+            ? {
+                staminaCurrent: participant.stamina.current,
+                staminaTemporary: participant.stamina.temporary,
+                staminaMax: participant.stats.staminaMax,
+                winded: isWinded(participant.stamina.current, participant.stats.staminaMax),
+                dying: isDying(participant.stamina.current),
+                dead: isDead(participant),
+                organization: participant.stats.organization,
+              }
+            : null,
         conditions: participant.conditions.map((instance) => ({
           instanceId: instance.instanceId,
           conditionId: instance.conditionId,
@@ -234,6 +273,7 @@ export const listLog = query({
       message: v.string(),
       canonRefs: v.array(v.string()),
       engineActorLabel: v.union(v.string(), v.null()),
+      data: v.union(v.any(), v.null()),
       actorName: v.string(),
       occurredAt: v.number(),
     }),
@@ -255,6 +295,7 @@ export const listLog = query({
       message: row.message,
       canonRefs: row.canonRefs,
       engineActorLabel: row.engineActorLabel ?? null,
+      data: row.data ?? null,
       actorName: row.actorName,
       occurredAt: row.occurredAt,
     }));
@@ -272,6 +313,10 @@ export const searchRecords = query({
       slug: v.string(),
       parsedTiers: v.array(v.string()),
       residueSpans: v.number(),
+      /** True when the power-roll cluster compiles — the engine can roll,
+       * band, damage, and gate potency itself. */
+      autoRollable: v.boolean(),
+      hasStats: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -292,6 +337,8 @@ export const searchRecords = query({
         slug: hit.slug,
         parsedTiers: [...new Set(tiers)],
         residueSpans: parse.residue.length,
+        autoRollable: 'ability' in compileAbility(parse, hit.artifactId),
+        hasStats: hit.statsJson !== undefined,
       };
     });
   },
@@ -316,19 +363,49 @@ export const start = mutation({
       throw new ConvexError('An encounter is already running');
     if (args.participants.length === 0 || args.participants.length > MAX_PARTICIPANTS)
       throw new ConvexError(`Choose 1–${MAX_PARTICIPANTS} participants`);
+    const statsReceipts: string[] = [];
+    const seeded: {
+      id: string;
+      sourceRecordId: string;
+      kind: 'director-creature';
+      stats?: ParticipantStats;
+    }[] = [];
     for (const participant of args.participants) {
       if (!PARTICIPANT_ID.test(participant.id))
         throw new ConvexError(`Participant handle "${participant.id}" must be short kebab-case`);
       // Participants are real corpus records, never invented (prime directive).
-      if (!(await loadRecord(ctx, participant.recordId)))
-        throw new ConvexError(`Unknown canon record: ${participant.recordId}`);
-    }
-    const state = initialEncounterState(
-      args.participants.map((participant) => ({
+      const record = await loadRecord(ctx, participant.recordId);
+      if (!record) throw new ConvexError(`Unknown canon record: ${participant.recordId}`);
+      // Deterministic stats from the stat block's checksummed paired JSON
+      // (DEC-0008; seeded by `corpus export-records`). Records without stats
+      // play in table mode — every damage/potency touch becomes a receipt.
+      let stats: ParticipantStats | undefined;
+      if (record.statsJson) {
+        const parsed = JSON.parse(record.statsJson) as StatblockStats;
+        stats = ParticipantStatsSchema.parse({
+          staminaMax: parsed.staminaMax,
+          characteristics: parsed.characteristics,
+          immunities: parsed.immunities,
+          weaknesses: parsed.weaknesses,
+          potencies: parsed.potencies,
+          organization: parsed.organization,
+        });
+        for (const row of parsed.unparsedRows) {
+          statsReceipts.push(
+            `${participant.id}: unreadable stat-block row "${row}" — apply at the table`,
+          );
+        }
+      } else {
+        statsReceipts.push(`${participant.id}: no stat automation for this record — table mode`);
+      }
+      seeded.push({
         id: participant.id,
         sourceRecordId: participant.recordId,
-      })),
-    );
+        kind: 'director-creature',
+        stats,
+      });
+    }
+    const state = initialEncounterState(seeded);
     const now = Date.now();
     const encounterId = await ctx.db.insert('encounters', {
       campaignId: args.campaignId,
@@ -354,6 +431,9 @@ export const start = mutation({
             message: `Encounter started with ${args.participants.map((entry) => entry.id).join(', ')}`,
             canonRefs: [],
           },
+          ...statsReceipts.map(
+            (message): LogRowInput => ({ kind: 'not-automated', message, canonRefs: [] }),
+          ),
         ],
       );
       await ctx.db.patch(encounterId, { logCount });
@@ -366,9 +446,21 @@ export const useAbility = mutation({
   args: {
     campaignId: v.id('campaigns'),
     artifactId: v.string(),
-    band: bandValidator,
     actorParticipantId: v.string(),
-    targetParticipantId: v.string(),
+    targetParticipantIds: v.array(v.string()),
+    /** Asserted tier — the manual override, and the only path for abilities
+     * whose power-roll cluster the grammar cannot fully compile. */
+    band: v.optional(bandValidator),
+    /** Asserted dice (manual entry); absent = auto-roll from the encounter's
+     * replayable seed. */
+    dice: v.optional(v.array(v.number())),
+    characteristicChoice: v.optional(v.string()),
+    damageCharacteristicChoice: v.optional(v.string()),
+    damageTypeChoice: v.optional(v.string()),
+    edges: v.optional(v.number()),
+    banes: v.optional(v.number()),
+    downgradeToTier: v.optional(v.number()),
+    knockOut: v.optional(v.boolean()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -376,8 +468,9 @@ export const useAbility = mutation({
     const encounter = await requireLiveEncounter(ctx, args.campaignId);
     const record = await loadRecord(ctx, args.artifactId);
     if (!record) throw new ConvexError(`Unknown canon record: ${args.artifactId}`);
-    const state = EncounterStateSchema.parse(encounter.state);
-    for (const participantId of [args.actorParticipantId, args.targetParticipantId]) {
+    const state = upgradeEncounterState(encounter.state);
+    if (args.targetParticipantIds.length === 0) throw new ConvexError('Name at least one target');
+    for (const participantId of [args.actorParticipantId, ...args.targetParticipantIds]) {
       if (!state.participants[participantId])
         throw new ConvexError(`Unknown participant: ${participantId}`);
     }
@@ -386,43 +479,98 @@ export const useAbility = mutation({
     const conservation = auditGrammarConservation(record.text, parse);
     if (conservation.length > 0)
       throw new ConvexError(`Grammar conservation failed for ${args.artifactId}`);
-    const tier = parse.clauses.find(
-      (clause) => clause.kind === 'tier-outcome' && clause.data.band === args.band,
-    );
-    if (!tier || tier.kind !== 'tier-outcome')
-      throw new ConvexError(`No parsed tier outcome at ${args.band} in ${record.slug}`);
-
-    const execution = tierOutcomeToIntents(tier.data, {
-      intentIdPrefix: `d${encounter.dispatchCount + 1}-${record.slug}`,
-      actorParticipantId: args.actorParticipantId,
-      targetParticipantId: args.targetParticipantId,
-      effectArtifactId: args.artifactId,
-    });
     const actor = { userId: profile.userId, name: profile.displayName };
-    const headline: LogRowInput = {
-      kind: 'informational',
-      message: `${args.actorParticipantId} uses ${record.slug} (tier ${args.band}) on ${args.targetParticipantId}`,
+    const residueCards: LogRowInput[] = parse.residue.map((item) => ({
+      kind: 'table-card' as const,
+      message: item.span.text.trim(),
       canonRefs: [args.artifactId],
-      engineActorLabel: args.actorParticipantId,
+    }));
+
+    if (args.band !== undefined) {
+      // Asserted-tier path (manual override / grammar fallback): the pilot
+      // flow — conditions apply, damage/potency stay receipts.
+      const tier = parse.clauses.find(
+        (clause) => clause.kind === 'tier-outcome' && clause.data.band === args.band,
+      );
+      if (!tier || tier.kind !== 'tier-outcome')
+        throw new ConvexError(`No parsed tier outcome at ${args.band} in ${record.slug}`);
+      const intents: Intent[] = [];
+      const unexecuted: LogRowInput[] = [];
+      for (const [index, targetId] of args.targetParticipantIds.entries()) {
+        const execution = tierOutcomeToIntents(tier.data, {
+          intentIdPrefix: `d${encounter.dispatchCount + 1}-${record.slug}-t${index}`,
+          actorParticipantId: args.actorParticipantId,
+          targetParticipantId: targetId,
+          effectArtifactId: args.artifactId,
+        });
+        intents.push(...execution.intents);
+        unexecuted.push(
+          ...execution.unexecuted.map((item) => ({
+            kind: 'not-automated' as const,
+            message: `${targetId} — ${item.part}: ${item.detail}`,
+            canonRefs: [args.artifactId],
+          })),
+        );
+      }
+      await runIntents(ctx, encounter, actor, intents, {
+        before: [
+          {
+            kind: 'informational',
+            message: `${args.actorParticipantId} uses ${record.slug} (asserted tier ${args.band}) on ${args.targetParticipantIds.join(', ')}`,
+            canonRefs: [args.artifactId],
+            engineActorLabel: args.actorParticipantId,
+          },
+        ],
+        after: [...unexecuted, ...residueCards],
+      });
+      return null;
+    }
+
+    // Rolled path: the engine resolves the power roll, tier, damage, and
+    // potency from the compiled verbatim text (power-roll-design §4.1).
+    const compiled = compileAbility(parse, args.artifactId);
+    if (!('ability' in compiled))
+      throw new ConvexError(
+        `${record.slug} cannot be auto-resolved (${compiled.missing.join(', ')}) — assert a tier instead`,
+      );
+    if (args.dice !== undefined && args.dice.length !== 2)
+      throw new ConvexError('Asserted dice must be exactly two d10 results');
+    const intent: Intent = {
+      intentId: `d${encounter.dispatchCount + 1}-${record.slug}`,
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: args.actorParticipantId },
+      payload: {
+        actorParticipantId: args.actorParticipantId,
+        ability: compiled.ability,
+        targets: args.targetParticipantIds,
+        dice: args.dice as [number, number] | undefined,
+        characteristicChoice: args.characteristicChoice as never,
+        damageCharacteristicChoice: args.damageCharacteristicChoice as never,
+        damageTypeChoice: args.damageTypeChoice as never,
+        edges: args.edges ?? 0,
+        banes: args.banes ?? 0,
+        downgradeToTier: args.downgradeToTier as 1 | 2 | undefined,
+        knockOut: args.knockOut ?? false,
+      },
     };
-    // Receipts for what the engine did NOT do: unexecuted mechanical parts
-    // and the record's residue, verbatim — the tier-3 table card.
-    const receipts: LogRowInput[] = [
-      ...execution.unexecuted.map((item) => ({
-        kind: 'not-automated' as const,
-        message: `${item.part}: ${item.detail}`,
-        canonRefs: [args.artifactId],
-      })),
-      ...parse.residue.map((item) => ({
-        kind: 'table-card' as const,
-        message: item.span.text.trim(),
-        canonRefs: [args.artifactId],
-      })),
-    ];
-    await runIntents(ctx, encounter, actor, execution.intents, {
-      before: [headline],
-      after: receipts,
-    });
+    try {
+      await runIntents(ctx, encounter, actor, [intent], {
+        before: [
+          {
+            kind: 'informational',
+            message: `${args.actorParticipantId} uses ${record.slug} on ${args.targetParticipantIds.join(', ')}`,
+            canonRefs: [args.artifactId],
+            engineActorLabel: args.actorParticipantId,
+          },
+        ],
+        after: residueCards,
+      });
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid ability dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     return null;
   },
 });

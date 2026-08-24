@@ -289,6 +289,9 @@ export default defineSchema({
     slug: v.string(),
     text: v.string(),
     textSha256: v.string(),
+    // Deterministic participant stats from the checksummed paired JSON
+    // (DEC-0008; canon statblockStats) — present only for stat blocks.
+    statsJson: v.optional(v.string()),
   })
     .index('by_artifactId', ['artifactId'])
     .searchIndex('search_slug', { searchField: 'slug' }),
@@ -334,6 +337,10 @@ export default defineSchema({
     message: v.string(),
     canonRefs: v.array(v.string()),
     engineActorLabel: v.optional(v.string()),
+    // The engine LogEntry's machine-readable data (power-roll breakdowns,
+    // stamina delta claims) — the receipts the UI and replay read
+    // (power-roll-design SE-3). Engine-owned shape, not mirrored here.
+    data: v.optional(v.any()),
     actorUserId: v.id('users'),
     actorName: v.string(),
     occurredAt: v.number(),

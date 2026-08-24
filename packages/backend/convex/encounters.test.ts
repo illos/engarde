@@ -1,6 +1,7 @@
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 /// <reference types="vite/client" />
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
+import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -32,6 +33,13 @@ async function seedRecords(t: Harness) {
         slug: BLOOD_FOR_BLOOD.slug,
         text: BLOOD_FOR_BLOOD.text,
         textSha256: BLOOD_FOR_BLOOD.textSha256,
+      },
+      {
+        artifactId: GOBLIN_WARRIOR.artifactId,
+        slug: GOBLIN_WARRIOR.slug,
+        text: GOBLIN_WARRIOR.text,
+        textSha256: GOBLIN_WARRIOR.textSha256,
+        statsJson: GOBLIN_WARRIOR.statsJson,
       },
     ]) {
       await ctx.db.insert('canonRecords', record);
@@ -141,7 +149,7 @@ describe('encounter host', () => {
       artifactId: BLOOD_FOR_BLOOD.artifactId,
       band: '17+',
       actorParticipantId: 'fury',
-      targetParticipantId: 'censor',
+      targetParticipantIds: ['censor'],
     });
     const view = await table.member.client.query(api.encounters.getActive, {
       campaignId: table.campaignId,
@@ -169,7 +177,7 @@ describe('encounter host', () => {
       artifactId: BLOOD_FOR_BLOOD.artifactId,
       band: '17+',
       actorParticipantId: 'fury',
-      targetParticipantId: 'censor',
+      targetParticipantIds: ['censor'],
     });
     const view = await table.owner.client.query(api.encounters.getActive, {
       campaignId: table.campaignId,
@@ -188,8 +196,8 @@ describe('encounter host', () => {
     // The card is the record's own residue text, never authored by the host.
     expect(card && BLOOD_FOR_BLOOD.text.includes(card.message)).toBe(true);
     const notAutomated = log.filter((entry) => entry.kind === 'not-automated');
-    expect(notAutomated.some((entry) => entry.message.startsWith('damage:'))).toBe(true);
-    expect(notAutomated.some((entry) => entry.message.startsWith('potency:'))).toBe(true);
+    expect(notAutomated.some((entry) => entry.message.includes('damage:'))).toBe(true);
+    expect(notAutomated.some((entry) => entry.message.includes('potency:'))).toBe(true);
 
     await expect(
       table.owner.client.mutation(api.encounters.useAbility, {
@@ -197,7 +205,7 @@ describe('encounter host', () => {
         artifactId: FURY, // neutral text: nothing parses
         band: '17+',
         actorParticipantId: 'fury',
-        targetParticipantId: 'censor',
+        targetParticipantIds: ['censor'],
       }),
     ).rejects.toThrow('No parsed tier outcome');
   });
@@ -214,7 +222,7 @@ describe('encounter host', () => {
       artifactId: BLOOD_FOR_BLOOD.artifactId,
       band: '17+',
       actorParticipantId: 'fury',
-      targetParticipantId: 'censor',
+      targetParticipantIds: ['censor'],
     });
     const before = await table.owner.client.query(api.encounters.getActive, {
       campaignId: table.campaignId,
@@ -265,6 +273,87 @@ describe('encounter host', () => {
       campaignId: table.campaignId,
     });
     expect(ended).toBeNull();
+  });
+
+  test('rolled path: stat-block participants take engine-resolved damage and potency', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [
+        { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+        { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+      ],
+    });
+    // Asserted dice 4+5 → natural 9, fixed +2 → 11 → tier 1 of the first
+    // compiled cluster (Spear Charge): 3 damage, no rider.
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [4, 5],
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    if (!view) throw new Error('no active encounter');
+    const target = view.participants.find((participant) => participant.id === 'warrior-b');
+    expect(target?.vitals).toMatchObject({
+      staminaCurrent: 12,
+      staminaMax: 15,
+      winded: false,
+      dying: false,
+      dead: false,
+    });
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: view.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    // The power-roll breakdown receipt is persisted (design SE-3).
+    const roll = log.find(
+      (entry) => (entry.data as { powerRoll?: unknown } | null)?.powerRoll !== undefined,
+    );
+    expect(roll).toBeDefined();
+  });
+
+  test('rolled path refuses cleanly when the roll cannot bind, and falls back to asserted tiers', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [...TRIO, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
+    });
+    // blood-for-blood rolls + Might; the fury participant is a class record
+    // with no stats — the engine refuses (a log row, state untouched).
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: BLOOD_FOR_BLOOD.artifactId,
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['warrior'],
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    if (!view) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: view.encounterId,
+    });
+    expect(log.some((entry) => entry.kind === 'refusal')).toBe(true);
+    expect(
+      view.participants.find((participant) => participant.id === 'warrior')?.vitals?.staminaCurrent,
+    ).toBe(15);
+    // A record whose text compiles nothing cannot roll — assert a tier instead.
+    await expect(
+      table.owner.client.mutation(api.encounters.useAbility, {
+        campaignId: table.campaignId,
+        artifactId: FURY,
+        actorParticipantId: 'fury',
+        targetParticipantIds: ['censor'],
+      }),
+    ).rejects.toThrow('cannot be auto-resolved');
   });
 
   test('searchRecords finds seeded records and reports parsed tiers', async () => {

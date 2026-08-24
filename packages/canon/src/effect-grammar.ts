@@ -116,10 +116,7 @@ const DAMAGE_CHARACTERISTIC = '[MARIP]';
  * cover 98.0% of the corpus's damage-carrying tier heads; the long tail
  * (dual damage parts, dice expressions, prose) stays residue. */
 const DAMAGE_PART = new RegExp(
-  `^(\\d+)` +
-    `(?: \\+ (${DAMAGE_CHARACTERISTIC}(?:, ${DAMAGE_CHARACTERISTIC})*(?:,? or ${DAMAGE_CHARACTERISTIC})?))?` +
-    `( ${DAMAGE_TYPE}(?:, ${DAMAGE_TYPE})*(?:,? or ${DAMAGE_TYPE})?)?` +
-    ` damage$`,
+  `^(\\d+)(?: \\+ (${DAMAGE_CHARACTERISTIC}(?:, ${DAMAGE_CHARACTERISTIC})*(?:,? or ${DAMAGE_CHARACTERISTIC})?))?( ${DAMAGE_TYPE}(?:, ${DAMAGE_TYPE})*(?:,? or ${DAMAGE_TYPE})?)? damage$`,
 );
 const POTENCY_PREFIX = /^([A-Z]) < (WEAK|AVERAGE|STRONG|\d+),? ?/;
 

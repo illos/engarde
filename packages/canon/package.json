@@ -7,7 +7,9 @@
     ".": "./src/index.ts",
     "./effect-grammar": "./src/effect-grammar.ts",
     "./effect-conformance": "./src/effect-conformance.ts",
-    "./fixtures/blood-for-blood": "./src/fixtures/blood-for-blood.verbatim.ts"
+    "./fixtures/blood-for-blood": "./src/fixtures/blood-for-blood.verbatim.ts",
+    "./statblock-stats": "./src/statblock-stats.ts",
+    "./fixtures/goblin-warrior": "./src/fixtures/goblin-warrior.verbatim.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

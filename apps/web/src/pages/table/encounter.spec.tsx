@@ -71,12 +71,22 @@ const activeEncounter = {
       id: 'fury',
       recordId: FURY,
       recordSlug: 'fury',
+      vitals: null,
       conditions: [],
     },
     {
       id: 'censor',
       recordId: 'mcdm.heroes.v1/class/censor',
       recordSlug: 'censor',
+      vitals: {
+        staminaCurrent: 9,
+        staminaTemporary: 0,
+        staminaMax: 15,
+        winded: false,
+        dying: false,
+        dead: false,
+        organization: null,
+      },
       conditions: [
         {
           instanceId: `${BLEEDING}#d1`,
@@ -115,7 +125,14 @@ describe('EncounterPanel', () => {
     setSessionActive();
     setQuery(api.encounters.getActive, null);
     setQuery(api.encounters.searchRecords, [
-      { artifactId: FURY, slug: 'fury', parsedTiers: [], residueSpans: 3 },
+      {
+        artifactId: FURY,
+        slug: 'fury',
+        parsedTiers: [],
+        residueSpans: 3,
+        autoRollable: false,
+        hasStats: false,
+      },
     ]);
     render(<EncounterPanel campaignId={campaignId} />);
     fireEvent.change(screen.getByLabelText('Search canon records'), {
@@ -141,6 +158,7 @@ describe('EncounterPanel', () => {
         message: '**Effect:** verbatim card text',
         canonRefs: [BFB],
         engineActorLabel: null,
+        data: null,
         actorName: 'owner',
         occurredAt: 0,
       },
@@ -173,6 +191,8 @@ describe('EncounterPanel', () => {
         slug: 'blood-for-blood',
         parsedTiers: ['≤11', '12-16', '17+'],
         residueSpans: 1,
+        autoRollable: true,
+        hasStats: false,
       },
     ]);
     render(<EncounterPanel campaignId={campaignId} />);
@@ -193,13 +213,64 @@ describe('EncounterPanel', () => {
     fireEvent.change(screen.getByLabelText('Target participant'), {
       target: { value: 'censor' },
     });
-    fireEvent.click(screen.getByText('Use'));
+    // Auto-rollable abilities roll by default — dice as input, engine-resolved.
+    fireEvent.click(screen.getByText('Roll'));
     expect(spyFor(api.encounters.useAbility)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: BFB,
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['censor'],
+      dice: undefined,
+      edges: 0,
+      banes: 0,
+      knockOut: undefined,
+    });
+    await act(() => Promise.resolve());
+
+    // The manual override: assert a tier instead of rolling.
+    fireEvent.click(screen.getByText('assert a tier instead'));
+    fireEvent.click(screen.getByText('Use (asserted tier)'));
+    expect(spyFor(api.encounters.useAbility)).toHaveBeenLastCalledWith({
       campaignId,
       artifactId: BFB,
       band: '≤11',
       actorParticipantId: 'fury',
-      targetParticipantId: 'censor',
+      targetParticipantIds: ['censor'],
     });
+  });
+
+  test('vitals render: Stamina bar, table-mode note, and the roll breakdown log card', () => {
+    setRoster('director');
+    setSessionActive();
+    setQuery(api.encounters.getActive, activeEncounter);
+    setQuery(api.encounters.listLog, [
+      {
+        entryId: 'log-2',
+        seq: 2,
+        kind: 'informational',
+        message: 'fury rolls blood-for-blood: 6+5+2 (M) → total 13, tier 2',
+        canonRefs: [BFB],
+        engineActorLabel: 'fury',
+        data: {
+          powerRoll: {
+            dice: [6, 5],
+            diceAsserted: false,
+            characteristicValue: 2,
+            characteristicLabel: 'M',
+            edges: 1,
+            banes: 0,
+            resolution: { total: 13, tier: 2, naturalTopEnd: false },
+          },
+        },
+        actorName: 'owner',
+        occurredAt: 0,
+      },
+    ]);
+    render(<EncounterPanel campaignId={campaignId} />);
+    // censor has vitals; fury is a table-mode record.
+    expect(screen.getByText('9/15')).toBeTruthy();
+    expect(screen.getByText('Table mode — no stat automation for this record')).toBeTruthy();
+    // The persisted breakdown renders as a receipt.
+    expect(screen.getByText(/total 13 → tier 2/)).toBeTruthy();
   });
 });

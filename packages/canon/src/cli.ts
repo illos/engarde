@@ -35,6 +35,7 @@ import {
   RelativeSourcePathSchema,
 } from './schemas.js';
 import { inspectSourceStatus, readSourceLock } from './source.js';
+import { statblockStats } from './statblock-stats.js';
 import {
   ClassificationBatchSchema,
   buildClassificationPackets,
@@ -570,14 +571,18 @@ async function main(): Promise<void> {
     await mkdir(dirname(outputPath), { recursive: true });
     const lines = artifacts
       .sort((a, b) => a.id.localeCompare(b.id))
-      .map((artifact) =>
-        JSON.stringify({
+      .map((artifact) => {
+        // Deterministic participant stats from the checksummed paired JSON
+        // (DEC-0008) — present only for stat blocks with full stats.
+        const stats = statblockStats(artifact.structuredData);
+        return JSON.stringify({
           artifactId: artifact.id,
           slug: artifact.id.split('/').pop() ?? artifact.id,
           text: artifact.text,
           textSha256: sha256(Buffer.from(artifact.text, 'utf8')),
-        }),
-      );
+          ...(stats ? { statsJson: JSON.stringify(stats) } : {}),
+        });
+      });
     await writeFile(outputPath, `${lines.join('\n')}\n`, 'utf8');
     process.stdout.write(
       `${JSON.stringify({ records: artifacts.length, out: outputPath }, null, 2)}\n`,
