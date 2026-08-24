@@ -76,7 +76,7 @@ async function ingestText(markdownPath: string): Promise<string> {
 }
 
 describe.skipIf(!sourceRoot)('sweep over real corpus abilities', () => {
-  it('blood-for-blood: the power-roll cluster mechanisms are shipped; Effect prose stays grammar-blocked', async () => {
+  it('blood-for-blood: Effect is parsed whole but its bespoke semantics remain mechanism-blocked', async () => {
     const text = await ingestText(
       'en/books/heroes/md/feature/ability/fury/level-1/blood-for-blood.md',
     );
@@ -88,14 +88,19 @@ describe.skipIf(!sourceRoot)('sweep over real corpus abilities', () => {
       },
     ]);
     expect(report.headline.conservationViolations).toBe(0);
-    // The whole power-roll cluster is SHIPPED — nothing here is
-    // mechanism-blocked any more; the Effect residue line still leaves the
-    // ability grammar-blocked.
+    // The power-roll cluster is shipped. The Effect instruction is now
+    // conserved as parsed data, but bespoke dice-for-damage semantics remain
+    // an explicit table-directive mechanism rather than guessed automation.
     const shipped = report.mechanisms.filter((entry) => entry.shipped).map((m) => m.mechanism);
     expect(shipped).toContain('potency resolution (SHIPPED: power-roll cluster)');
     expect(shipped).toContain('damage / Stamina application (SHIPPED: power-roll cluster)');
     expect(shipped).toContain('power roll resolution (SHIPPED: power-roll cluster)');
-    expect(report.mechanisms.filter((entry) => !entry.shipped)).toEqual([]);
-    expect(report.headline.byStatus['grammar-blocked']).toBe(1);
+    expect(report.mechanisms.filter((entry) => !entry.shipped)).toEqual([
+      expect.objectContaining({
+        mechanism: 'Effect prose semantics (TABLE DIRECTIVE; mechanism pending)',
+        neededBy: 1,
+      }),
+    ]);
+    expect(report.headline.byStatus['mechanism-blocked']).toBe(1);
   });
 });

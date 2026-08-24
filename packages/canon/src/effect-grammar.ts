@@ -10,8 +10,10 @@
  * The clause vocabulary is grounded in the pilot's five sample abilities
  * (blood-for-blood, sentenced, mark, grab lead-in, toxic-plants): flavor
  * lines, ability-header tables, power-roll headings, and tier-outcome lines.
- * Effect prose, hazard blocks, and upgrade riders are RESIDUE by design —
- * they route to tier 2/3 or the mechanism backlog, never silently away.
+ * Effect prose is recognized as an attributed instruction. Only exact forms
+ * with an existing engine core are marked automatic; every other Effect
+ * instruction retains its verbatim payload for a table directive. Hazard
+ * blocks and upgrade riders remain RESIDUE by design.
  */
 
 export interface TextSpan {
@@ -41,6 +43,24 @@ export type PowerRollBonusData =
   | { kind: 'characteristic'; options: string[] }
   | { kind: 'highest' };
 
+export type EffectLineResolutionData =
+  | { kind: 'damage'; amount: number; damageType: string | null }
+  | {
+      kind: 'condition';
+      conditionId: string;
+      ending: 'external' | 'end-of-targets-next-turn';
+      replacesOnNewSource: boolean;
+    }
+  | { kind: 'table' };
+
+export interface EffectLineData {
+  /** Exact Markdown payload after `**Effect:**` (no normalization). */
+  sourceText: string;
+  /** Explicit scc.v1 targets in source order, de-duplicated. */
+  canonRefs: string[];
+  resolution: EffectLineResolutionData;
+}
+
 export type EffectClause =
   | { kind: 'flavor'; span: TextSpan }
   | { kind: 'whitespace'; span: TextSpan }
@@ -53,7 +73,8 @@ export type EffectClause =
       targets: string | null;
     }
   | { kind: 'power-roll'; span: TextSpan; bonus: string; bonusData: PowerRollBonusData }
-  | { kind: 'tier-outcome'; span: TextSpan; data: TierOutcomeData };
+  | { kind: 'tier-outcome'; span: TextSpan; data: TierOutcomeData }
+  | { kind: 'effect'; span: TextSpan; data: EffectLineData };
 
 export interface ResidueSpan {
   span: TextSpan;
@@ -106,11 +127,88 @@ function conditionIdsIn(value: string): string[] {
   return ids;
 }
 
+function canonRefsIn(value: string): string[] {
+  const refs: string[] = [];
+  for (const match of value.matchAll(SCC_LINK)) {
+    const target = match[2];
+    if (target && !refs.includes(target)) refs.push(target);
+  }
+  return refs;
+}
+
+const EFFECT_LINE = /^(?:> )?\*\*Effect:\*\* (.+)$/;
+/** The nine typed damage kinds [rule.damage/damage-type] — a closed set. */
+const DAMAGE_TYPE = '(?:acid|cold|corruption|fire|holy|lightning|poison|psychic|sonic)';
+const DIRECT_EFFECT_DAMAGE = new RegExp(
+  `^(?:The target|Each target) takes (\\d+)(?: (${DAMAGE_TYPE.slice(3, -1)}))? damage\\.$`,
+);
+const LINKED_CONDITION = '\\[[^\\]]+\\]\\(scc\\.v1:[^)]*\\/condition\\/[^)]+\\)';
+/** Closed over the five independently reviewed accepted-corpus forms. A new
+ * imposer name or any appended rider stays table until its ending is audited. */
+const EXTERNAL_GRABBED_EFFECT =
+  /^The target is \[grabbed\]\(scc\.v1:mcdm\.heroes\.v1\/condition\/grabbed\) by the (?:channeler|commander|roughneck|sneak|commando)\.$/;
+const NEXT_TURN_CONDITION_EFFECT = new RegExp(
+  `^The target is ${LINKED_CONDITION} until the end of their next \\[[^\\]]+\\]\\(scc\\.v1:mcdm\\.heroes\\.v1/rule\\.combat/turn\\)\\.$`,
+);
+
+function parseEffectPayload(payload: string): EffectLineData {
+  const canonRefs = canonRefsIn(payload);
+  // Markdown line-break spaces are retained in sourceText/provenance while
+  // semantic matching ignores only that presentation suffix.
+  const semanticPayload = payload.trimEnd();
+  const plain = stripSccLinks(semanticPayload);
+  const damage = DIRECT_EFFECT_DAMAGE.exec(plain);
+  if (damage) {
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'damage',
+        amount: Number(damage[1]),
+        damageType: damage[2] ?? null,
+      },
+    };
+  }
+
+  const conditionIds = conditionIdsIn(payload);
+  const conditionId = conditionIds.length === 1 ? conditionIds[0] : undefined;
+  if (
+    conditionId === 'mcdm.heroes.v1/condition/grabbed' &&
+    EXTERNAL_GRABBED_EFFECT.test(semanticPayload)
+  ) {
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'condition',
+        conditionId,
+        ending: 'external',
+        replacesOnNewSource: false,
+      },
+    };
+  }
+  if (
+    conditionId === 'mcdm.heroes.v1/condition/taunted' &&
+    NEXT_TURN_CONDITION_EFFECT.test(semanticPayload)
+  ) {
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'condition',
+        conditionId,
+        ending: 'end-of-targets-next-turn',
+        replacesOnNewSource: true,
+      },
+    };
+  }
+
+  return { sourceText: payload, canonRefs, resolution: { kind: 'table' } };
+}
+
 /** `- **≤11:** 4 + M damage; M < WEAK, bleeding and weakened (save ends)` */
 const TIER_LINE = /^(?:> )?- \*\*(≤11|12-16|17\+):\*\* (.+?)\s*$/;
-/** The nine typed damage kinds [rule.damage/damage-type] — a closed set;
- * anything else fails the line to residue. */
-const DAMAGE_TYPE = '(?:acid|cold|corruption|fire|holy|lightning|poison|psychic|sonic)';
+/** Anything outside the closed damage-type set fails the line to residue. */
 const DAMAGE_CHARACTERISTIC = '[MARIP]';
 /** `N [+ C[, C…][ or C]] [type[, type…][ or type]] damage` — measured to
  * cover 98.0% of the corpus's damage-carrying tier heads; the long tail
@@ -278,6 +376,8 @@ export function parseEffectText(text: string): GrammarParse {
     const line = lines[index];
     if (!line) break;
     const trimmed = line.text.trim();
+    const withoutNewline = line.text.endsWith('\n') ? line.text.slice(0, -1) : line.text;
+    const exactLine = withoutNewline.endsWith('\r') ? withoutNewline.slice(0, -1) : withoutNewline;
 
     if (trimmed.length === 0) {
       flushResidue();
@@ -338,6 +438,17 @@ export function parseEffectText(text: string): GrammarParse {
         index += 1;
         continue;
       }
+    }
+    const effect = EFFECT_LINE.exec(exactLine);
+    if (effect) {
+      flushResidue();
+      clauses.push({
+        kind: 'effect',
+        span: span([line]),
+        data: parseEffectPayload(effect[1] ?? ''),
+      });
+      index += 1;
+      continue;
     }
     residueBuffer.push(line);
     index += 1;

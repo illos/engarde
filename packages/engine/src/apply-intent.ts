@@ -9,6 +9,7 @@ import {
 } from './condition-lifecycle.js';
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { executeUseEffect } from './effect-execution.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 
@@ -113,6 +114,8 @@ export function applyIntent(
     }
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);
+    case 'use-effect':
+      return executeUseEffect(state, intent);
     case 'apply-damage': {
       const target = state.participants[intent.payload.target];
       if (!target) {

@@ -34,7 +34,8 @@ export interface InvariantViolation {
     | 'phantom-stamina-claim'
     | 'dice-out-of-range'
     | 'breakdown-mismatch'
-    | 'potency-gate-bypassed';
+    | 'potency-gate-bypassed'
+    | 'effect-receipt-mismatch';
   detail: string;
 }
 
@@ -253,6 +254,50 @@ export function checkInvariants(
         violations.push({
           code: 'breakdown-mismatch',
           detail: `logged total ${rollData.resolution.total}/tier ${rollData.resolution.tier}, recomputed ${recomputed.total}/${recomputed.tier}`,
+        });
+      }
+    }
+  }
+
+  // ── Effect provenance consistency ──────────────────────────────────────
+  // Every use-effect dispatch carries exactly one self-describing receipt;
+  // a manual program also keeps its exact source text in the directive.
+  if (intent.kind === 'use-effect') {
+    const receipts = result.log
+      .map((entry) => entry.data.effectResolution)
+      .filter((value) => value !== undefined) as Array<{
+      effectArtifactId?: unknown;
+      effectOrdinal?: unknown;
+      sourceSpan?: unknown;
+      sourceText?: unknown;
+      resolutionKind?: unknown;
+      targets?: unknown;
+    }>;
+    const receipt = receipts[0];
+    if (
+      receipts.length !== 1 ||
+      receipt?.effectArtifactId !== intent.payload.effect.effectArtifactId ||
+      receipt.effectOrdinal !== intent.payload.effect.effectOrdinal ||
+      JSON.stringify(receipt.sourceSpan) !== JSON.stringify(intent.payload.effect.sourceSpan) ||
+      receipt.sourceText !== intent.payload.effect.sourceText ||
+      receipt.resolutionKind !== intent.payload.effect.resolution.kind ||
+      JSON.stringify(receipt.targets) !== JSON.stringify(intent.payload.targets)
+    ) {
+      violations.push({
+        code: 'effect-receipt-mismatch',
+        detail: 'use-effect log does not carry exactly one matching effectResolution receipt',
+      });
+    }
+    if (intent.payload.effect.resolution.kind === 'table') {
+      const directive = result.log.find((entry) => entry.data.manualEffect !== undefined);
+      const manual = directive?.data.manualEffect as { sourceText?: unknown } | undefined;
+      if (
+        directive?.kind !== 'table-directive' ||
+        manual?.sourceText !== intent.payload.effect.sourceText
+      ) {
+        violations.push({
+          code: 'effect-receipt-mismatch',
+          detail: 'manual Effect directive does not preserve the compiled source text',
         });
       }
     }

@@ -96,8 +96,11 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
     expect(header?.keywords).toEqual(['Melee', 'Strike', 'Weapon']);
     expect(header?.actionType).toBe('Main action');
     expect(header?.distance).toBe('Melee 1');
-    // The self-damage Effect line is explicit residue, not silently dropped.
-    expect(parse.residue.length).toBeGreaterThan(0);
+    // The self-damage Effect line is fully retained but not guessed into an
+    // automatic operation: it resolves as a verbatim table directive.
+    const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+    expect(effect?.data.resolution).toEqual({ kind: 'table' });
+    expect(parse.residue).toEqual([]);
   });
 
   it('reads toxic-plants nested tier outcomes with numeric potency and no damage part', async () => {
@@ -146,5 +149,65 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
         styrich,
       ),
     ).toEqual([]);
+  });
+
+  it('compiles only exact Effect forms and preserves bespoke prose verbatim', async () => {
+    const directDamage = parseEffectText(
+      await ingestText('en/books/heroes/md/project/imbue-treasure.md'),
+    ).clauses.find((clause) => clause.kind === 'effect');
+    expect(directDamage?.data).toEqual({
+      sourceText: 'The target takes 5 damage.',
+      canonRefs: [],
+      resolution: { kind: 'damage', amount: 5, damageType: null },
+    });
+    if (!directDamage || directDamage.kind !== 'effect') throw new Error('missing direct Effect');
+    const trailingSpaces = parseEffectText(`**Effect:** ${directDamage.data.sourceText}  \n`);
+    const trailingEffect = trailingSpaces.clauses.find((clause) => clause.kind === 'effect');
+    expect(trailingEffect?.data.sourceText).toBe(`${directDamage.data.sourceText}  `);
+    expect(trailingEffect?.data.resolution).toEqual({
+      kind: 'damage',
+      amount: 5,
+      damageType: null,
+    });
+    const indentedCode = parseEffectText(`    **Effect:** ${directDamage.data.sourceText}\n`);
+    expect(indentedCode.clauses.some((clause) => clause.kind === 'effect')).toBe(false);
+    expect(indentedCode.residue).toHaveLength(1);
+
+    const bugbear = parseEffectText(
+      await ingestText('en/books/monsters/md/monster/bugbear/statblock/bugbear-channeler.md'),
+    ).clauses.filter((clause) => clause.kind === 'effect');
+    const grabbed = bugbear.find((clause) => clause.data.sourceText.includes('by the channeler.'));
+    expect(grabbed?.data.resolution).toEqual({
+      kind: 'condition',
+      conditionId: 'mcdm.heroes.v1/condition/grabbed',
+      ending: 'external',
+      replacesOnNewSource: false,
+    });
+    if (!grabbed) throw new Error('missing grabbed Effect');
+    const grabbedWithTail = parseEffectText(
+      `**Effect:** ${grabbed.data.sourceText.slice(0, -1)}, x.\n`,
+    ).clauses.find((clause) => clause.kind === 'effect');
+    expect(grabbedWithTail?.data.resolution).toEqual({ kind: 'table' });
+
+    const bloodForBlood = parseEffectText(
+      await ingestText('en/books/heroes/md/feature/ability/fury/level-1/blood-for-blood.md'),
+    ).clauses.find((clause) => clause.kind === 'effect');
+    expect(bloodForBlood?.data.resolution).toEqual({ kind: 'table' });
+    expect(bloodForBlood?.data.sourceText).toBe(
+      'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+    );
+  });
+
+  it('keeps choice branches as residue after routing their Effect introduction', async () => {
+    const text = await ingestText('en/books/heroes/md/title/battlefield-commander.md');
+    const parse = parseEffectText(text);
+    const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+    expect(effect?.data).toEqual({
+      sourceText: 'Choose one of the following benefits:',
+      canonRefs: [],
+      resolution: { kind: 'table' },
+    });
+    expect(parse.residue.some((item) => item.span.text.includes('- '))).toBe(true);
+    expect(auditGrammarConservation(text, parse)).toEqual([]);
   });
 });

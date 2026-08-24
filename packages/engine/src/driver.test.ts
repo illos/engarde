@@ -42,6 +42,29 @@ describe('driver harness', () => {
     expect(harness.log().some((entry) => entry.kind === 'mutation')).toBe(true);
   });
 
+  it('records but does not adopt an invariant-violating candidate state', () => {
+    const harness = driver();
+    const intent = {
+      intentId: 'replayed',
+      kind: 'apply-condition' as const,
+      actor: { kind: 'participant' as const, participantId: 'fury' },
+      payload: {
+        target: 'censor',
+        conditionId: WEAKENED,
+        ending: { kind: 'save-ends' as const },
+        source: { participantId: 'fury' },
+      },
+    };
+    expect(harness.dispatch(intent).violations).toEqual([]);
+    const logLength = harness.log().length;
+    const replay = harness.dispatch(intent);
+
+    expect(replay.violations.map((violation) => violation.code)).toContain('duplicate-instance-id');
+    expect(harness.state().participants.censor?.conditions).toHaveLength(1);
+    expect(harness.log()).toHaveLength(logLength);
+    expect(harness.transcript().violationCount).toBeGreaterThan(0);
+  });
+
   it('produces a transcript with steps, final state, and a violation count', () => {
     const harness = driver();
     harness.dispatch({

@@ -91,10 +91,12 @@ export function createDriver(
     dispatch(intent: Intent) {
       const result = applyIntent(state, intent, context);
       const violations = checkInvariants(state, intent, result);
-      state = result.state;
-      fullLog.push(...result.log);
+      if (violations.length === 0) {
+        state = result.state;
+        fullLog.push(...result.log);
+      }
       steps.push({ step: steps.length + 1, intent, log: result.log, violations });
-      return { ...result, violations };
+      return { ...result, state, violations };
     },
     state: () => state,
     log: () => [...fullLog],

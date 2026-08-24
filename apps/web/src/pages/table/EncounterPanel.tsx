@@ -58,11 +58,15 @@ function RecordSearch({
   onPick,
   pickLabel,
   requireParsedTier,
+  requireEffect = false,
+  searchLabel,
 }: {
   campaignId: Id<'campaigns'>;
   onPick: (hit: SearchHits[number]) => void;
   pickLabel: string;
   requireParsedTier: boolean;
+  requireEffect?: boolean;
+  searchLabel: string;
 }) {
   const [term, setTerm] = useState('');
   const hits = useQuery(
@@ -75,13 +79,15 @@ function RecordSearch({
         value={term}
         onChange={(event) => setTerm(event.target.value)}
         placeholder="Search the books… (e.g. blood-for-blood)"
-        aria-label="Search canon records"
+        aria-label={searchLabel}
         className="h-11 w-full border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
       />
       {hits && hits.length > 0 ? (
         <ul className="mt-2 flex flex-col divide-y divide-line-soft border border-line bg-ink-2">
           {hits.map((hit) => {
-            const usable = !requireParsedTier || hit.parsedTiers.length > 0;
+            const usable =
+              (!requireParsedTier || hit.parsedTiers.length > 0) &&
+              (!requireEffect || hit.effects.length > 0);
             return (
               <li key={hit.artifactId} className="flex items-center gap-2 p-2">
                 <div className="min-w-0 flex-1">
@@ -91,8 +97,13 @@ function RecordSearch({
                       ? 'rolls automatically'
                       : hit.parsedTiers.length > 0
                         ? `tiers parsed: ${hit.parsedTiers.join(', ')}`
-                        : 'nothing automatable yet — plays as a verbatim card'}
+                        : hit.effects.length > 0
+                          ? `${hit.effects.length} Effect instruction${hit.effects.length === 1 ? '' : 's'}`
+                          : 'nothing automatable yet — plays as a verbatim card'}
                     {hit.hasStats ? ' · stat block' : ''}
+                    {hit.effects.length > 0 && (hit.autoRollable || hit.parsedTiers.length > 0)
+                      ? ` · ${hit.effects.length} Effect${hit.effects.length === 1 ? '' : 's'}`
+                      : ''}
                     {hit.residueSpans > 0 ? ' · has table-card text' : ''}
                   </p>
                 </div>
@@ -151,6 +162,7 @@ function StartEncounter({
           campaignId={campaignId}
           pickLabel="Add"
           requireParsedTier={false}
+          searchLabel="Search canon records"
           onPick={(hit) =>
             setDraft((current) => [
               ...current,
@@ -215,10 +227,14 @@ function ActiveEncounter({
   const removeCondition = useMutation(api.encounters.removeCondition);
   const endEncounter = useMutation(api.encounters.endEncounter);
   const useAbility = useMutation(api.encounters.useAbility);
+  const useEffectInstruction = useMutation(api.encounters.useEffect);
   const { run, error, busy } = useRun();
   const [rolls, setRolls] = useState<Record<string, string>>({});
   const [keeps, setKeeps] = useState<Record<string, boolean>>({});
   const [pickedAbility, setPickedAbility] = useState<SearchHits[number] | null>(null);
+  const [pickedEffect, setPickedEffect] = useState<SearchHits[number] | null>(null);
+  const [effectOrdinal, setEffectOrdinal] = useState(1);
+  const [effectTargetless, setEffectTargetless] = useState(false);
   const [band, setBand] = useState<Band>('17+');
   const [assertTier, setAssertTier] = useState(false);
   const [edges, setEdges] = useState('0');
@@ -229,6 +245,11 @@ function ActiveEncounter({
   const second = encounter.participants[1]?.id ?? first;
   const [actorId, setActorId] = useState(first);
   const [targetId, setTargetId] = useState(second);
+  const [effectTargetIds, setEffectTargetIds] = useState<string[]>(second ? [second] : []);
+  const [effectKnockOut, setEffectKnockOut] = useState(false);
+  const selectedEffect = pickedEffect?.effects.find(
+    (effect) => effect.effectOrdinal === effectOrdinal,
+  );
 
   const participantOptions = encounter.participants.map((participant) => (
     <option key={participant.id} value={participant.id}>
@@ -405,6 +426,7 @@ function ActiveEncounter({
             campaignId={campaignId}
             pickLabel="Pick"
             requireParsedTier
+            searchLabel="Search abilities"
             onPick={(hit) => {
               setPickedAbility(hit);
               setAssertTier(false);
@@ -561,6 +583,134 @@ function ActiveEncounter({
         ) : null}
       </div>
 
+      <div className="mt-4 border-t border-line-soft pt-4">
+        <h3 className="type-label text-xs text-text-mute">Resolve an Effect instruction</h3>
+        <div className="mt-2">
+          <RecordSearch
+            campaignId={campaignId}
+            pickLabel="Pick Effect"
+            requireParsedTier={false}
+            requireEffect
+            searchLabel="Search effects"
+            onPick={(hit) => {
+              setPickedEffect(hit);
+              setEffectOrdinal(hit.effects[0]?.effectOrdinal ?? 1);
+              setEffectTargetless(false);
+              setEffectTargetIds(targetId ? [targetId] : []);
+              setEffectKnockOut(false);
+            }}
+          />
+        </div>
+        {pickedEffect && selectedEffect ? (
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs">{pickedEffect.slug}</span>
+              {pickedEffect.effects.length > 1 ? (
+                <select
+                  aria-label="Effect instruction"
+                  className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                  value={effectOrdinal}
+                  onChange={(event) => {
+                    setEffectOrdinal(Number(event.target.value));
+                    setEffectTargetless(false);
+                    setEffectKnockOut(false);
+                  }}
+                >
+                  {pickedEffect.effects.map((effect) => (
+                    <option key={effect.effectOrdinal} value={effect.effectOrdinal}>
+                      Effect #{effect.effectOrdinal} · {effect.resolutionKind}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-text-mute">
+                  Effect #{selectedEffect.effectOrdinal} · {selectedEffect.resolutionKind}
+                </span>
+              )}
+            </div>
+            <p className="whitespace-pre-wrap border border-line-soft bg-ink-2 p-2 font-mono text-xs">
+              {selectedEffect.sourceText}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                aria-label="Effect acting participant"
+                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                value={actorId}
+                onChange={(event) => setActorId(event.target.value)}
+              >
+                {participantOptions}
+              </select>
+              <span className="text-xs text-text-mute">on</span>
+              <fieldset className="flex flex-wrap items-center gap-2" disabled={effectTargetless}>
+                <legend className="sr-only">Effect targets</legend>
+                {encounter.participants.map((participant) => (
+                  <label
+                    key={participant.id}
+                    className="flex items-center gap-1 text-xs text-text-mute"
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Effect target ${participant.id}`}
+                      checked={effectTargetIds.includes(participant.id)}
+                      onChange={(event) =>
+                        setEffectTargetIds((current) =>
+                          event.target.checked
+                            ? [...new Set([...current, participant.id])]
+                            : current.filter((target) => target !== participant.id),
+                        )
+                      }
+                    />
+                    {participant.id}
+                  </label>
+                ))}
+              </fieldset>
+              {selectedEffect.resolutionKind === 'table' ? (
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  <input
+                    type="checkbox"
+                    checked={effectTargetless}
+                    onChange={(event) => setEffectTargetless(event.target.checked)}
+                  />
+                  no participant target
+                </label>
+              ) : null}
+              {selectedEffect.resolutionKind === 'damage' ? (
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  <input
+                    type="checkbox"
+                    aria-label="Knock out with Effect damage"
+                    checked={effectKnockOut}
+                    onChange={(event) => setEffectKnockOut(event.target.checked)}
+                  />
+                  knock out, not kill
+                </label>
+              ) : null}
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={busy || (!effectTargetless && effectTargetIds.length === 0)}
+                onClick={() =>
+                  run(() =>
+                    useEffectInstruction({
+                      campaignId,
+                      artifactId: pickedEffect.artifactId,
+                      effectOrdinal: selectedEffect.effectOrdinal,
+                      actorParticipantId: actorId,
+                      targetParticipantIds: effectTargetless ? [] : effectTargetIds,
+                      ...(selectedEffect.resolutionKind === 'damage' && effectKnockOut
+                        ? { knockOut: true }
+                        : {}),
+                    }),
+                  )
+                }
+              >
+                Resolve Effect
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <EncounterLog campaignId={campaignId} encounterId={encounter.encounterId} />
       {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
     </section>
@@ -593,7 +743,7 @@ function EncounterLog({
           <p className="text-sm text-text-dim">Nothing yet.</p>
         ) : (
           log.map((entry) => {
-            if (entry.kind === 'table-card')
+            if (entry.kind === 'table-card' || entry.kind === 'table-directive')
               return (
                 <div key={entry.entryId} className="border border-line bg-ink-1 p-2">
                   <p className="type-label text-xs text-text-mute">Resolve at the table</p>

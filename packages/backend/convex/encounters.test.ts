@@ -1,5 +1,6 @@
-import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 /// <reference types="vite/client" />
+import { createHash } from 'node:crypto';
+import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { convexTest } from 'convex-test';
@@ -22,12 +23,19 @@ type Harness = ReturnType<typeof convexTest>;
  * ability record is the committed checksum-pinned verbatim cut. */
 const FURY = 'mcdm.heroes.v1/class/fury';
 const CENSOR = 'mcdm.heroes.v1/class/censor';
+const WODE_SENTRY = 'mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-sentry';
+const WODE_EFFECT_TEXT =
+  '> **Effect:** Allies gain an edge on abilities against a target marked by any wode elf.\n> **Effect:** Each target takes 3 damage.\n';
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 async function seedRecords(t: Harness) {
   await t.run(async (ctx) => {
     for (const record of [
-      { artifactId: FURY, slug: 'fury', text: 'x\n', textSha256: 'seeded-for-test' },
-      { artifactId: CENSOR, slug: 'censor', text: 'x\n', textSha256: 'seeded-for-test' },
+      { artifactId: FURY, slug: 'fury', text: 'x\n', textSha256: sha256('x\n') },
+      { artifactId: CENSOR, slug: 'censor', text: 'x\n', textSha256: sha256('x\n') },
       {
         artifactId: BLOOD_FOR_BLOOD.artifactId,
         slug: BLOOD_FOR_BLOOD.slug,
@@ -40,6 +48,14 @@ async function seedRecords(t: Harness) {
         text: GOBLIN_WARRIOR.text,
         textSha256: GOBLIN_WARRIOR.textSha256,
         statsJson: GOBLIN_WARRIOR.statsJson,
+      },
+      {
+        artifactId: WODE_SENTRY,
+        slug: 'wode-elf-sentry',
+        // Exact accepted-corpus Effect lines in occurrence order; the host
+        // test needs only these cuts, while exhaustive canon owns the record.
+        text: WODE_EFFECT_TEXT,
+        textSha256: sha256(WODE_EFFECT_TEXT),
       },
     ]) {
       await ctx.db.insert('canonRecords', record);
@@ -165,7 +181,7 @@ describe('encounter host', () => {
     );
   });
 
-  test('useAbility compiles the verbatim text: state, receipts, and table card', async () => {
+  test('ability and Effect dispatch compile stored canon into state and exact receipts', async () => {
     const t = makeHarness();
     const table = await setupTable(t);
     await table.owner.client.mutation(api.encounters.start, {
@@ -176,6 +192,13 @@ describe('encounter host', () => {
       campaignId: table.campaignId,
       artifactId: BLOOD_FOR_BLOOD.artifactId,
       band: '17+',
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['censor'],
+    });
+    await table.owner.client.mutation(api.encounters.useEffect, {
+      campaignId: table.campaignId,
+      artifactId: BLOOD_FOR_BLOOD.artifactId,
+      effectOrdinal: 1,
       actorParticipantId: 'fury',
       targetParticipantIds: ['censor'],
     });
@@ -190,11 +213,26 @@ describe('encounter host', () => {
     const kinds = log.map((entry) => entry.kind);
     expect(kinds).toContain('mutation'); // conditions applied
     expect(kinds).toContain('not-automated'); // damage + potency receipts
-    expect(kinds).toContain('table-card'); // the Effect line, verbatim
+    expect(kinds).toContain('table-directive'); // explicitly invoked Effect, verbatim
     expect(kinds).not.toContain('invariant-violation');
-    const card = log.find((entry) => entry.kind === 'table-card');
-    // The card is the record's own residue text, never authored by the host.
-    expect(card && BLOOD_FOR_BLOOD.text.includes(card.message)).toBe(true);
+    const directive = log.find((entry) => entry.kind === 'table-directive');
+    expect(directive?.message).toBe(
+      'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+    );
+    expect(directive?.data).toMatchObject({
+      manualEffect: {
+        effectArtifactId: BLOOD_FOR_BLOOD.artifactId,
+        effectOrdinal: 1,
+        targets: ['censor'],
+      },
+    });
+    expect(
+      log.some(
+        (entry) =>
+          (entry.data as { effectResolution?: { effectOrdinal?: number } } | null)?.effectResolution
+            ?.effectOrdinal === 1,
+      ),
+    ).toBe(true);
     const notAutomated = log.filter((entry) => entry.kind === 'not-automated');
     expect(notAutomated.some((entry) => entry.message.includes('damage:'))).toBe(true);
     expect(notAutomated.some((entry) => entry.message.includes('potency:'))).toBe(true);
@@ -208,6 +246,42 @@ describe('encounter host', () => {
         targetParticipantIds: ['censor'],
       }),
     ).rejects.toThrow('No parsed tier outcome');
+    await expect(
+      table.owner.client.mutation(api.encounters.useEffect, {
+        campaignId: table.campaignId,
+        artifactId: BLOOD_FOR_BLOOD.artifactId,
+        effectOrdinal: 2,
+        actorParticipantId: 'fury',
+        targetParticipantIds: [],
+      }),
+    ).rejects.toThrow('No Effect instruction #2');
+  });
+
+  test('Effect dispatch rejects stored canon whose text checksum no longer matches', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: TRIO,
+    });
+    await t.run(async (ctx) => {
+      const record = await ctx.db
+        .query('canonRecords')
+        .withIndex('by_artifactId', (q) => q.eq('artifactId', BLOOD_FOR_BLOOD.artifactId))
+        .unique();
+      if (!record) throw new Error('missing seeded record');
+      await ctx.db.patch(record._id, { textSha256: '0'.repeat(64) });
+    });
+
+    await expect(
+      table.owner.client.mutation(api.encounters.useEffect, {
+        campaignId: table.campaignId,
+        artifactId: BLOOD_FOR_BLOOD.artifactId,
+        effectOrdinal: 1,
+        actorParticipantId: 'fury',
+        targetParticipantIds: ['censor'],
+      }),
+    ).rejects.toThrow('Canon record checksum mismatch');
   });
 
   test('end-turn saves (asserted and auto), removal authz, and Director end', async () => {
@@ -318,6 +392,60 @@ describe('encounter host', () => {
     expect(roll).toBeDefined();
   });
 
+  test('automatic Effect damage supports several targets and the knockout choice', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [
+        { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+        { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+        { id: 'warrior-c', recordId: GOBLIN_WARRIOR.artifactId },
+      ],
+    });
+    await table.owner.client.mutation(api.encounters.useEffect, {
+      campaignId: table.campaignId,
+      artifactId: WODE_SENTRY,
+      effectOrdinal: 2,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b', 'warrior-c'],
+    });
+    for (let repeat = 0; repeat < 3; repeat += 1) {
+      await table.owner.client.mutation(api.encounters.useEffect, {
+        campaignId: table.campaignId,
+        artifactId: WODE_SENTRY,
+        effectOrdinal: 2,
+        actorParticipantId: 'warrior-a',
+        targetParticipantIds: ['warrior-b'],
+      });
+    }
+    await table.owner.client.mutation(api.encounters.useEffect, {
+      campaignId: table.campaignId,
+      artifactId: WODE_SENTRY,
+      effectOrdinal: 2,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      knockOut: true,
+    });
+
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const warriorB = view?.participants.find((participant) => participant.id === 'warrior-b');
+    const warriorC = view?.participants.find((participant) => participant.id === 'warrior-c');
+    expect(warriorB?.vitals).toMatchObject({ staminaCurrent: 0, dead: false });
+    expect(
+      warriorB?.conditions.some((condition) => condition.conditionId.endsWith('#unconscious')),
+    ).toBe(true);
+    expect(warriorC?.vitals?.staminaCurrent).toBe(12);
+    if (!view) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: view.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  });
+
   test('rolled path refuses cleanly when the roll cannot bind, and falls back to asserted tiers', async () => {
     const t = makeHarness();
     const table = await setupTable(t);
@@ -365,6 +493,14 @@ describe('encounter host', () => {
     });
     const hit = hits.find((entry) => entry.artifactId === BLOOD_FOR_BLOOD.artifactId);
     expect(hit?.parsedTiers).toEqual(['≤11', '12-16', '17+']);
-    expect(hit && hit.residueSpans > 0).toBe(true);
+    expect(hit?.residueSpans).toBe(0);
+    expect(hit?.effects).toEqual([
+      {
+        effectOrdinal: 1,
+        sourceText:
+          'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+        resolutionKind: 'table',
+      },
+    ]);
   });
 });

@@ -104,7 +104,12 @@ describe.skipIf(!sourceRoot)('play-through with real corpus abilities', () => {
     const use = session.execute('use blood-for-blood t3 fury censor').output;
     expect(use).toContain('tier 17+');
     expect(use).toContain('NOT AUTOMATED (damage)');
-    expect(use).toContain('resolve at the table');
+
+    const effect = session.execute('effect blood-for-blood fury censor').output;
+    expect(effect).toContain('TABLE-DIRECTIVE');
+    expect(effect).toContain(
+      'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+    );
 
     const status = session.execute('status').output;
     expect(status).toContain('bleeding (save-ends) from fury via blood-for-blood');

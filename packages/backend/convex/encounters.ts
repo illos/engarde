@@ -1,4 +1,8 @@
-import { compileAbility, tierOutcomeToIntents } from '@engarde/canon/effect-conformance';
+import {
+  compileAbility,
+  compileEffectPrograms,
+  tierOutcomeToIntents,
+} from '@engarde/canon/effect-conformance';
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
 import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
@@ -118,14 +122,23 @@ async function requireLiveEncounter(
   return encounter;
 }
 
+async function sha256Text(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 async function loadRecord(
   ctx: DatabaseCtx,
   artifactId: string,
 ): Promise<Doc<'canonRecords'> | null> {
-  return await ctx.db
+  const record = await ctx.db
     .query('canonRecords')
     .withIndex('by_artifactId', (q) => q.eq('artifactId', artifactId))
     .unique();
+  if (record && (await sha256Text(record.text)) !== record.textSha256) {
+    throw new ConvexError(`Canon record checksum mismatch: ${artifactId}`);
+  }
+  return record;
 }
 
 interface LogRowInput {
@@ -180,25 +193,18 @@ async function runIntents(
 ): Promise<{ violations: InvariantViolation[] }> {
   // Stored states may predate schema v2 — the engine's pure upgrade lifts
   // them losslessly on read (power-roll-design SE-2).
-  let state = upgradeEncounterState(encounter.state);
+  const initialState = upgradeEncounterState(encounter.state);
+  let state = initialState;
   let dispatchCount = encounter.dispatchCount;
   const rows: LogRowInput[] = [...(hostRows.before ?? [])];
+  const engineRows: LogRowInput[] = [];
   const allViolations: InvariantViolation[] = [];
+  let invariantFailed = false;
   for (const intent of intents) {
     dispatchCount += 1;
     const context = { random: createSeededRandomSource(encounter.rngSeed + dispatchCount) };
     const result = applyIntent(state, intent, context);
     const violations = checkInvariants(state, intent, result);
-    state = result.state;
-    for (const entry of result.log) {
-      rows.push({
-        kind: entry.kind,
-        message: entry.message,
-        canonRefs: entry.canonRefs,
-        engineActorLabel: engineActorLabel(entry.actor),
-        data: entry.data,
-      });
-    }
     for (const violation of violations) {
       rows.push({
         kind: 'invariant-violation',
@@ -207,8 +213,29 @@ async function runIntents(
       });
       allViolations.push(violation);
     }
+    if (violations.length > 0) {
+      invariantFailed = true;
+      break;
+    }
+    state = result.state;
+    for (const entry of result.log) {
+      engineRows.push({
+        kind: entry.kind,
+        message: entry.message,
+        canonRefs: entry.canonRefs,
+        engineActorLabel: engineActorLabel(entry.actor),
+        data: entry.data,
+      });
+    }
   }
-  rows.push(...(hostRows.after ?? []));
+  if (invariantFailed) {
+    // An oracle failure invalidates the whole host dispatch. Keep only the
+    // attempted-operation and invariant diagnostics; never persist candidate
+    // mutation claims or any partial state.
+    state = initialState;
+  } else {
+    rows.push(...engineRows, ...(hostRows.after ?? []));
+  }
   const logCount = await appendLog(ctx, encounter, actor, rows);
   await ctx.db.patch(encounter._id, {
     state,
@@ -313,6 +340,13 @@ export const searchRecords = query({
       slug: v.string(),
       parsedTiers: v.array(v.string()),
       residueSpans: v.number(),
+      effects: v.array(
+        v.object({
+          effectOrdinal: v.number(),
+          sourceText: v.string(),
+          resolutionKind: v.union(v.literal('damage'), v.literal('condition'), v.literal('table')),
+        }),
+      ),
       /** True when the power-roll cluster compiles — the engine can roll,
        * band, damage, and gate potency itself. */
       autoRollable: v.boolean(),
@@ -327,20 +361,31 @@ export const searchRecords = query({
       .query('canonRecords')
       .withSearchIndex('search_slug', (q) => q.search('slug', term))
       .take(SEARCH_LIMIT);
-    return hits.map((hit) => {
-      const parse = parseEffectText(hit.text);
-      const tiers = parse.clauses
-        .filter((clause) => clause.kind === 'tier-outcome')
-        .map((clause) => clause.data.band);
-      return {
-        artifactId: hit.artifactId,
-        slug: hit.slug,
-        parsedTiers: [...new Set(tiers)],
-        residueSpans: parse.residue.length,
-        autoRollable: 'ability' in compileAbility(parse, hit.artifactId),
-        hasStats: hit.statsJson !== undefined,
-      };
-    });
+    return await Promise.all(
+      hits.map(async (hit) => {
+        if ((await sha256Text(hit.text)) !== hit.textSha256) {
+          throw new ConvexError(`Canon record checksum mismatch: ${hit.artifactId}`);
+        }
+        const parse = parseEffectText(hit.text);
+        const tiers = parse.clauses
+          .filter((clause) => clause.kind === 'tier-outcome')
+          .map((clause) => clause.data.band);
+        const effects = compileEffectPrograms(parse, hit.artifactId);
+        return {
+          artifactId: hit.artifactId,
+          slug: hit.slug,
+          parsedTiers: [...new Set(tiers)],
+          residueSpans: parse.residue.length,
+          effects: effects.map((effect) => ({
+            effectOrdinal: effect.effectOrdinal,
+            sourceText: effect.sourceText,
+            resolutionKind: effect.resolution.kind,
+          })),
+          autoRollable: 'ability' in compileAbility(parse, hit.artifactId),
+          hasStats: hit.statsJson !== undefined,
+        };
+      }),
+    );
   },
 });
 
@@ -569,6 +614,66 @@ export const useAbility = mutation({
       if (error instanceof ConvexError) throw error;
       throw new ConvexError(
         `Invalid ability dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** Compile one ordinal-addressed `Effect:` instruction from the stored canon
+ * record and dispatch it through the pure engine. The client supplies only
+ * the occurrence and participant bindings; executable data and exact source
+ * text are always rebuilt from the checksummed record at the trust boundary. */
+export const useEffect = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    artifactId: v.string(),
+    effectOrdinal: v.number(),
+    actorParticipantId: v.string(),
+    targetParticipantIds: v.array(v.string()),
+    knockOut: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireActiveMember(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const record = await loadRecord(ctx, args.artifactId);
+    if (!record) throw new ConvexError(`Unknown canon record: ${args.artifactId}`);
+    const state = upgradeEncounterState(encounter.state);
+    for (const participantId of [args.actorParticipantId, ...args.targetParticipantIds]) {
+      if (!state.participants[participantId])
+        throw new ConvexError(`Unknown participant: ${participantId}`);
+    }
+
+    const parse = parseEffectText(record.text);
+    const conservation = auditGrammarConservation(record.text, parse);
+    if (conservation.length > 0)
+      throw new ConvexError(`Grammar conservation failed for ${args.artifactId}`);
+    const effect = compileEffectPrograms(parse, args.artifactId).find(
+      (candidate) => candidate.effectOrdinal === args.effectOrdinal,
+    );
+    if (!effect)
+      throw new ConvexError(`No Effect instruction #${args.effectOrdinal} in ${record.slug}`);
+
+    const intent: Intent = {
+      intentId: `d${encounter.dispatchCount + 1}-${record.slug}-effect-${effect.effectOrdinal}`,
+      kind: 'use-effect',
+      actor: { kind: 'participant', participantId: args.actorParticipantId },
+      payload: {
+        actorParticipantId: args.actorParticipantId,
+        effect,
+        targets: args.targetParticipantIds,
+        knockOut: args.knockOut ?? false,
+      },
+    };
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        intent,
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid Effect dispatch: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
     return null;

@@ -134,7 +134,14 @@ function bindDamageCharacteristic(
  * → 1). Unrecognized shapes yield null — no warning, never a guess. */
 export function targetCountOf(targetsText: string | null): number | null {
   if (targetsText === null) return null;
-  const word = targetsText.trim().split(/\s+/)[0]?.toLowerCase();
+  const normalized = targetsText.trim().toLowerCase();
+  if (
+    normalized === 'the triggering creature' ||
+    normalized === 'the triggering creature or object'
+  ) {
+    return 1;
+  }
+  const word = normalized.split(/\s+/)[0];
   const counts: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
   return word !== undefined ? (counts[word] ?? null) : null;
 }

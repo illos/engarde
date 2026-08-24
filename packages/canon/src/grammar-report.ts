@@ -40,6 +40,10 @@ export function constructsOf(clause: EffectClause): string[] {
       return ['ability-header'];
     case 'power-roll':
       return ['power-roll'];
+    case 'effect':
+      return clause.data.resolution.kind === 'table'
+        ? ['effect-instruction', 'effect-table-directive']
+        : ['effect-instruction', `effect-${clause.data.resolution.kind}`];
     default:
       return [];
   }
@@ -52,6 +56,9 @@ export const CONSTRUCT_MECHANISM: Record<string, string> = {
   'power-roll': 'power roll resolution (SHIPPED: power-roll cluster)',
   'condition-application': 'condition lifecycle (SHIPPED: pilot step 4)',
   'save-ends-duration': 'saving throws (SHIPPED: pilot step 4)',
+  'effect-damage': 'damage / Stamina application (SHIPPED: power-roll cluster)',
+  'effect-condition': 'condition lifecycle (SHIPPED: pilot step 4)',
+  'effect-table-directive': 'Effect prose semantics (TABLE DIRECTIVE; mechanism pending)',
 };
 
 export function buildGrammarReport(entries: readonly GrammarReportEntry[]): GrammarReport {

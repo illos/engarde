@@ -259,6 +259,50 @@ export const AbilityEffectDataSchema = z.object({
 
 export type AbilityEffectData = z.infer<typeof AbilityEffectDataSchema>;
 
+/**
+ * A compiled `**Effect:**` instruction. The canon package owns prose parsing;
+ * the engine receives only validated data and either executes a known core
+ * operation or emits the untouched instruction for table adjudication.
+ * Unsupported prose is never rephrased into state.
+ */
+export const EffectResolutionSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('damage'),
+    amount: z.number().int().nonnegative(),
+    damageType: DamageTypeSchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal('condition'),
+    conditionId: z.string().min(1),
+    ending: EndingSpecSchema,
+    /** Canon-owned per-condition identity behavior (taunted replaces when
+     * the source changes; grabbed does not). */
+    replacesOnNewSource: z.boolean(),
+  }),
+  z.object({ kind: z.literal('table') }),
+]);
+
+export type EffectResolution = z.infer<typeof EffectResolutionSchema>;
+
+export const EffectProgramDataSchema = z.object({
+  effectArtifactId: z.string().min(1),
+  /** One-based occurrence within the artifact; repeated text remains distinct. */
+  effectOrdinal: z.number().int().positive(),
+  /** Byte span of the complete `**Effect:**` source line within artifact text. */
+  sourceSpan: z
+    .object({ byteStart: z.number().int().nonnegative(), byteEnd: z.number().int().positive() })
+    .refine((span) => span.byteEnd > span.byteStart, { message: 'source span must be non-empty' }),
+  /** Exact Markdown payload after `**Effect:**`, retained for receipts. */
+  sourceText: z.string().min(1),
+  /** Every explicit scc.v1 reference in source order, de-duplicated. */
+  canonRefs: z.array(z.string().min(1)),
+  actionType: z.string().nullable(),
+  targetsText: z.string().nullable(),
+  resolution: EffectResolutionSchema,
+});
+
+export type EffectProgramData = z.infer<typeof EffectProgramDataSchema>;
+
 const attributedValue = z.object({
   value: z.number().int().positive(),
   reason: z.string().min(1),
@@ -337,6 +381,27 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
         message: 'targets must be distinct',
       }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('use-effect'),
+    payload: z
+      .object({
+        actorParticipantId: ParticipantIdSchema,
+        effect: EffectProgramDataSchema,
+        /** Manual area/world instructions may have no participant target;
+         * automatic damage/condition programs require at least one. */
+        targets: z.array(ParticipantIdSchema),
+        /** rule.health/stamina §Knocking Creatures Out. */
+        knockOut: z.boolean().default(false),
+      })
+      .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
+        message: 'targets must be distinct',
+      })
+      .refine(
+        (payload) => payload.effect.resolution.kind === 'table' || payload.targets.length > 0,
+        { message: 'automatic Effect programs require at least one target' },
+      ),
   }),
   z.object({
     ...intentBase,

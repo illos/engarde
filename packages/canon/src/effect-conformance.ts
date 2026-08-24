@@ -1,6 +1,8 @@
 import {
   type AbilityEffectData,
   AbilityEffectDataSchema,
+  type EffectProgramData,
+  EffectProgramDataSchema,
   type EncounterState,
   type Intent,
   applyIntent,
@@ -15,10 +17,10 @@ import type { EffectClause, GrammarParse, TierOutcomeData } from './effect-gramm
  * EXHAUSTIVE state deltas — the complete set of changes, so omissions and
  * side effects both fail.
  *
- * Deliberately unexecuted parts of a tier outcome are returned as explicit
- * `unexecuted` items (damage application and potency resolution have no
- * engine mechanism yet — they are mechanism-backlog entries, never silent
- * drops).
+ * The legacy tierOutcomeToIntents adapter still reports damage/potency as
+ * `unexecuted` because it emits only condition intents; full power-roll
+ * abilities use compileAbilities + use-ability for those shipped mechanisms.
+ * Effect prose uses compileEffectPrograms + use-effect below.
  */
 
 export interface TierOutcomeExecution {
@@ -182,6 +184,58 @@ export function compileAbility(
   const ability = abilities[0];
   if (ability) return { ability };
   return incomplete[0] ?? { missing: ['power-roll heading'] };
+}
+
+/** Compile every `**Effect:**` clause into an engine program. Exact canon
+ * forms carry automatic operations; all other prose carries `table` and is
+ * emitted verbatim by the engine. The nearest preceding header supplies the
+ * target/action receipt metadata, but never changes the instruction text. */
+export function compileEffectPrograms(
+  parse: GrammarParse,
+  effectArtifactId: string,
+): EffectProgramData[] {
+  const programs: EffectProgramData[] = [];
+  let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
+  let effectOrdinal = 0;
+  for (const clause of parse.clauses) {
+    if (clause.kind === 'ability-header') {
+      lastHeader = clause;
+      continue;
+    }
+    if (clause.kind !== 'effect') continue;
+    effectOrdinal += 1;
+    programs.push(
+      EffectProgramDataSchema.parse({
+        effectArtifactId,
+        effectOrdinal,
+        sourceSpan: {
+          byteStart: clause.span.byteStart,
+          byteEnd: clause.span.byteEnd,
+        },
+        sourceText: clause.data.sourceText,
+        canonRefs: clause.data.canonRefs,
+        actionType: lastHeader?.actionType ?? null,
+        targetsText: lastHeader?.targets ?? null,
+        resolution:
+          clause.data.resolution.kind === 'condition'
+            ? {
+                ...clause.data.resolution,
+                ending: { kind: clause.data.resolution.ending },
+              }
+            : clause.data.resolution,
+      }),
+    );
+  }
+  return programs;
+}
+
+/** The first Effect instruction — the single-effect common case. */
+export function compileEffectProgram(
+  parse: GrammarParse,
+  effectArtifactId: string,
+): { effect: EffectProgramData } | CompileMiss {
+  const effect = compileEffectPrograms(parse, effectArtifactId)[0];
+  return effect ? { effect } : { missing: ['Effect instruction'] };
 }
 
 export function executeIntents(

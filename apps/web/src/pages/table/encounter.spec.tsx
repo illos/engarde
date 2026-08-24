@@ -52,6 +52,7 @@ const encounterId = 'encounter-1' as Id<'encounters'>;
 const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
 const BFB = 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood';
 const FURY = 'mcdm.heroes.v1/class/fury';
+const WODE_SENTRY = 'mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-sentry';
 
 function setRoster(gameRole: 'player' | 'director') {
   setQuery(api.campaigns.listRoster, { viewer: { gameRole }, members: [] });
@@ -130,6 +131,7 @@ describe('EncounterPanel', () => {
         slug: 'fury',
         parsedTiers: [],
         residueSpans: 3,
+        effects: [],
         autoRollable: false,
         hasStats: false,
       },
@@ -190,7 +192,15 @@ describe('EncounterPanel', () => {
         artifactId: BFB,
         slug: 'blood-for-blood',
         parsedTiers: ['≤11', '12-16', '17+'],
-        residueSpans: 1,
+        residueSpans: 0,
+        effects: [
+          {
+            effectOrdinal: 1,
+            sourceText:
+              'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+            resolutionKind: 'table',
+          },
+        ],
         autoRollable: true,
         hasStats: false,
       },
@@ -206,7 +216,7 @@ describe('EncounterPanel', () => {
     // Let the pending remove settle so the shared busy guard releases.
     await act(() => Promise.resolve());
 
-    fireEvent.change(screen.getByLabelText('Search canon records'), {
+    fireEvent.change(screen.getByLabelText('Search abilities'), {
       target: { value: 'blood' },
     });
     fireEvent.click(screen.getByText('Pick'));
@@ -236,6 +246,68 @@ describe('EncounterPanel', () => {
       band: '≤11',
       actorParticipantId: 'fury',
       targetParticipantIds: ['censor'],
+    });
+    await act(() => Promise.resolve());
+
+    fireEvent.change(screen.getByLabelText('Search effects'), {
+      target: { value: 'blood' },
+    });
+    fireEvent.click(screen.getByText('Pick Effect'));
+    expect(
+      screen.getByText(
+        'You can deal 1d6 damage to yourself to deal an extra 1d6 damage to the target.',
+      ),
+    ).toBeTruthy();
+    expect((screen.getByLabelText('Effect target censor') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByText('Resolve Effect'));
+    expect(spyFor(api.encounters.useEffect)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: BFB,
+      effectOrdinal: 1,
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['censor'],
+    });
+  });
+
+  test('automatic damage Effect dispatches several targets and the knockout choice', () => {
+    setRoster('player');
+    setSessionActive();
+    setQuery(api.encounters.getActive, { ...activeEncounter, viewerIsDirector: false });
+    setQuery(api.encounters.listLog, []);
+    setQuery(api.encounters.searchRecords, [
+      {
+        artifactId: WODE_SENTRY,
+        slug: 'wode-elf-sentry',
+        parsedTiers: [],
+        residueSpans: 0,
+        effects: [
+          {
+            effectOrdinal: 2,
+            sourceText: 'Each target takes 3 damage.',
+            resolutionKind: 'damage',
+          },
+        ],
+        autoRollable: false,
+        hasStats: true,
+      },
+    ]);
+    render(<EncounterPanel campaignId={campaignId} />);
+
+    fireEvent.change(screen.getByLabelText('Search effects'), {
+      target: { value: 'wode' },
+    });
+    fireEvent.click(screen.getByText('Pick Effect'));
+    fireEvent.click(screen.getByLabelText('Effect target fury'));
+    fireEvent.click(screen.getByLabelText('Knock out with Effect damage'));
+    fireEvent.click(screen.getByText('Resolve Effect'));
+
+    expect(spyFor(api.encounters.useEffect)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: WODE_SENTRY,
+      effectOrdinal: 2,
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['censor', 'fury'],
+      knockOut: true,
     });
   });
 
