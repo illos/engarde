@@ -27,7 +27,7 @@ function tierParse(): GrammarParse {
         span,
         data: {
           band: '17+',
-          damage: { amount: 10, characteristic: 'M' },
+          damage: { amount: 10, characteristicOptions: ['M'], typeOptions: [] },
           potency: { characteristic: 'M', threshold: 'STRONG' },
           conditionIds: ['ns/condition/a'],
           ending: 'save-ends',

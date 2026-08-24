@@ -22,12 +22,24 @@ export interface TextSpan {
 
 export interface TierOutcomeData {
   band: '≤11' | '12-16' | '17+';
-  damage: { amount: number; characteristic: string | null } | null;
+  /** "3 + M damage" → options ['M']; "7 + M or A damage" → ['M','A'];
+   * "5 corruption damage" → typeOptions ['corruption']; plain → []
+   * [rule.dice/ability-roll §Characteristics and Damage,
+   * rule.damage/damage-type]. */
+  damage: { amount: number; characteristicOptions: string[]; typeOptions: string[] } | null;
   potency: { characteristic: string; threshold: string } | null;
   /** Condition artifact ids taken from the explicit scc.v1 links. */
   conditionIds: string[];
   ending: 'save-ends' | null;
 }
+
+/** Structured power-roll bonus [rule.dice/ability-roll; monster stat blocks
+ * use the fixed "+ N" form]. The union mirrors the engine's
+ * PowerRollBonusSchema; measured over the corpus, every heading fits. */
+export type PowerRollBonusData =
+  | { kind: 'fixed'; value: number }
+  | { kind: 'characteristic'; options: string[] }
+  | { kind: 'highest' };
 
 export type EffectClause =
   | { kind: 'flavor'; span: TextSpan }
@@ -40,7 +52,7 @@ export type EffectClause =
       distance: string | null;
       targets: string | null;
     }
-  | { kind: 'power-roll'; span: TextSpan; bonus: string }
+  | { kind: 'power-roll'; span: TextSpan; bonus: string; bonusData: PowerRollBonusData }
   | { kind: 'tier-outcome'; span: TextSpan; data: TierOutcomeData };
 
 export interface ResidueSpan {
@@ -96,8 +108,27 @@ function conditionIdsIn(value: string): string[] {
 
 /** `- **≤11:** 4 + M damage; M < WEAK, bleeding and weakened (save ends)` */
 const TIER_LINE = /^(?:> )?- \*\*(≤11|12-16|17\+):\*\* (.+?)\s*$/;
-const DAMAGE_PART = /^(\d+)(?: \+ ([A-Z]))? damage$/;
+/** The nine typed damage kinds [rule.damage/damage-type] — a closed set;
+ * anything else fails the line to residue. */
+const DAMAGE_TYPE = '(?:acid|cold|corruption|fire|holy|lightning|poison|psychic|sonic)';
+const DAMAGE_CHARACTERISTIC = '[MARIP]';
+/** `N [+ C[, C…][ or C]] [type[, type…][ or type]] damage` — measured to
+ * cover 98.0% of the corpus's damage-carrying tier heads; the long tail
+ * (dual damage parts, dice expressions, prose) stays residue. */
+const DAMAGE_PART = new RegExp(
+  `^(\\d+)` +
+    `(?: \\+ (${DAMAGE_CHARACTERISTIC}(?:, ${DAMAGE_CHARACTERISTIC})*(?:,? or ${DAMAGE_CHARACTERISTIC})?))?` +
+    `( ${DAMAGE_TYPE}(?:, ${DAMAGE_TYPE})*(?:,? or ${DAMAGE_TYPE})?)?` +
+    ` damage$`,
+);
 const POTENCY_PREFIX = /^([A-Z]) < (WEAK|AVERAGE|STRONG|\d+),? ?/;
+
+function splitOptions(list: string): string[] {
+  return list
+    .split(/,| or /)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
 
 function parseTierPayload(payload: string): Omit<TierOutcomeData, 'band'> | null {
   const conditionIds = conditionIdsIn(payload);
@@ -111,14 +142,19 @@ function parseTierPayload(payload: string): Omit<TierOutcomeData, 'band'> | null
 
   let damage: TierOutcomeData['damage'] = null;
   const semicolon = rest.indexOf(';');
-  const damageText = semicolon === -1 ? rest : rest.slice(0, semicolon).trim();
+  // Bold-wrapped characteristics ("8 + **A** psychic damage") normalize for
+  // the head match only; the span keeps the raw bytes.
+  const damageText = (semicolon === -1 ? rest : rest.slice(0, semicolon))
+    .replace(/\*\*/g, '')
+    .trim();
   const afterDamage = semicolon === -1 ? '' : rest.slice(semicolon + 1).trim();
   const damageMatch = DAMAGE_PART.exec(damageText);
   let conditionText: string;
   if (damageMatch) {
     damage = {
       amount: Number(damageMatch[1]),
-      characteristic: damageMatch[2] ?? null,
+      characteristicOptions: damageMatch[2] ? splitOptions(damageMatch[2]) : [],
+      typeOptions: damageMatch[3] ? splitOptions(damageMatch[3]) : [],
     };
     conditionText = afterDamage;
   } else if (semicolon === -1) {
@@ -186,6 +222,27 @@ function parseHeaderTable(
 }
 
 const POWER_ROLL_LINE = /^(?:> )?\*\*Power Roll \+ ([^:*]+):\*\*\s*$/;
+
+const CHARACTERISTIC_LETTER: Record<string, string> = {
+  might: 'M',
+  agility: 'A',
+  reason: 'R',
+  intuition: 'I',
+  presence: 'P',
+};
+
+/** The four measured bonus shapes: fixed `N` (monster stat blocks), one
+ * characteristic, a characteristic choice list, or the "highest
+ * characteristic" form. An unrecognized bonus fails the line to residue —
+ * never a guessed binding. */
+function parsePowerRollBonus(bonusText: string): PowerRollBonusData | null {
+  const text = bonusText.trim();
+  if (/^\d+$/.test(text)) return { kind: 'fixed', value: Number(text) };
+  if (/^(?:your )?highest characteristic(?: score)?$/i.test(text)) return { kind: 'highest' };
+  const options = splitOptions(text).map((name) => CHARACTERISTIC_LETTER[name.toLowerCase()]);
+  if (options.length === 0 || options.some((letter) => letter === undefined)) return null;
+  return { kind: 'characteristic', options: options as string[] };
+}
 const FLAVOR_LINE = /^\*[^*].*\*\s*$/;
 const TABLE_LINE = /^(?:> )?\|.*\|\s*$/;
 
@@ -252,10 +309,18 @@ export function parseEffectText(text: string): GrammarParse {
     // matched with scc links stripped (the span keeps the raw bytes).
     const powerRoll = POWER_ROLL_LINE.exec(stripSccLinks(trimmed));
     if (powerRoll) {
-      flushResidue();
-      clauses.push({ kind: 'power-roll', span: span([line]), bonus: powerRoll[1] ?? '' });
-      index += 1;
-      continue;
+      const bonusData = parsePowerRollBonus(powerRoll[1] ?? '');
+      if (bonusData) {
+        flushResidue();
+        clauses.push({
+          kind: 'power-roll',
+          span: span([line]),
+          bonus: powerRoll[1] ?? '',
+          bonusData,
+        });
+        index += 1;
+        continue;
+      }
     }
     const tier = TIER_LINE.exec(trimmed);
     if (tier) {

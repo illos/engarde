@@ -78,9 +78,9 @@ export async function runPilotEncounter(
 
   const driver = createDriver(
     [
-      { id: 'fury', sourceRecordId: ACTORS.fury },
-      { id: 'censor', sourceRecordId: ACTORS.censor },
-      { id: 'toxic-plants', sourceRecordId: ACTORS.plants },
+      { id: 'fury', sourceRecordId: ACTORS.fury, kind: 'hero' as const },
+      { id: 'censor', sourceRecordId: ACTORS.censor, kind: 'hero' as const },
+      { id: 'toxic-plants', sourceRecordId: ACTORS.plants, kind: 'director-creature' as const },
     ],
     { random: createSeededRandomSource(0x5eed) },
   );

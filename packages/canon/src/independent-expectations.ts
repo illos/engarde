@@ -92,7 +92,11 @@ function channelOneClaims(parse: GrammarParse): Claim[] {
         onTier: tier,
         kind: 'damage',
         value: normalize(
-          `${clause.data.damage.amount}${clause.data.damage.characteristic ? ` + ${clause.data.damage.characteristic}` : ''}`,
+          `${clause.data.damage.amount}${
+            clause.data.damage.characteristicOptions.length > 0
+              ? ` + ${clause.data.damage.characteristicOptions.join(' or ')}`
+              : ''
+          }`,
         ),
       });
     }

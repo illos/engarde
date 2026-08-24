@@ -86,7 +86,11 @@ export function createPlaySession(options: {
   }
 
   const driver = createDriver(
-    actors.map((actor) => ({ id: actor.id, sourceRecordId: actor.recordId })),
+    actors.map((actor) => ({
+      id: actor.id,
+      sourceRecordId: actor.recordId,
+      kind: 'director-creature' as const,
+    })),
     { random: createSeededRandomSource(options.seed ?? 1) },
   );
   let intentCounter = 0;

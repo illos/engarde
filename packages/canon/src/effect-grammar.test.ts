@@ -77,7 +77,7 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
     expect(tiers).toHaveLength(3);
     expect(tiers.map((clause) => clause.data.band)).toEqual(['≤11', '12-16', '17+']);
     expect(tiers.map((clause) => clause.data.damage?.amount)).toEqual([4, 6, 10]);
-    expect(tiers[0]?.data.damage?.characteristic).toBe('M');
+    expect(tiers[0]?.data.damage?.characteristicOptions).toEqual(['M']);
     expect(tiers.map((clause) => clause.data.potency?.threshold)).toEqual([
       'WEAK',
       'AVERAGE',

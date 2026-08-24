@@ -25,10 +25,16 @@ async function ingestText(markdownPath: string): Promise<string> {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     participants: {
-      fury: { id: 'fury', conditions: [] },
-      target: { id: 'target', conditions: [] },
+      fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null },
+      target: {
+        id: 'target',
+        conditions: [],
+        kind: 'director-creature',
+        stats: null,
+        stamina: null,
+      },
     },
   };
 }
@@ -59,11 +65,14 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
     // EXHAUSTIVE delta: the target gains exactly these two instances, in this
     // order, with these endings and provenance — and nothing else changes.
     expect(state).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       participants: {
-        fury: { id: 'fury', conditions: [] },
+        fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null },
         target: {
           id: 'target',
+          kind: 'director-creature',
+          stats: null,
+          stamina: null,
           conditions: [
             {
               instanceId: 'mcdm.heroes.v1/condition/bleeding#bfb-17-0',

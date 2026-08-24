@@ -47,9 +47,9 @@ export function constructsOf(clause: EffectClause): string[] {
 
 /** Mechanisms a parsed construct needs at runtime; absent = already served. */
 export const CONSTRUCT_MECHANISM: Record<string, string> = {
-  'tier-damage': 'damage / Stamina application',
-  'potency-gate': 'potency resolution (characteristic vs threshold)',
-  'power-roll': 'power roll resolution (2d10 + characteristic, tier banding)',
+  'tier-damage': 'damage / Stamina application (SHIPPED: power-roll cluster)',
+  'potency-gate': 'potency resolution (SHIPPED: power-roll cluster)',
+  'power-roll': 'power roll resolution (SHIPPED: power-roll cluster)',
   'condition-application': 'condition lifecycle (SHIPPED: pilot step 4)',
   'save-ends-duration': 'saving throws (SHIPPED: pilot step 4)',
 };

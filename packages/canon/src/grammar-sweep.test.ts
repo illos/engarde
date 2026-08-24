@@ -76,7 +76,7 @@ async function ingestText(markdownPath: string): Promise<string> {
 }
 
 describe.skipIf(!sourceRoot)('sweep over real corpus abilities', () => {
-  it('ranks potency + damage + power-roll as needed mechanisms for blood-for-blood', async () => {
+  it('blood-for-blood: the power-roll cluster mechanisms are shipped; Effect prose stays grammar-blocked', async () => {
     const text = await ingestText(
       'en/books/heroes/md/feature/ability/fury/level-1/blood-for-blood.md',
     );
@@ -88,11 +88,14 @@ describe.skipIf(!sourceRoot)('sweep over real corpus abilities', () => {
       },
     ]);
     expect(report.headline.conservationViolations).toBe(0);
-    const needed = report.mechanisms.filter((entry) => !entry.shipped).map((m) => m.mechanism);
-    expect(needed).toContain('potency resolution (characteristic vs threshold)');
-    expect(needed).toContain('damage / Stamina application');
-    expect(needed).toContain('power roll resolution (2d10 + characteristic, tier banding)');
-    // blood-for-blood has an Effect residue line, so it is grammar+mechanism blocked
-    expect(report.headline.byStatus['grammar-and-mechanism-blocked']).toBe(1);
+    // The whole power-roll cluster is SHIPPED — nothing here is
+    // mechanism-blocked any more; the Effect residue line still leaves the
+    // ability grammar-blocked.
+    const shipped = report.mechanisms.filter((entry) => entry.shipped).map((m) => m.mechanism);
+    expect(shipped).toContain('potency resolution (SHIPPED: power-roll cluster)');
+    expect(shipped).toContain('damage / Stamina application (SHIPPED: power-roll cluster)');
+    expect(shipped).toContain('power roll resolution (SHIPPED: power-roll cluster)');
+    expect(report.mechanisms.filter((entry) => !entry.shipped)).toEqual([]);
+    expect(report.headline.byStatus['grammar-blocked']).toBe(1);
   });
 });
