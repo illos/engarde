@@ -128,4 +128,23 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
     expect(mark.clauses.some((clause) => clause.kind === 'ability-header')).toBe(true);
     expect(mark.residue.length).toBeGreaterThan(0);
   });
+
+  it('keeps Styrich alternative outcomes out of the flat tier schema', async () => {
+    const styrich = parseEffectText(
+      await ingestText('en/books/monsters/md/monster/demon/3rd-echelon/statblock/styrich.md'),
+    );
+    const tangledNest = styrich.residue.flatMap((item) => item.span.text.split('\n'));
+    expect(tangledNest.some((line) => line.includes('Slowed') && line.includes('(EoT) or'))).toBe(
+      true,
+    );
+    expect(
+      tangledNest.some((line) => line.includes('Restrained') && line.includes('(EoT) or')),
+    ).toBe(true);
+    expect(
+      auditGrammarConservation(
+        await ingestText('en/books/monsters/md/monster/demon/3rd-echelon/statblock/styrich.md'),
+        styrich,
+      ),
+    ).toEqual([]);
+  });
 });

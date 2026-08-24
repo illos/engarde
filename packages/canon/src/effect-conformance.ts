@@ -113,6 +113,7 @@ export function compileAbilities(
     header: Extract<EffectClause, { kind: 'ability-header' }> | null;
     powerRoll: Extract<EffectClause, { kind: 'power-roll' }>;
     tiers: Partial<Record<'tier1' | 'tier2' | 'tier3', TierOutcomeData>>;
+    duplicateTiers: Set<'tier1' | 'tier2' | 'tier3'>;
   }
   const clusters: Cluster[] = [];
   let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
@@ -122,14 +123,20 @@ export function compileAbilities(
       continue;
     }
     if (clause.kind === 'power-roll') {
-      clusters.push({ header: lastHeader, powerRoll: clause, tiers: {} });
+      clusters.push({
+        header: lastHeader,
+        powerRoll: clause,
+        tiers: {},
+        duplicateTiers: new Set(),
+      });
       continue;
     }
     if (clause.kind === 'tier-outcome') {
       const cluster = clusters[clusters.length - 1];
       if (!cluster) continue; // tier line before any heading — stays data-only
       const slot = BAND_TO_TIER[clause.data.band];
-      if (!(slot in cluster.tiers)) cluster.tiers[slot] = clause.data;
+      if (slot in cluster.tiers) cluster.duplicateTiers.add(slot);
+      else cluster.tiers[slot] = clause.data;
     }
   }
   const abilities: AbilityEffectData[] = [];
@@ -138,11 +145,14 @@ export function compileAbilities(
     const tier1 = cluster.tiers.tier1;
     const tier2 = cluster.tiers.tier2;
     const tier3 = cluster.tiers.tier3;
-    if (!tier1 || !tier2 || !tier3) {
+    if (!tier1 || !tier2 || !tier3 || cluster.duplicateTiers.size > 0) {
       incomplete.push({
-        missing: (['tier1', 'tier2', 'tier3'] as const)
-          .filter((slot) => !cluster.tiers[slot])
-          .map((slot) => `${slot} outcome line`),
+        missing: [
+          ...(['tier1', 'tier2', 'tier3'] as const)
+            .filter((slot) => !cluster.tiers[slot])
+            .map((slot) => `${slot} outcome line`),
+          ...[...cluster.duplicateTiers].map((slot) => `duplicate ${slot} outcome line`),
+        ],
       });
       continue;
     }

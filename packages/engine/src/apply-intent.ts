@@ -78,18 +78,9 @@ export function applyIntent(
       const instance = target.conditions.find(
         (candidate) => candidate.instanceId === intent.payload.instanceId,
       );
-      const result = removeConditionInstance(
-        state,
-        target,
-        intent.payload.instanceId,
-        lifecycleContext,
-        [CANON.creatureEndsAbilityEffect],
-        `condition instance removed from ${target.id}${intent.payload.reason ? `: ${intent.payload.reason}` : ''}`,
-      );
-      // Permissive engine (Gate-3 Q3 default): removing the dying-mandated
-      // bleeding while still dying warns and applies — "this instance of the
-      // condition can't be negated or removed in any way until you are no
-      // longer dying" [rule.health/dying].
+      // R-0004: the dying-mandated bleeding "can't be negated or removed in
+      // any way until you are no longer dying" [rule.health/dying]. This is a
+      // representational refusal, not a permissive warn-and-apply violation.
       if (
         instance !== undefined &&
         isHealthSourcedInstance(instance) &&
@@ -97,16 +88,28 @@ export function applyIntent(
         target.stamina !== null &&
         isDying(target.stamina.current)
       ) {
-        result.log.unshift({
-          kind: 'warning',
-          intentId: intent.intentId,
-          actor: intent.actor,
-          canonRefs: [HEALTH_CANON.dying],
-          message: `${target.id} is still dying — canon says this bleeding instance can't be removed until they are no longer dying; applied anyway (Director adjudicates)`,
-          data: { instanceId: instance.instanceId },
-        });
+        return {
+          state,
+          log: [
+            {
+              kind: 'refusal',
+              intentId: intent.intentId,
+              actor: intent.actor,
+              canonRefs: [HEALTH_CANON.dying],
+              message: `${target.id} is still dying — this bleeding instance can't be removed until they are no longer dying`,
+              data: { instanceId: instance.instanceId },
+            },
+          ],
+        };
       }
-      return result;
+      return removeConditionInstance(
+        state,
+        target,
+        intent.payload.instanceId,
+        lifecycleContext,
+        [CANON.creatureEndsAbilityEffect],
+        `condition instance removed from ${target.id}${intent.payload.reason ? `: ${intent.payload.reason}` : ''}`,
+      );
     }
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);

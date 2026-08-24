@@ -303,7 +303,7 @@ describe.skipIf(!sourceRoot)(
       const participants = Object.values(first.finalState.participants);
       expect(participants.some((participant) => isDead(participant))).toBe(true);
       const allLog = first.steps.flatMap((entry) => entry.log);
-      expect(allLog.some((entry) => entry.data['powerRoll'] !== undefined)).toBe(true);
+      expect(allLog.some((entry) => entry.data.powerRoll !== undefined)).toBe(true);
       expect(allLog.some((entry) => entry.message.includes('dies'))).toBe(true);
     });
   },

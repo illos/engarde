@@ -170,6 +170,12 @@ function parseTierPayload(payload: string): Omit<TierOutcomeData, 'band'> | null
     conditionText = conditionText.slice(potencyMatch[0].length).trim();
   }
 
+  // Alternative outcome branches and (EoT) endings are not represented by
+  // TierOutcomeData yet. Do not flatten them into one list of conditions:
+  // e.g. Styrich's Tangled Nest says "restrained (EoT) or ... restrained
+  // (save ends)", whose branches have different gates and endings.
+  if (/\bor\b/.test(conditionText) || conditionText.includes('(EoT)')) return null;
+
   // Whatever names remain must be exactly the linked conditions joined by
   // "and" — anything else means this line says more than the grammar reads.
   if (conditionText.length > 0) {

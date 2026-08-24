@@ -40,3 +40,30 @@ with the action-economy mechanism.
 of Cinders, Bait and Ambush, Shake It Off grant free maneuvers in
 trigger-adjacent contexts where off-turn use is conceivable and the books
 are silent; resolve individually when those abilities are implemented.
+
+## R-0002 — Natural 19–20 overrides double bane (approved 2026-08-24)
+
+**Ruling:** Yes. A natural 19–20 produces tier 3 even under a double bane.
+The rule's “regardless of any modifiers” includes the double-bane tier
+decrease. The natural tier-3 floor is therefore applied after that decrease.
+
+## R-0003 — Hero potency derivation deferred (approved 2026-08-24)
+
+**Ruling:** Do not derive hero weak, average, and strong potency yet. Resolve
+the tension between “highest characteristic” and the class-determined basis
+when the character-building pipeline is designed. Until then, the engine may
+consume explicitly stored potency values but must not invent them.
+
+## R-0004 — Dying-mandated bleeding removal is refused (approved 2026-08-24)
+
+**Ruling:** No removal is permitted while the hero remains dying. The rule
+says that this instance “can't be negated or removed in any way until you are
+no longer dying”; an attempted removal is a refusal that leaves state
+unchanged, not a warn-and-apply violation.
+
+## R-0005 — Director creatures die at 0 Stamina by default (approved 2026-08-24)
+
+**Ruling:** Yes. A Director-controlled creature dies when its Stamina reaches
+0 or lower unless the damaging intent explicitly chooses knockout. Other
+exceptional circumstances can be introduced later as attributed Director
+assertions.

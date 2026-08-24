@@ -14,6 +14,8 @@ const WEAKENED = 'mcdm.heroes.v1/condition/weakened';
 const FRIGHTENED = 'mcdm.heroes.v1/condition/frightened';
 const GRABBED = 'mcdm.heroes.v1/condition/grabbed';
 const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
+const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
+const DYING = 'mcdm.heroes.v1/rule.health/dying';
 
 function freshState(): EncounterState {
   return {
@@ -215,6 +217,43 @@ describe('remove-condition', () => {
     });
     expect(state).toEqual(before);
     expect(log[0]?.kind).toBe('refusal');
+  });
+
+  it('refuses to remove dying-mandated bleeding while the hero is still dying', () => {
+    const before = freshState();
+    before.participants.hero = {
+      id: 'hero',
+      kind: 'hero',
+      stats: {
+        staminaMax: 10,
+        characteristics: { might: 0, agility: 0, reason: 0, intuition: 0, presence: 0 },
+        immunities: [],
+        weaknesses: [],
+        potencies: null,
+        organization: null,
+      },
+      stamina: { current: 0, temporary: 0 },
+      conditions: [
+        {
+          instanceId: `${BLEEDING}#dying-i1`,
+          conditionId: BLEEDING,
+          ending: { kind: 'external' },
+          source: { effectArtifactId: DYING },
+        },
+      ],
+    };
+
+    const { state, log } = dispatch(before, {
+      intentId: 'i2',
+      kind: 'remove-condition',
+      actor: { kind: 'director' },
+      payload: { target: 'hero', instanceId: `${BLEEDING}#dying-i1` },
+    });
+
+    expect(state).toEqual(before);
+    expect(log).toHaveLength(1);
+    expect(log[0]?.kind).toBe('refusal');
+    expect(log[0]?.canonRefs).toContain(DYING);
   });
 });
 

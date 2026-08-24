@@ -446,11 +446,11 @@ tier text on the card instead.
 | `(EoT)` ending marker in tier lines | next ending-vocab item (GR-3) | residue today, line-atomic |
 | Multi-target tier variation (❝the creature using the ability picks which tier of rolled effect applies❞ for self/Director-targeted effects) | rare; residue path | effects target only `targets[]` v0 |
 
-## 10. Gate-3 questions (user rulings needed; none block the build behind the chosen defaults)
+## 10. Gate-3 questions (ruled 2026-08-24; see R-0002–R-0005)
 
 1. **Natural 19–20 vs double bane.** ❝always a tier 3 result regardless of any
    modifiers❞ — does a double bane's tier *decrease* count as a "modifier" the
-   nat-19/20 floor overrides? **Default encoded: yes** (floor wins, applied
+   nat-19/20 floor overrides? **R-0002: yes** (floor wins, applied
    after the tier step). Counter-reading: the tier step is not a "modifier to
    the roll." Affects step 5/6 ordering only when natural ≥ 19 with net −2.
 2. **Hero potency basis.** `rule.character/potency` bullets say weak/average/
@@ -458,13 +458,15 @@ tier text on the card instead.
    says the value is ❝based on one of your characteristics and determined by
    your class❞ (conduit example uses Intuition — which is both). **Default: the
    engine consumes stored potency values and never derives them**, so the
-   ruling gates only the future character-build pipeline.
+   **R-0003: defer the derivation decision until the character-build pipeline;
+   consume stored values and do not derive them meanwhile.**
 3. **Dying-bleeding removal.** ❝can't be negated or removed in any way until
    you are no longer dying❞ — warn-and-apply (permissive default, encoded) or
-   substrate refusal (the only rule text with "in any way")? **Default: warn.**
+   substrate refusal (the only rule text with "in any way")? **R-0004:
+   refuse removal while the hero remains dying.**
 4. **Director-creature death timing.** ❝In most circumstances … die … when
    their Stamina drops to 0❞ + knock-out choice. **Default: death at ≤0 unless
-   the killing intent asserts `knockOut`**; any other "circumstance" is a
+   the killing intent asserts `knockOut`** (R-0005); any other "circumstance" is a
    Director assertion later.
 
 ## 11. Host + UI (thin, after engine green)
