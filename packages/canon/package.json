@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./effect-grammar": "./src/effect-grammar.ts",
+    "./effect-conformance": "./src/effect-conformance.ts",
+    "./fixtures/blood-for-blood": "./src/fixtures/blood-for-blood.verbatim.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

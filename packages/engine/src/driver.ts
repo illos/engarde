@@ -43,18 +43,16 @@ export interface DriverParticipant {
   sourceRecordId?: string;
 }
 
-export function createDriver(
-  participants: readonly DriverParticipant[],
-  context: EngineContext,
-): Driver {
+/** The one home for initial encounter state — every host (driver, CLI,
+ * Convex) starts an encounter through this, never by hand-building state. */
+export function initialEncounterState(participants: readonly DriverParticipant[]): EncounterState {
   if (participants.length === 0) throw new Error('an encounter needs participants');
   const seen = new Set<string>();
   for (const participant of participants) {
     if (seen.has(participant.id)) throw new Error(`duplicate participant id ${participant.id}`);
     seen.add(participant.id);
   }
-
-  let state: EncounterState = {
+  return {
     schemaVersion: 1,
     participants: Object.fromEntries(
       participants.map((participant) => [
@@ -63,6 +61,13 @@ export function createDriver(
       ]),
     ),
   };
+}
+
+export function createDriver(
+  participants: readonly DriverParticipant[],
+  context: EngineContext,
+): Driver {
+  let state: EncounterState = initialEncounterState(participants);
   const fullLog: LogEntry[] = [];
   const steps: TranscriptStep[] = [];
 

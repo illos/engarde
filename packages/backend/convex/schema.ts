@@ -279,6 +279,65 @@ export default defineSchema({
   })
     .index('by_campaignId', ['campaignId'])
     .index('by_campaignId_userId', ['campaignId', 'userId']),
+  // Canon artifact texts seeded from the extraction bundle store (`corpus
+  // export-records` → `npx convex import --table canonRecords`). Verbatim
+  // bytes only — the checksum pins provenance to the pinned SteelCompendium
+  // snapshot. The backend never authors or edits rule text (prime directive);
+  // this table is a read-only mirror for the encounter host.
+  canonRecords: defineTable({
+    artifactId: v.string(),
+    slug: v.string(),
+    text: v.string(),
+    textSha256: v.string(),
+  })
+    .index('by_artifactId', ['artifactId'])
+    .searchIndex('search_slug', { searchField: 'slug' }),
+  // The encounter host (engine-plan 6.3, thin form): the engine stays a pure
+  // function; this row holds its state between dispatches. `state` is
+  // engine-owned — validated by the engine's Zod EncounterStateSchema on
+  // every dispatch, deliberately not mirrored as a Convex validator (one
+  // schema home, no drift). rngSeed + dispatchCount make every auto-roll
+  // replayable: dispatch N always draws from seed rngSeed + N.
+  encounters: defineTable({
+    campaignId: v.id('campaigns'),
+    sessionId: v.id('sessions'),
+    status: v.union(v.literal('active'), v.literal('ended')),
+    state: v.any(),
+    rngSeed: v.number(),
+    dispatchCount: v.number(),
+    logCount: v.number(),
+    startedByUserId: v.id('users'),
+    startedAt: v.number(),
+    endedAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index('by_campaignId_status', ['campaignId', 'status'])
+    .index('by_sessionId', ['sessionId']),
+  // One row per engine log entry plus host-level notes (NOT-AUTOMATED parts
+  // and verbatim resolve-at-the-table cards). Engine entries carry the
+  // engine's own attribution in `engineActor`; `actorUserId` is the host
+  // attribution — who at the table dispatched it.
+  encounterLogEntries: defineTable({
+    campaignId: v.id('campaigns'),
+    encounterId: v.id('encounters'),
+    seq: v.number(),
+    kind: v.union(
+      v.literal('mutation'),
+      v.literal('warning'),
+      v.literal('informational'),
+      v.literal('table-directive'),
+      v.literal('refusal'),
+      v.literal('not-automated'),
+      v.literal('table-card'),
+      v.literal('invariant-violation'),
+    ),
+    message: v.string(),
+    canonRefs: v.array(v.string()),
+    engineActorLabel: v.optional(v.string()),
+    actorUserId: v.id('users'),
+    actorName: v.string(),
+    occurredAt: v.number(),
+  }).index('by_encounterId_seq', ['encounterId', 'seq']),
   lobbyMessages: defineTable({
     campaignId: v.id('campaigns'),
     authorUserId: v.id('users'),

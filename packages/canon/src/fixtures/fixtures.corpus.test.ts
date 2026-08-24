@@ -1,0 +1,37 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { ingestStructuredRecord } from '../extract.js';
+import { BLOOD_FOR_BLOOD } from './blood-for-blood.verbatim.js';
+
+/**
+ * The drift guard for committed verbatim fixtures: re-cut each fixture's
+ * record from the live pinned corpus and require byte equality. A fixture
+ * that no longer matches the books fails here — it can never silently
+ * diverge (corpus-gated: runs wherever ENGARDE_CORPUS_ROOT is set).
+ */
+
+const sourceRoot = process.env.ENGARDE_CORPUS_ROOT
+  ? resolve(process.env.ENGARDE_CORPUS_ROOT)
+  : undefined;
+
+describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpus', () => {
+  it('blood-for-blood is byte-identical to the corpus cut', async () => {
+    const markdownPath = 'en/books/heroes/md/feature/ability/fury/level-1/blood-for-blood.md';
+    const jsonPath = markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+    const bundle = ingestStructuredRecord({
+      markdownPath,
+      markdown: await readFile(resolve(sourceRoot ?? '', markdownPath)),
+      jsonPath,
+      json: await readFile(resolve(sourceRoot ?? '', jsonPath)),
+    });
+    const artifact = bundle.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact');
+    expect(artifact.id).toBe(BLOOD_FOR_BLOOD.artifactId);
+    expect(artifact.text).toBe(BLOOD_FOR_BLOOD.text);
+    expect(createHash('sha256').update(BLOOD_FOR_BLOOD.text, 'utf8').digest('hex')).toBe(
+      BLOOD_FOR_BLOOD.textSha256,
+    );
+  });
+});

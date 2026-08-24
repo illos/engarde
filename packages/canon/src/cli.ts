@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AttributionConfigSchema, attributeArtifacts } from './attribution.js';
 import { auditExtractionBundle } from './audit.js';
-import { listBundleFiles } from './bundle-io.js';
+import { listBundleFiles, loadArtifactRecords } from './bundle-io.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
@@ -177,6 +177,7 @@ function usage(): never {
   corpus classify-review --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --proposals <directory> --out <review.md> [--html <review.html>]
   corpus grammar-report --root <steelcompendium> --path <ability.md> [--path ...] [--html <grammar.html>] [--out <report.json>]
   corpus grammar-sweep --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--attribution <category-attribution.json>] [--html <sweep.html>] [--out <report.json>]
+  corpus export-records --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> --out <records.jsonl>
   corpus attribute --root <steelcompendium> --structured-bundles <directory> --chapter-bundles <directory> [--config <category-attribution.json>] [--out <report.json>]
   corpus pilot-encounter --root <steelcompendium> [--out <transcript.json>]
   corpus classify-compare --root <steelcompendium> --manifest <pilot-scope.manifest.json> --structured-bundles <directory> --chapter-bundles <directory> --a <proposals-dir> --b <proposals-dir> [--a-label x --b-label y] [--html <compare.html>] [--out <comparison.json>]`);
@@ -554,6 +555,33 @@ async function main(): Promise<void> {
     }
     await emit(report);
     if (report.headline.conservationViolations > 0) process.exitCode = 1;
+    return;
+  }
+
+  if (command === 'export-records') {
+    // Seed file for hosts that mount the engine behind a database (the
+    // Convex Table host): one JSONL row per artifact — id, human-facing
+    // slug, verbatim text, and the text checksum that pins provenance.
+    const artifacts = await loadArtifactRecords([
+      resolve(requiredArgument('structured-bundles')),
+      resolve(requiredArgument('chapter-bundles')),
+    ]);
+    const outputPath = resolve(requiredArgument('out'));
+    await mkdir(dirname(outputPath), { recursive: true });
+    const lines = artifacts
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((artifact) =>
+        JSON.stringify({
+          artifactId: artifact.id,
+          slug: artifact.id.split('/').pop() ?? artifact.id,
+          text: artifact.text,
+          textSha256: sha256(Buffer.from(artifact.text, 'utf8')),
+        }),
+      );
+    await writeFile(outputPath, `${lines.join('\n')}\n`, 'utf8');
+    process.stdout.write(
+      `${JSON.stringify({ records: artifacts.length, out: outputPath }, null, 2)}\n`,
+    );
     return;
   }
 

@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@convex-dev/auth": "0.0.95",
+    "@engarde/canon": "workspace:*",
+    "@engarde/engine": "workspace:*",
     "@convex-dev/rate-limiter": "^0.3.2",
     "convex": "^1.44.0",
     "jose": "^6.2.9"

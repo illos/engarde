@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Button, QueryBoundary } from '../../primitives';
 import { errorMessage } from '../campaigns/AppScreen';
 import { RoleBadge } from '../campaigns/CampaignsPage';
+import { EncounterPanel } from './EncounterPanel';
 
 // The Table — a campaign's live lobby. Sitting on this page IS being present:
 // join on mount, heartbeat while open, leave on unmount; the stale window on
@@ -56,6 +57,7 @@ export function TableSurface({ campaignId }: { campaignId: Id<'campaigns'> }) {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       <h1 className="text-3xl">The Table</h1>
       <SessionPanel campaignId={campaignId} />
+      <EncounterPanel campaignId={campaignId} />
       <SessionHistoryPanel campaignId={campaignId} />
       <div className="flex flex-col gap-6 sm:flex-row">
         <PlayersPanel players={players} />

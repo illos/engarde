@@ -15,6 +15,7 @@ import type * as characters from "../characters.js";
 import type * as crons from "../crons.js";
 import type * as emailDelivery from "../emailDelivery.js";
 import type * as emailRateLimits from "../emailRateLimits.js";
+import type * as encounters from "../encounters.js";
 import type * as http from "../http.js";
 import type * as instance from "../instance.js";
 import type * as lobby from "../lobby.js";
@@ -38,6 +39,7 @@ declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   emailDelivery: typeof emailDelivery;
   emailRateLimits: typeof emailRateLimits;
+  encounters: typeof encounters;
   http: typeof http;
   instance: typeof instance;
   lobby: typeof lobby;
