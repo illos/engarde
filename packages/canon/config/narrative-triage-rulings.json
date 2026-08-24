@@ -1,0 +1,172 @@
+{
+  "schema": "engarde-narrative-triage-rulings-v1",
+  "canonPin": "520553438a4e8d199bfaaf676b8aa9bd273f4d61",
+  "exportedAt": "2026-08-24T23:05:47.196Z",
+  "rulings": [
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.revenant/detonate-sigil",
+      "effectOrdinal": 1,
+      "payloadSha256": "43668074d2e4d78945149606efeb26cc9d1e57f223b2407c6ac26fc6020c37dd",
+      "status": "engine-plausible",
+      "comment": "we need to investigate what the sigil placment looks like, that sigil might get placed on a characters vtt token or avatar, and then get removed when this effect fires. strong candated for engine implamentation"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-5/you-talk-too-much",
+      "effectOrdinal": 1,
+      "payloadSha256": "0b2402a1b3eab8bb572021a0e483b540c1e16b3f5243a2abe1d08fc7d005d0be",
+      "status": "engine-plausible",
+      "comment": "very likley we do implamentation on this one. maybe the group chat is disabled for that character, maybe they get the sileinced contediton. more research is needed"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-8/mindwipe",
+      "effectOrdinal": 1,
+      "payloadSha256": "0b2402a1b3eab8bb572021a0e483b540c1e16b3f5243a2abe1d08fc7d005d0be",
+      "status": "engine-plausible",
+      "comment": "same as the other effect with the same text"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/perk/psychic-whisper",
+      "effectOrdinal": 1,
+      "payloadSha256": "956b23fc69d0b4272b8c54d4ea80e533ed3663c2a2ee73fbb85b95f6e7ec2554",
+      "status": "never"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/title/faction-member",
+      "effectOrdinal": 1,
+      "payloadSha256": "5ce48f1ee012fc3bfb3deb4a2589816859846cb4f05e50165c00062b6427f8fb",
+      "status": "never",
+      "comment": "titles beling in the character creation flow, not the combat/encounter engine"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/title/owed-a-favor",
+      "effectOrdinal": 1,
+      "payloadSha256": "0bdc4832579807068d65b2cc972b3b5a4c9bbcba5e077afe0d8080f46984517d",
+      "status": "never"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/treasure.2nd-echelon.consumable/scroll-of-resurrection",
+      "effectOrdinal": 1,
+      "payloadSha256": "8eee7ed079e841abdf21d6fe0dd95f28c38c72f044d60602dd8577dda69fe296",
+      "status": "never",
+      "comment": "not engine"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/treasure.2nd-echelon.trinket/mediators-charm",
+      "effectOrdinal": 1,
+      "payloadSha256": "22700f11b4ee199bb44106b99b269fc24d707734e658bef02f22aeef99f687e0",
+      "status": "engine-plausible",
+      "comment": "this is negotation engine stuff"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.fieldworks/bear-trap",
+      "effectOrdinal": 2,
+      "payloadSha256": "bda1dab591e9ae1b5dff99e493960ffcd0a7d320004eb11bc1d64371000215ab",
+      "status": "never",
+      "comment": "nerative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.mechanisms/pressure-plate",
+      "effectOrdinal": 1,
+      "payloadSha256": "c8a27278d7f4871de442b5e069bc16a7b695de73333b7ffad674d41985f623d2",
+      "status": "never",
+      "comment": "nerative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.mechanisms/pulley",
+      "effectOrdinal": 1,
+      "payloadSha256": "ec705a34064d703448cce7f38df5c8abf2cc76a4b6f4ea189d815c36a80f44bd",
+      "status": "never",
+      "comment": "nerative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.mechanisms/switch",
+      "effectOrdinal": 1,
+      "payloadSha256": "44351cca7738e9a7d3a5eb45d9bf886c2ba4b4935c751092f54dc0a2937ee316",
+      "status": "never"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.basilisk/basilisk-malice",
+      "effectOrdinal": 1,
+      "payloadSha256": "3f2a6c6edb293187285d1f01327cbe03d32609a9047375f44cdb74144712f862",
+      "status": "never",
+      "comment": "nerative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.bredbeddle.statblock/bredbeddle",
+      "effectOrdinal": 3,
+      "payloadSha256": "9b6460d00bec399661bdc43f4cefec4b9dbecb2426fe4ba962d052f9b4ffa8b0",
+      "status": "never",
+      "comment": "narrative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.3rd-echelon.statblock/blight-phage",
+      "effectOrdinal": 2,
+      "payloadSha256": "2f1e8766c1e35dd8edb48a058dfa4a162cdf2b7a67bab4130c50432e9c0af98b",
+      "status": "engine-plausible",
+      "comment": "possible terrain effect for vtt surface"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.dragon.statblock/omen-dragon",
+      "effectOrdinal": 5,
+      "payloadSha256": "c7230db43a3da79cbcd3c282d755acb821e148d9ce45d692609e7821a76f198f",
+      "status": "never",
+      "comment": "nerative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.dragon.statblock/omen-dragon",
+      "effectOrdinal": 7,
+      "payloadSha256": "798dbb60aa239e4a75190e44204a617ec224b2338d3533c3e5703087f7cb5649",
+      "status": "engine-plausible",
+      "comment": "need to investigate deathcount"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-high.statblock/high-elf-wyrd",
+      "effectOrdinal": 1,
+      "payloadSha256": "b6604f0e4cff06e8235bc1015c7400fa9bb80d5a98fc131e570906a66eeedb2c",
+      "status": "engine-plausible",
+      "comment": "vtt engine would need to do this"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-high.statblock/high-elf-wyrd",
+      "effectOrdinal": 3,
+      "payloadSha256": "6b4cead217b4c94974836df266f12545429d352aa9b35f1218a4b876fd5bee1c",
+      "status": "engine-plausible",
+      "comment": "iv the vtt had hight built in this would need to modify it"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-duskcaller",
+      "effectOrdinal": 2,
+      "payloadSha256": "e6f9a6e7b62940548a9ec434886807a207025e43afa81bf02b6f6cd946275967",
+      "status": "engine-plausible",
+      "comment": "darkness. vtt terrain effect"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.human.statblock/human-storm-mage",
+      "effectOrdinal": 1,
+      "payloadSha256": "e1446a5a588f38c5ed523f0ba87116c61cf8e0a1d0f4a45bb8f806485f631a9d",
+      "status": "never",
+      "comment": "narrative"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.kingfissure-worm.statblock/kingfissure-worm",
+      "effectOrdinal": 2,
+      "payloadSha256": "928cc35241b483518c0ffbae312c4e77162cde53363d21e29560fa5d6a8cefec",
+      "status": "engine-plausible",
+      "comment": "possible custom condition? swallowed"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.kobold.statblock/kobold-artifex",
+      "effectOrdinal": 2,
+      "payloadSha256": "be6e79385a429b1efa64f164d12593c5efe18faad7ea4a1870244978c33505ae",
+      "status": "engine-plausible",
+      "comment": "possible erren effect"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.advancement-features/undead-servitor",
+      "effectOrdinal": 2,
+      "payloadSha256": "f4339b0658bfca0e039438efb6569628b462bd20470f859dbd785d88f5f2b869",
+      "status": "engine-plausible",
+      "comment": "need to see if explode does damage?"
+    }
+  ]
+}

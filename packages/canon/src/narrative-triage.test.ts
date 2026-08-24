@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { sha256 } from './bytes.js';
 import { EFFECT_CANON_PIN } from './effect-canon-expectations.js';
@@ -98,5 +100,39 @@ describe.skipIf(!existsSync(manifestPath))('narrative triage (accepted pin)', ()
       expect(html).toContain(candidate.payloadSha256);
     }
     expect(html).toContain('engarde-narrative-triage-rulings-v1');
+  });
+
+  it('enforces the committed user rulings manifest (2026-08-24 review)', async () => {
+    const rulingsPath = fileURLToPath(
+      new URL('../config/narrative-triage-rulings.json', import.meta.url),
+    );
+    const rulings = NarrativeTriageRulingsSchema.parse(
+      JSON.parse(await readFile(rulingsPath, 'utf8')),
+    );
+    expect(rulings.canonPin).toBe(EFFECT_CANON_PIN);
+
+    const fixtures = await loadCoreEffectFixtures(manifestPath);
+    const report = buildNarrativeTriage(fixtures, EFFECT_CANON_PIN);
+    const candidateSha = new Map(
+      report.candidates.map((c) => [`${c.artifactId}#${c.effectOrdinal}`, c.payloadSha256]),
+    );
+
+    // Complete, drift-keyed coverage: every zero-signal candidate has exactly
+    // one decided ruling whose SHA matches the live payload bytes, and no
+    // ruling points at a line that is no longer a candidate.
+    const ruledKeys = rulings.rulings.map((r) => `${r.artifactId}#${r.effectOrdinal}`);
+    expect(new Set(ruledKeys).size).toBe(ruledKeys.length);
+    expect(new Set(ruledKeys)).toEqual(new Set(candidateSha.keys()));
+    for (const ruling of rulings.rulings) {
+      expect(ruling.status).not.toBe('unreviewed');
+      expect(ruling.payloadSha256).toBe(
+        candidateSha.get(`${ruling.artifactId}#${ruling.effectOrdinal}`),
+      );
+    }
+
+    // Frozen outcome of the user's review: 12 never / 12 engine-plausible.
+    const statuses = rulings.rulings.map((r) => r.status);
+    expect(statuses.filter((s) => s === 'never')).toHaveLength(12);
+    expect(statuses.filter((s) => s === 'engine-plausible')).toHaveLength(12);
   });
 });

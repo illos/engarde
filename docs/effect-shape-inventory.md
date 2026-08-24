@@ -124,6 +124,31 @@ hide non-recurring *sentences* (334/233/143/74/44 unique templates). Teaching
 the engine those means open-ended prose interpretation, which is the exact
 failure mode the table-directive boundary exists to prevent.
 
+## Narrative triage rulings (user review, 2026-08-24)
+
+The zero-mechanical-signal pass flagged 24 candidate lines; the user ruled all
+24 via the generated review page. Committed manifest (drift-keyed by artifact
+id + ordinal + payload SHA-256, test-enforced against the pin):
+`packages/canon/config/narrative-triage-rulings.json`.
+
+- **12 never** — permanently table directives by ruling: pure narrative color
+  (basilisk-malice, omen-dragon premonition, bredbeddle head-throw,
+  storm-mage gust), mechanical-reset bookkeeping on dynamic terrain
+  (bear-trap, pressure-plate, pulley, switch), and content ruled out of the
+  *encounter* engine's scope (titles → character-creation flow; perk
+  psychic-whisper; scroll-of-resurrection).
+- **12 engine-plausible** — stay table for now, with the user's implementation
+  notes preserved in the manifest. Recurring themes worth tracking as future
+  substrate: **VTT-surface effects** (sigil on a token, terrain zones,
+  darkness, terrain elevation/height), a **negotiation engine** (Mediator's
+  Charm patience), **bespoke condition states** (swallowed), and open rule
+  research (Deathcount, servitor explosion damage).
+
+Resulting corpus accounting at the pin: **12 automated · 12 ruled
+permanently-manual · 1,652 mechanism-pending table directives.** The
+`--max-signals 1` widening (335 lines) is available for a future second
+review sitting.
+
 ## Definition of done for the selected slice
 
 The characteristic-test family accounts for **29 exact instructions across 24
