@@ -9,6 +9,7 @@ import { listBundleFiles, loadArtifactRecords } from './bundle-io.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
+import { EFFECT_CANON_PIN } from './effect-canon-expectations.js';
 import { loadCoreEffectFixtures } from './effect-corpus-fixtures.js';
 import { auditGrammarConservation, parseEffectText } from './effect-grammar.js';
 import {
@@ -30,6 +31,7 @@ import {
   validateLeafProvenance,
 } from './independent-expectations.js';
 import { buildCorpusInventory } from './inventory.js';
+import { buildNarrativeTriage, renderNarrativeTriageHtml } from './narrative-triage.js';
 import { runPilotEncounter } from './pilot-encounter.js';
 import { PilotConfigSchema, assemblePilotScope } from './pilot-scope.js';
 import {
@@ -170,6 +172,7 @@ function usage(): never {
   throw new Error(`Usage:
   corpus proposal-schema [--out <schema.json>]
   corpus effect-shape-inventory --manifest <final-campaign-manifest.json> [--md <inventory.md>] [--out <inventory.json>]
+  corpus narrative-triage --manifest <final-campaign-manifest.json> [--max-signals N] [--html <triage.html>] [--out <report.json>]
   corpus source-status --root <steelcompendium> [--check-upstream]
   corpus inventory --root <steelcompendium> [--out <inventory.json>] [--strict]
   corpus ingest --root <steelcompendium> --path <en/books/.../md/...md> [--out <bundle.json>]
@@ -196,6 +199,24 @@ async function main(): Promise<void> {
 
   if (command === 'proposal-schema') {
     await emit(z.toJSONSchema(ChapterChunkProposalSchema));
+    return;
+  }
+
+  if (command === 'narrative-triage') {
+    const fixtures = await loadCoreEffectFixtures(resolve(requiredArgument('manifest')));
+    const maxSignals = Number(argument('max-signals') ?? '0');
+    const report = buildNarrativeTriage(fixtures, EFFECT_CANON_PIN, maxSignals);
+    const htmlOutput = argument('html');
+    if (htmlOutput) {
+      await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+      await writeFile(resolve(htmlOutput), renderNarrativeTriageHtml(report), 'utf8');
+    }
+    await emit({
+      canonPin: report.canonPin,
+      tablePrograms: report.tablePrograms,
+      candidateCount: report.candidates.length,
+      candidates: report.candidates.map(({ artifactText, ...rest }) => rest),
+    });
     return;
   }
 
