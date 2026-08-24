@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:corpus": "ENGARDE_CORPUS_ROOT=../../.reference/steelcompendium vitest run src/corpus.integration.test.ts",
-    "corpus": "tsx src/cli.ts"
+    "corpus": "tsx src/cli.ts",
+    "play": "tsx src/play-cli.ts"
   },
   "dependencies": {
     "yaml": "^2.8.1",

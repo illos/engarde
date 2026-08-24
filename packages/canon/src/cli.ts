@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { AttributionConfigSchema, attributeArtifacts } from './attribution.js';
 import { auditExtractionBundle } from './audit.js';
+import { listBundleFiles } from './bundle-io.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
@@ -156,20 +157,6 @@ async function emit(value: unknown): Promise<void> {
   }
   await mkdir(dirname(resolve(output)), { recursive: true });
   await writeFile(resolve(output), serialized, 'utf8');
-}
-
-async function listBundleFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  async function visit(directory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(path);
-      else if (entry.isFile() && entry.name.endsWith('.bundle.json')) files.push(path);
-    }
-  }
-  await visit(root);
-  return files.sort();
 }
 
 function usage(): never {
