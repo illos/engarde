@@ -9,7 +9,13 @@ import { listBundleFiles, loadArtifactRecords } from './bundle-io.js';
 import { sha256 } from './bytes.js';
 import { auditCampaignSet } from './campaign.js';
 import { computeReferenceClosure } from './dependency.js';
+import { loadCoreEffectFixtures } from './effect-corpus-fixtures.js';
 import { auditGrammarConservation, parseEffectText } from './effect-grammar.js';
+import {
+  buildEffectShapeInventory,
+  renderEffectShapeInventoryMarkdown,
+  toEffectShapeRows,
+} from './effect-shape-inventory.js';
 import {
   type PairedSource,
   createChapterWorkPacket,
@@ -163,6 +169,7 @@ async function emit(value: unknown): Promise<void> {
 function usage(): never {
   throw new Error(`Usage:
   corpus proposal-schema [--out <schema.json>]
+  corpus effect-shape-inventory --manifest <final-campaign-manifest.json> [--md <inventory.md>] [--out <inventory.json>]
   corpus source-status --root <steelcompendium> [--check-upstream]
   corpus inventory --root <steelcompendium> [--out <inventory.json>] [--strict]
   corpus ingest --root <steelcompendium> --path <en/books/.../md/...md> [--out <bundle.json>]
@@ -189,6 +196,23 @@ async function main(): Promise<void> {
 
   if (command === 'proposal-schema') {
     await emit(z.toJSONSchema(ChapterChunkProposalSchema));
+    return;
+  }
+
+  if (command === 'effect-shape-inventory') {
+    const fixtures = await loadCoreEffectFixtures(resolve(requiredArgument('manifest')));
+    const { totalPrograms, rows } = toEffectShapeRows(fixtures);
+    const inventory = buildEffectShapeInventory(totalPrograms, rows);
+    const markdownOutput = argument('md');
+    if (markdownOutput) {
+      await mkdir(dirname(resolve(markdownOutput)), { recursive: true });
+      await writeFile(
+        resolve(markdownOutput),
+        renderEffectShapeInventoryMarkdown(inventory),
+        'utf8',
+      );
+    }
+    await emit(inventory);
     return;
   }
 
