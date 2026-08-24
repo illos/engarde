@@ -5,7 +5,9 @@ import {
   type Intent,
   applyIntent,
   checkInvariants,
+  createDriver,
   createSeededRandomSource,
+  isDead,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { compileAbilities, compileAbility } from './effect-conformance.js';
@@ -215,3 +217,94 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     expect(result.state.participants.assassin?.conditions).toHaveLength(1);
   });
 });
+
+describe.skipIf(!sourceRoot)(
+  'replayable fight: two goblin warriors trade Bury the Point to the death',
+  () => {
+    it('runs a full seeded fight under the invariant oracle, byte-identical on replay', async () => {
+      const text = await ingestText(
+        'en/books/monsters/md/monster/goblin/statblock/goblin-warrior.md',
+      );
+      const { abilities } = compileAbilities(
+        parseEffectText(text),
+        'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior',
+      );
+      const strike = abilities.find((ability) =>
+        ability.tiers.tier1.conditionIds.includes('mcdm.heroes.v1/condition/bleeding'),
+      );
+      if (!strike) throw new Error('bleeding strike not compiled');
+      const warriorStats = {
+        staminaMax: 15,
+        characteristics: { might: -2, agility: 2, reason: 0, intuition: 0, presence: -1 },
+        immunities: [],
+        weaknesses: [],
+        potencies: null,
+        organization: 'Horde',
+      };
+
+      const runFight = () => {
+        const driver = createDriver(
+          [
+            {
+              id: 'red',
+              sourceRecordId: strike.abilityArtifactId,
+              kind: 'director-creature' as const,
+              stats: warriorStats,
+            },
+            {
+              id: 'blue',
+              sourceRecordId: strike.abilityArtifactId,
+              kind: 'director-creature' as const,
+              stats: warriorStats,
+            },
+          ],
+          { random: createSeededRandomSource(0xf16f7) },
+        );
+        let step = 0;
+        // Alternate auto-rolled strikes + end-of-turn saves until one dies
+        // (bounded: the corpus numbers guarantee death well inside the cap).
+        for (let round = 0; round < 30; round += 1) {
+          const attacker = round % 2 === 0 ? 'red' : 'blue';
+          const defender = round % 2 === 0 ? 'blue' : 'red';
+          step += 1;
+          const attack = driver.dispatch({
+            intentId: `f${step}`,
+            kind: 'use-ability',
+            actor: { kind: 'participant', participantId: attacker },
+            payload: {
+              actorParticipantId: attacker,
+              ability: strike,
+              targets: [defender],
+            },
+          });
+          expect(attack.violations).toEqual([]);
+          const fallen = Object.values(driver.state().participants).find((participant) =>
+            isDead(participant),
+          );
+          if (fallen) break;
+          step += 1;
+          const turn = driver.dispatch({
+            intentId: `f${step}`,
+            kind: 'end-turn',
+            actor: { kind: 'participant', participantId: defender },
+            payload: { participantId: defender },
+          });
+          expect(turn.violations).toEqual([]);
+        }
+        return driver.transcript();
+      };
+
+      const first = runFight();
+      const again = runFight();
+      // Same seed, same corpus text: byte-identical transcript (replayable).
+      expect(JSON.stringify(again)).toBe(JSON.stringify(first));
+      expect(first.violationCount).toBe(0);
+      // The fight ends in a death, with the full receipts trail behind it.
+      const participants = Object.values(first.finalState.participants);
+      expect(participants.some((participant) => isDead(participant))).toBe(true);
+      const allLog = first.steps.flatMap((entry) => entry.log);
+      expect(allLog.some((entry) => entry.data['powerRoll'] !== undefined)).toBe(true);
+      expect(allLog.some((entry) => entry.message.includes('dies'))).toBe(true);
+    });
+  },
+);
