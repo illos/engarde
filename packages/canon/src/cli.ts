@@ -3,6 +3,13 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import {
+  ArtifactProseRulingsSchema,
+  loadArtifactProseTriage,
+  renderArtifactProseTriageHtml,
+  selectArtifactProseCandidates,
+  validateArtifactProseRulings,
+} from './artifact-prose-triage.js';
 import { AttributionConfigSchema, attributeArtifacts } from './attribution.js';
 import { auditExtractionBundle } from './audit.js';
 import { listBundleFiles, loadArtifactRecords } from './bundle-io.js';
@@ -173,6 +180,7 @@ function usage(): never {
   corpus proposal-schema [--out <schema.json>]
   corpus effect-shape-inventory --manifest <final-campaign-manifest.json> [--md <inventory.md>] [--out <inventory.json>]
   corpus narrative-triage --manifest <final-campaign-manifest.json> [--max-signals N] [--html <triage.html>] [--out <report.json>]
+  corpus artifact-prose-triage --manifest <final-campaign-manifest.json> [--max-signals N] [--artifact <id>...] [--rulings <rulings.json>] [--html <triage.html>] [--out <report.json>]
   corpus source-status --root <steelcompendium> [--check-upstream]
   corpus inventory --root <steelcompendium> [--out <inventory.json>] [--strict]
   corpus ingest --root <steelcompendium> --path <en/books/.../md/...md> [--out <bundle.json>]
@@ -199,6 +207,33 @@ async function main(): Promise<void> {
 
   if (command === 'proposal-schema') {
     await emit(z.toJSONSchema(ChapterChunkProposalSchema));
+    return;
+  }
+
+  if (command === 'artifact-prose-triage') {
+    const maxSignals = Number(argument('max-signals') ?? '0');
+    const report = await loadArtifactProseTriage(resolve(requiredArgument('manifest')), maxSignals);
+    const selectedIds = argumentsNamed('artifact');
+    const reviewReport = selectArtifactProseCandidates(report, selectedIds);
+    const htmlOutput = argument('html');
+    if (htmlOutput) {
+      await mkdir(dirname(resolve(htmlOutput)), { recursive: true });
+      await writeFile(resolve(htmlOutput), renderArtifactProseTriageHtml(reviewReport), 'utf8');
+    }
+    const rulingsPath = argument('rulings');
+    const rulingValidation = rulingsPath
+      ? validateArtifactProseRulings(
+          reviewReport,
+          ArtifactProseRulingsSchema.parse(
+            JSON.parse(await readFile(resolve(rulingsPath), 'utf8')),
+          ),
+        )
+      : undefined;
+    await emit({
+      ...reviewReport,
+      candidates: reviewReport.candidates.map(({ sourceText, ...candidate }) => candidate),
+      ...(rulingValidation ? { rulingValidation } : {}),
+    });
     return;
   }
 

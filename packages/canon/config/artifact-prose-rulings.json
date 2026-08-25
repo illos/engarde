@@ -1,0 +1,52 @@
+{
+  "schema": "engarde-artifact-prose-rulings-v1",
+  "canonPin": "520553438a4e8d199bfaaf676b8aa9bd273f4d61",
+  "exportedAt": "2026-08-25T05:13:45Z",
+  "rulings": [
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/ancestries#last-names-and-bynames",
+      "artifactVersion": "96891d73fce6f9dd7f8b1251265e86131265332e2bb1b7f3750da4debbf0347a",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/background#careers",
+      "artifactVersion": "62cb732731fc1097f185c92960391e339d4a0351f51503e5dbfae1c117476d9e",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/for-the-director#for-the-director-overview",
+      "artifactVersion": "e7504a0d304a4bc63f51421f175f81424ca0d9ec36b1ede4cfe88b69c67bcd4d",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/gods-and-religion#evil-gods-and-saints",
+      "artifactVersion": "aa84eb30a0aee7548cfccb19a110ad71bfc910d32ee7b5429bc613defe74fde2",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/gods-and-religion#space-gods-of-the-timescape",
+      "artifactVersion": "440e74ec74185dfab977ca77d0291c28ac24646ae391a2b1ada2622d1759e6bb",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/gods-and-religion#religion-in-the-timescape",
+      "artifactVersion": "6681abdedf50763023ba64c61f8a26fd1d9bbe37f64897e993cc044af96b5c36",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/chapter/rewards#treasure-sourcing",
+      "artifactVersion": "9590737bcdf68bbae76852e99469b841c19bc41b636987ebc4eac09d12c6398c",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/chapter/monster-basics#the-purpose-of-monsters",
+      "artifactVersion": "29879f6eee8bb7c23f316d834d6b84b920707d35985773974a52360cd0a8b32e",
+      "status": "not-a-rule"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/chapter/monster-basics#everyone-loves-zombies",
+      "artifactVersion": "2535f45139996dd172c9df4e62069e1888d1fb1bad631946f1cc28c11ba11257",
+      "status": "not-a-rule"
+    }
+  ]
+}
