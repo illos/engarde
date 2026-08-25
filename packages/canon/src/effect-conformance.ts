@@ -102,51 +102,91 @@ function tierEffectOf(data: TierOutcomeData): unknown {
  * engine-resolvable effect data (the use-ability intent payload).
  * Deterministic: verbatim text → grammar → this shape; the engine
  * interprets it (data over code). Stat blocks are multi-ability artifacts,
- * so clusters are grouped by sequence: each power-roll heading owns the
- * tier lines that follow it (until the next heading), attributed to the
- * nearest preceding ability header. A cluster missing any of its three
+ * so clusters are grouped by sequence: each power-roll heading owns ONLY the
+ * tier lines that follow it contiguously — whitespace may intervene, but an
+ * ability header, an Effect line, or any residue prose CLOSES the open
+ * cluster (R-0011: tier bullets that follow a test Effect must never join
+ * the preceding power-roll cluster). A cluster missing any of its three
  * tier lines is reported, never guessed at.
  */
-export function compileAbilities(
-  parse: GrammarParse,
-  abilityArtifactId: string,
-): { abilities: AbilityEffectData[]; incomplete: CompileMiss[] } {
-  interface Cluster {
-    header: Extract<EffectClause, { kind: 'ability-header' }> | null;
-    powerRoll: Extract<EffectClause, { kind: 'power-roll' }>;
-    tiers: Partial<Record<'tier1' | 'tier2' | 'tier3', TierOutcomeData>>;
-    duplicateTiers: Set<'tier1' | 'tier2' | 'tier3'>;
-  }
-  const clusters: Cluster[] = [];
+export interface PowerRollClusterGroup {
+  header: Extract<EffectClause, { kind: 'ability-header' }> | null;
+  powerRoll: Extract<EffectClause, { kind: 'power-roll' }>;
+  tiers: Partial<
+    Record<'tier1' | 'tier2' | 'tier3', Extract<EffectClause, { kind: 'tier-outcome' }>>
+  >;
+  duplicateTiers: Set<'tier1' | 'tier2' | 'tier3'>;
+}
+
+/**
+ * The ONE home of power-roll cluster ownership (R-0011). Clauses and residue
+ * are walked in byte order; whitespace passes through, while an ability
+ * header, an Effect line, residue prose, or any other clause CLOSES the open
+ * cluster, so tier bullets never attach across intervening content.
+ */
+export function groupPowerRollClusters(parse: GrammarParse): PowerRollClusterGroup[] {
+  type OwnershipEvent =
+    | { kind: 'clause'; clause: EffectClause; byteStart: number }
+    | { kind: 'residue'; byteStart: number };
+  const events: OwnershipEvent[] = [
+    ...parse.clauses.map(
+      (clause): OwnershipEvent => ({ kind: 'clause', clause, byteStart: clause.span.byteStart }),
+    ),
+    ...parse.residue.map(
+      (item): OwnershipEvent => ({ kind: 'residue', byteStart: item.span.byteStart }),
+    ),
+  ].sort((left, right) => left.byteStart - right.byteStart);
+
+  const clusters: PowerRollClusterGroup[] = [];
   let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
-  for (const clause of parse.clauses) {
+  let openCluster: PowerRollClusterGroup | null = null;
+  for (const event of events) {
+    if (event.kind === 'residue') {
+      openCluster = null; // bespoke prose separates; nothing attaches across it
+      continue;
+    }
+    const clause = event.clause;
+    if (clause.kind === 'whitespace') continue;
     if (clause.kind === 'ability-header') {
       lastHeader = clause;
+      openCluster = null;
       continue;
     }
     if (clause.kind === 'power-roll') {
-      clusters.push({
+      openCluster = {
         header: lastHeader,
         powerRoll: clause,
         tiers: {},
         duplicateTiers: new Set(),
-      });
+      };
+      clusters.push(openCluster);
       continue;
     }
     if (clause.kind === 'tier-outcome') {
-      const cluster = clusters[clusters.length - 1];
-      if (!cluster) continue; // tier line before any heading — stays data-only
+      if (!openCluster) continue; // no open cluster — stays data-only
       const slot = BAND_TO_TIER[clause.data.band];
-      if (slot in cluster.tiers) cluster.duplicateTiers.add(slot);
-      else cluster.tiers[slot] = clause.data;
+      if (slot in openCluster.tiers) openCluster.duplicateTiers.add(slot);
+      else openCluster.tiers[slot] = clause;
+      continue;
     }
+    // Any other clause (an Effect line, a flavor line, future clause kinds)
+    // closes the open cluster.
+    openCluster = null;
   }
+  return clusters;
+}
+
+export function compileAbilities(
+  parse: GrammarParse,
+  abilityArtifactId: string,
+): { abilities: AbilityEffectData[]; incomplete: CompileMiss[] } {
+  const clusters = groupPowerRollClusters(parse);
   const abilities: AbilityEffectData[] = [];
   const incomplete: CompileMiss[] = [];
   for (const cluster of clusters) {
-    const tier1 = cluster.tiers.tier1;
-    const tier2 = cluster.tiers.tier2;
-    const tier3 = cluster.tiers.tier3;
+    const tier1 = cluster.tiers.tier1?.data;
+    const tier2 = cluster.tiers.tier2?.data;
+    const tier3 = cluster.tiers.tier3?.data;
     if (!tier1 || !tier2 || !tier3 || cluster.duplicateTiers.size > 0) {
       incomplete.push({
         missing: [

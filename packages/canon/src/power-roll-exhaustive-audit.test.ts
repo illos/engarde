@@ -38,15 +38,34 @@ interface AuditCluster {
 }
 
 function clustersIn(text: string): AuditCluster[] {
+  // Independent re-implementation of the R-0011 ownership rule: a power-roll
+  // heading owns only contiguously-following tier lines — whitespace passes,
+  // while residue prose or any other clause closes the open cluster. Kept
+  // separate from groupPowerRollClusters on purpose (two readers).
+  const parse = parseEffectText(text);
+  const events = [
+    ...parse.clauses.map((clause) => ({ byteStart: clause.span.byteStart, clause })),
+    ...parse.residue.map((item) => ({ byteStart: item.span.byteStart, clause: null })),
+  ].sort((left, right) => left.byteStart - right.byteStart);
   const clusters: AuditCluster[] = [];
   let current: AuditCluster | undefined;
-  for (const clause of parseEffectText(text).clauses) {
+  for (const event of events) {
+    const clause = event.clause;
+    if (clause === null) {
+      current = undefined; // residue separates
+      continue;
+    }
+    if (clause.kind === 'whitespace') continue;
     if (clause.kind === 'power-roll') {
       current = { bands: [] };
       clusters.push(current);
-    } else if (clause.kind === 'tier-outcome' && current) {
-      current.bands.push(clause.data.band);
+      continue;
     }
+    if (clause.kind === 'tier-outcome') {
+      if (current) current.bands.push(clause.data.band);
+      continue;
+    }
+    current = undefined; // header, Effect line, flavor — all close ownership
   }
   return clusters;
 }
@@ -193,8 +212,14 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
 
     // Baseline for the pinned final campaign manifest after rejecting
     // duplicate bands and unsupported alternative/(EoT) outcome branches.
-    expect(fixtures.length).toBe(606);
-    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(514);
+    // Re-frozen 2026-08-25 under R-0011 ownership hardening: 11 previously
+    // leak-suppressed clusters compile (e.g. devil-adjudicator Infernal
+    // Injunction), and 5 leak-assembled clusters correctly fell out — four
+    // counterfeits stitched from a later ability's bullets (count-rhodar,
+    // vampire-lord, servok-miner, fire-giant-chief) and one silent
+    // precondition loss (the-nameless winded gate).
+    expect(fixtures.length).toBe(617);
+    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(521);
     expect(malformed).toEqual([]);
   });
 
@@ -207,7 +232,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
       );
       return cluster !== undefined && isExactlyOneOfEachBand(cluster) && !duplicateConditions;
     });
-    expect(complete.length).toBe(606);
+    expect(complete.length).toBe(617);
 
     for (const fixture of complete) {
       expect(sourceVersion(fixture.text)).toBe(fixture.artifactVersion);

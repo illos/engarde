@@ -379,7 +379,9 @@ export function parseEffectText(text: string): GrammarParse {
     const withoutNewline = line.text.endsWith('\n') ? line.text.slice(0, -1) : line.text;
     const exactLine = withoutNewline.endsWith('\r') ? withoutNewline.slice(0, -1) : withoutNewline;
 
-    if (trimmed.length === 0) {
+    if (trimmed.length === 0 || /^>+$/.test(trimmed)) {
+      // A blank line, or a quote marker with nothing after it — structural
+      // whitespace inside statblock quote blocks, never content.
       flushResidue();
       clauses.push({ kind: 'whitespace', span: span([line]) });
       index += 1;

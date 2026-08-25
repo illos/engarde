@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { type EncounterState, createSeededRandomSource } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
-import { executeIntents, tierOutcomeToIntents } from './effect-conformance.js';
+import { compileAbilities, executeIntents, tierOutcomeToIntents } from './effect-conformance.js';
 import { parseEffectText } from './effect-grammar.js';
 import { ingestStructuredRecord } from './extract.js';
 
@@ -132,5 +132,73 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
       createSeededRandomSource(1),
     );
     expect(withRolls.state.participants.target?.conditions).toEqual([]);
+  });
+});
+
+// Verbatim slice of the pinned devil-adjudicator statblock: the Infernal
+// Injunction power-roll cluster, then Adjudicator's Interdiction whose test
+// Effect is followed by tier bullets. Interdiction's `17+` bullet parses in
+// the supported tier grammar; before the R-0011 ownership hardening it leaked
+// into Infernal Injunction's cluster as a duplicate tier-3 line and
+// suppressed the entire certifiable ability.
+const ADJUDICATOR_LEAK_SLICE = `> 🏹 **Infernal Injunction (Signature Ability)**
+>
+> | **Magic, Ranged, Strike** |                 **[Main action](scc.v1:mcdm.heroes.v1/rule.combat/turn)** |
+> |---------------------------|--------------------------------:|
+> | **📏 Ranged 10**          | **🎯 Two creatures or objects** |
+>
+> **Power Roll + 3:**
+>
+> - **≤11:** 10 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+> - **12-16:** 15 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+> - **17+:** 18 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+>
+> **Effect:** The adjudicator can slide a target [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) by this ability up to 2 squares.
+
+> 🏹 **Adjudicator's Interdiction**
+>
+> | **Magic, Ranged** |     **[Main action](scc.v1:mcdm.heroes.v1/rule.combat/turn)** |
+> |-------------------|--------------------:|
+> | **📏 Ranged 10**  | **🎯 One creature** |
+>
+> **Effect:** The target makes a Presence test.
+>
+> - **≤11:** The target is [slowed](scc.v1:mcdm.heroes.v1/condition/slowed), takes a [bane](scc.v1:mcdm.heroes.v1/rule.dice/bane) on power rolls, and can't regain [Stamina](scc.v1:mcdm.heroes.v1/rule.health/stamina) (save ends).
+> - **12-16:** The target is [slowed](scc.v1:mcdm.heroes.v1/condition/slowed) and takes a [bane](scc.v1:mcdm.heroes.v1/rule.dice/bane) on power rolls (save ends).
+> - **17+:** [Slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (save ends)
+
+`;
+
+describe('compileAbilities cluster ownership (R-0011 hardening)', () => {
+  it('does not leak tier bullets across an intervening Effect line or ability header', () => {
+    const parse = parseEffectText(ADJUDICATOR_LEAK_SLICE);
+    const { abilities, incomplete } = compileAbilities(parse, 'fixture');
+    // Infernal Injunction compiles as a complete ability; Interdiction's
+    // parsed 17+ bullet must NOT join it (no duplicate-tier suppression).
+    expect(incomplete).toEqual([]);
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.powerRollBonus).toEqual({ kind: 'fixed', value: 3 });
+    expect(abilities[0]?.targetsText).toBe('Two creatures or objects');
+  });
+
+  it('closes an open cluster at intervening residue prose', () => {
+    // Verbatim Infernal Injunction cluster with the verbatim Vexatious
+    // Litigation trait line (residue prose) spliced between the power roll
+    // heading's tier lines and a stray verbatim tier bullet from
+    // Interdiction — the bullet must not attach across the residue.
+    const spliced = `> **Power Roll + 3:**
+>
+> - **≤11:** 10 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+> - **12-16:** 15 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+> - **17+:** 18 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)
+>
+> Any creature within 10 squares of the adjudicator who has P < 3 takes a −2 penalty to saving throws.
+>
+> - **17+:** [Slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (save ends)
+`;
+    const parse = parseEffectText(spliced);
+    const { abilities, incomplete } = compileAbilities(parse, 'fixture');
+    expect(incomplete).toEqual([]);
+    expect(abilities).toHaveLength(1);
   });
 });

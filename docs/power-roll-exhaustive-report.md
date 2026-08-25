@@ -42,3 +42,32 @@ ENGARDE_CORPUS_ROOT=../../.reference/steelcompendium \
 ENGARDE_CANON_MANIFEST=../../.artifacts/canon/campaign/accepted/final-campaign-manifest.json \
 pnpm test -- effect-grammar.test.ts power-roll-exhaustive.test.ts power-roll-exhaustive-audit.test.ts
 ```
+
+## Addendum — R-0011 ownership hardening (2026-08-25)
+
+The characteristic-test Gate-3 audit exposed a cluster-ownership defect in
+`compileAbilities`: a tier bullet attached to the most recent power-roll
+heading regardless of what intervened. Hardened rule (one home,
+`groupPowerRollClusters`): whitespace passes through; an ability header, an
+Effect line, flavor, or residue prose closes the open cluster.
+
+Re-certified baseline: **617 clusters / 521 artifacts / 1,851 clean runs**
+(was 606 / 514 / 1,818). The delta decomposes as:
+
+- **+16 clusters un-suppressed.** Their own three bullets were clean, but
+  bullets leaking in from a following ability (usually a test Effect's tier
+  bullets) registered as duplicates and suppressed the whole ability — e.g.
+  devil-adjudicator's Infernal Injunction signature ability.
+- **−5 clusters correctly rejected**, all previously certified in error:
+  four **counterfeit assemblies** whose own bullets fail the tier grammar
+  ("blood soaked", dual damage parts, "vertical push", compound condition
+  clauses) and whose missing tiers were silently backfilled from a later
+  ability's parsed bullets — count-rhodar-von-glauer (Sanguine Mist's test
+  outcomes certified as another ability's tiers, damage order inverted),
+  vampire-lord, servok-miner, fire-giant-chief; and one **silent
+  precondition loss** — the-nameless compiled without its verbatim
+  "**Special:** The Nameless must be winded to use this ability." gate.
+
+The independent audit walk in `power-roll-exhaustive-audit.test.ts` was
+updated to an independent implementation of the same ownership rule (two
+readers preserved). Both channels now agree at 617.

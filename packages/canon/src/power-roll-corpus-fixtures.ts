@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { AbilityEffectData } from '@engarde/engine';
-import { compileAbilities } from './effect-conformance.js';
+import {
+  type PowerRollClusterGroup,
+  compileAbilities,
+  groupPowerRollClusters,
+} from './effect-conformance.js';
 import { type EffectClause, type GrammarParse, parseEffectText } from './effect-grammar.js';
 import {
   type ArtifactRecord,
@@ -48,56 +52,13 @@ export interface CorePowerRollFixtureOptions {
   bundlePath?: (entry: ManifestBundle) => string;
 }
 
-interface PowerRollCluster {
-  header: Extract<EffectClause, { kind: 'ability-header' }> | null;
-  powerRoll: Extract<EffectClause, { kind: 'power-roll' }>;
-  tiers: Partial<
-    Record<'tier1' | 'tier2' | 'tier3', Extract<EffectClause, { kind: 'tier-outcome' }>>
-  >;
-  duplicateTiers: Set<'tier1' | 'tier2' | 'tier3'>;
-}
-
-const BAND_TO_TIER = { '≤11': 'tier1', '12-16': 'tier2', '17+': 'tier3' } as const;
-
 function isCoreSource(sourcePath: string): sourcePath is `en/books/${CorePowerRollBook}/${string}` {
   return CORE_POWER_ROLL_BOOKS.some((book) => sourcePath.startsWith(`en/books/${book}/`));
 }
 
-/** Reproduce compileAbilities' deterministic cluster ownership, retaining the
- * cluster boundary so duplicate abilities in one artifact can be addressed. */
-function powerRollClusters(parse: GrammarParse): PowerRollCluster[] {
-  const clusters: PowerRollCluster[] = [];
-  let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
-
-  for (const clause of parse.clauses) {
-    if (clause.kind === 'ability-header') {
-      lastHeader = clause;
-      continue;
-    }
-    if (clause.kind === 'power-roll') {
-      clusters.push({
-        header: lastHeader,
-        powerRoll: clause,
-        tiers: {},
-        duplicateTiers: new Set(),
-      });
-      continue;
-    }
-    if (clause.kind === 'tier-outcome') {
-      const cluster = clusters.at(-1);
-      if (!cluster) continue;
-      const slot = BAND_TO_TIER[clause.data.band];
-      if (slot in cluster.tiers) cluster.duplicateTiers.add(slot);
-      else cluster.tiers[slot] = clause;
-    }
-  }
-
-  return clusters;
-}
-
 function compileCluster(
   parse: GrammarParse,
-  cluster: PowerRollCluster,
+  cluster: PowerRollClusterGroup,
   artifactId: string,
 ): AbilityEffectData | undefined {
   const tier1 = cluster.tiers.tier1;
@@ -183,7 +144,7 @@ export async function loadCorePowerRollFixtures(
 
     for (const artifact of artifacts) {
       const parse = parseEffectText(artifact.text);
-      const clusters = powerRollClusters(parse);
+      const clusters = groupPowerRollClusters(parse);
       clusters.forEach((cluster, clusterIndex) => {
         const ability = compileCluster(parse, cluster, artifact.id);
         if (!ability) return;
