@@ -1,6 +1,7 @@
 import {
   type Intent,
   type LogEntry,
+  type ParticipantStats,
   type Transcript,
   createDriver,
   createSeededRandomSource,
@@ -23,6 +24,9 @@ import { type GrammarParse, auditGrammarConservation, parseEffectText } from './
 export interface PlayActor {
   id: string;
   recordId: string;
+  /** Stat-block-sourced or Director-asserted stats (driver semantics);
+   * omitted = table-mode actor — receipts only, no vitals tracked. */
+  stats?: ParticipantStats;
 }
 
 export interface PlayStepResult {
@@ -55,8 +59,10 @@ const HELP = `commands:
   use <query> <tier> <actor> <target>     use an ability at a tier outcome
                                           (tier: t1|t2|t3 for ≤11|12-16|17+)
   effect <query> <actor> <targets|none> [n] resolve Effect n (targets: a,b,obj:door)
+                                          (a Recovery offer: bare id accepts, decline:<id> declines)
   endturn <actor> [<condition>=<roll>..]  end of turn; roll omitted = auto-roll
   remove <target> <condition> [as <actor>] [because <reason..>]
+  clearterrain <factId> [because <reason..>] clear a recorded terrain fact (director)
   end [keep <condition>..]                end the encounter (keeps are opt-in)
   log [n]                                 last n log entries (default 10)
   quit`;
@@ -91,6 +97,7 @@ export function createPlaySession(options: {
       id: actor.id,
       sourceRecordId: actor.recordId,
       kind: 'director-creature' as const,
+      ...(actor.stats ? { stats: actor.stats } : {}),
     })),
     { random: createSeededRandomSource(options.seed ?? 1) },
   );
@@ -188,6 +195,20 @@ export function createPlaySession(options: {
     const lines: string[] = [];
     for (const participant of Object.values(state.participants)) {
       lines.push(`${participant.id}  (${participant.sourceRecordId ?? 'no source record'})`);
+      // Vitals render only for stat-tracked participants (table-mode actors
+      // carry no stamina); Recoveries render only when recoveriesMax is
+      // tracked [R-0018/R-0019] — null is omitted, never shown as zero.
+      if (participant.stamina !== null && participant.stats !== null) {
+        const temporary =
+          participant.stamina.temporary > 0 ? ` (+${participant.stamina.temporary} temp)` : '';
+        const recoveries =
+          participant.stamina.recoveries !== null && participant.stats.recoveriesMax !== null
+            ? `  recoveries ${participant.stamina.recoveries}/${participant.stats.recoveriesMax}`
+            : '';
+        lines.push(
+          `  stamina ${participant.stamina.current}/${participant.stats.staminaMax}${temporary}${recoveries}`,
+        );
+      }
       if (participant.conditions.length === 0 && participant.grants.length === 0) {
         lines.push('  no conditions');
         continue;
@@ -215,6 +236,18 @@ export function createPlaySession(options: {
           ? ` via ${shortName(grant.source.effectArtifactId)}`
           : '';
         lines.push(`  pending: ${shape}${until}${via}  [${grant.grantId}]`);
+      }
+    }
+    // Recorded terrain facts [R-0022]: shown so the Director can reference a
+    // factId via `clearterrain`; movement math stays table-adjudicated.
+    if (state.terrainFacts.length > 0) {
+      lines.push('terrain facts:');
+      for (const fact of state.terrainFacts) {
+        const area = fact.areaText ? ` (${fact.areaText})` : '';
+        const by = fact.createdBy ? ` by ${fact.createdBy}` : '';
+        lines.push(
+          `  difficult terrain${area} via ${shortName(fact.effectArtifactId)}${by}  [${fact.factId}]`,
+        );
       }
     }
     return lines.join('\n');
@@ -321,9 +354,12 @@ export function createPlaySession(options: {
     if ('error' in actor) return actor.error;
     // Comma-separated targets ("hero-1,hero-2"); `obj:<label>` tokens are
     // object targets of a test — they never roll and auto-obtain tier 1
-    // [R-0007]; `none` = targetless manual instruction.
+    // [R-0007]; `decline:<id>` binds a participant who declines a Recovery
+    // offer (bare id = accepts) [R-0018]; `none` = targetless manual
+    // instruction.
     const targetIds: string[] = [];
     const objectTargets: string[] = [];
+    const declines = new Set<string>();
     if (targetQuery !== 'none') {
       for (const token of targetQuery.split(',')) {
         if (token.startsWith('obj:')) {
@@ -332,9 +368,13 @@ export function createPlaySession(options: {
           objectTargets.push(label);
           continue;
         }
-        const resolved = resolveParticipant(token);
+        const declined = token.startsWith('decline:');
+        const query = declined ? token.slice('decline:'.length) : token;
+        if (query.length === 0) return `empty participant in "${token}"`;
+        const resolved = resolveParticipant(query);
         if ('error' in resolved) return resolved.error;
         targetIds.push(resolved.id);
+        if (declined) declines.add(resolved.id);
       }
     }
     const programs = compileEffectPrograms(parsedRecord(record.id), record.id);
@@ -359,7 +399,19 @@ export function createPlaySession(options: {
     }
     const effect = programs[ordinal - 1];
     if (!effect) return `Effect index must be 1–${programs.length}`;
-    const targetLabel = [...targetIds, ...objectTargets.map((label) => `obj:${label}`)].join(', ');
+    // A Recovery offer needs every bound participant's answer [R-0018]: bare
+    // ids accept by default; `decline:<id>` records the decline.
+    if (effect.resolution.kind !== 'spend-recovery' && declines.size > 0) {
+      return `decline: applies only to a Recovery-offer Effect (this Effect resolves as ${effect.resolution.kind})`;
+    }
+    const recoverySpends =
+      effect.resolution.kind === 'spend-recovery'
+        ? Object.fromEntries(targetIds.map((id) => [id, !declines.has(id)]))
+        : undefined;
+    const targetLabel = [
+      ...targetIds.map((id) => (declines.has(id) ? `decline:${id}` : id)),
+      ...objectTargets.map((label) => `obj:${label}`),
+    ].join(', ');
     const lines = [
       `${actor.id} resolves ${record.id} Effect ${ordinal}/${programs.length}${targetLabel ? ` on ${targetLabel}` : ''}`,
       ...dispatchAll([
@@ -372,6 +424,7 @@ export function createPlaySession(options: {
             effect,
             targets: targetIds,
             objectTargets,
+            ...(recoverySpends ? { recoverySpends } : {}),
           },
         },
       ]),
@@ -449,6 +502,40 @@ export function createPlaySession(options: {
     return lines.join('\n');
   }
 
+  function commandClearTerrain(args: string[]): string {
+    const becauseAt = args.indexOf('because');
+    const positional = args.slice(0, becauseAt === -1 ? args.length : becauseAt);
+    const [factQuery] = positional;
+    if (!factQuery || positional.length > 1) {
+      return 'usage: clearterrain <factId> [because <reason ...>]';
+    }
+    const facts = driver.state().terrainFacts;
+    const lower = factQuery.toLowerCase();
+    const matches = facts.filter((fact) => fact.factId.toLowerCase().includes(lower));
+    if (matches.length === 0 || matches[0] === undefined) {
+      return facts.length === 0
+        ? `no terrain fact matches "${factQuery}" (none recorded)`
+        : `no terrain fact matches "${factQuery}" (have: ${facts.map((fact) => fact.factId).join(', ')})`;
+    }
+    if (matches.length > 1) {
+      return `"${factQuery}" is ambiguous: ${matches.map((fact) => fact.factId).join(', ')}`;
+    }
+    const reason =
+      becauseAt !== -1 && args.length > becauseAt + 1
+        ? args.slice(becauseAt + 1).join(' ')
+        : undefined;
+    // Director adjudication [R-0022]: the fact persists until cleared.
+    const lines = dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'clear-terrain-fact',
+        actor: { kind: 'director' },
+        payload: { factId: matches[0].factId, reason },
+      },
+    ]);
+    return lines.join('\n');
+  }
+
   function commandEnd(args: string[]): string {
     const keeps: string[] = [];
     if (args[0] === 'keep') {
@@ -520,6 +607,8 @@ export function createPlaySession(options: {
             return { output: commandEndTurn(args), quit: false };
           case 'remove':
             return { output: commandRemove(args), quit: false };
+          case 'clearterrain':
+            return { output: commandClearTerrain(args), quit: false };
           case 'end':
             return { output: commandEnd(args), quit: false };
           case 'log':

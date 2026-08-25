@@ -77,6 +77,10 @@ const encounterView = v.union(
             dying: v.boolean(),
             dead: v.boolean(),
             organization: v.union(v.string(), v.null()),
+            /** Remaining/maximum Recoveries [R-0018, R-0019]. null = untracked
+             * (Director creatures have none; heroes without character data). */
+            recoveriesCurrent: v.union(v.number(), v.null()),
+            recoveriesMax: v.union(v.number(), v.null()),
           }),
         ),
         conditions: v.array(
@@ -106,6 +110,17 @@ const encounterView = v.union(
             sourceRecordSlug: v.union(v.string(), v.null()),
           }),
         ),
+      }),
+    ),
+    /** Recorded terrain alterations [R-0022]: attributed facts, displayed at
+     * the table; the +1-square entry cost stays table-adjudicated. */
+    terrainFacts: v.array(
+      v.object({
+        factId: v.string(),
+        terrain: v.literal('difficult'),
+        areaText: v.union(v.string(), v.null()),
+        sourceRecordSlug: v.union(v.string(), v.null()),
+        createdBy: v.union(v.string(), v.null()),
       }),
     ),
   }),
@@ -290,6 +305,8 @@ export const getActive = query({
                 dying: isDying(participant.stamina.current),
                 dead: isDead(participant),
                 organization: participant.stats.organization,
+                recoveriesCurrent: participant.stamina.recoveries,
+                recoveriesMax: participant.stats.recoveriesMax,
               }
             : null,
         conditions: participant.conditions.map((instance) => ({
@@ -313,6 +330,13 @@ export const getActive = query({
             ? slugOf(grant.source.effectArtifactId)
             : null,
         })),
+      })),
+      terrainFacts: state.terrainFacts.map((fact) => ({
+        factId: fact.factId,
+        terrain: fact.terrain,
+        areaText: fact.areaText,
+        sourceRecordSlug: slugOf(fact.effectArtifactId),
+        createdBy: fact.createdBy,
       })),
     };
   },
@@ -377,6 +401,10 @@ export const searchRecords = query({
             v.literal('condition'),
             v.literal('test'),
             v.literal('next-roll-grant'),
+            v.literal('spend-recovery'),
+            v.literal('regain-stamina'),
+            v.literal('temporary-stamina'),
+            v.literal('terrain-fact'),
             v.literal('table'),
           ),
         }),
@@ -669,6 +697,10 @@ export const useEffect = mutation({
      * roll and automatically obtain a tier 1 result [R-0007]. */
     objectTargetLabels: v.optional(v.array(v.string())),
     knockOut: v.optional(v.boolean()),
+    /** Per-offered-participant accept/decline for a spend-recovery
+     * resolution [R-0018]: true = spends, false = declines. The engine
+     * requires an answer for every bound target. */
+    recoverySpends: v.optional(v.record(v.string(), v.boolean())),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -702,6 +734,7 @@ export const useEffect = mutation({
         targets: args.targetParticipantIds,
         objectTargets: args.objectTargetLabels ?? [],
         knockOut: args.knockOut ?? false,
+        recoverySpends: args.recoverySpends,
       },
     };
     try {
@@ -766,6 +799,34 @@ export const removeCondition = mutation({
           instanceId: args.instanceId,
           reason: args.reason,
         },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Remove one recorded terrain fact [R-0022]. Terrain clearing is Director
+ * adjudication (rubble cleared, paste scraped away) — unlike condition
+ * removal there is no acting-participant path, so the director game role is
+ * always required. */
+export const clearTerrainFact = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    factId: v.string(),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Clearing terrain is the Director’s adjudication');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-clear-terrain`,
+        kind: 'clear-terrain-fact',
+        actor: { kind: 'director' },
+        payload: { factId: args.factId, reason: args.reason },
       },
     ]);
     return null;

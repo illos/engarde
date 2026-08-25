@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-import { createHash } from 'node:crypto';
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
 import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
@@ -10,6 +9,7 @@ import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
+import { HEALING_GRACE, KOBOLD_SIGNIFER, WAR_DOG_AEROCITE } from './verbatimFixtures';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -29,15 +29,17 @@ const WODE_SENTRY = 'mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-sentry
 const WODE_EFFECT_TEXT =
   '> **Effect:** Allies gain an edge on abilities against a target marked by any wode elf.\n> **Effect:** Each target takes 3 damage.\n';
 
-function sha256(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex');
+/** Web Crypto (the edge-runtime test environment has no Node builtins). */
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function seedRecords(t: Harness) {
   await t.run(async (ctx) => {
     for (const record of [
-      { artifactId: FURY, slug: 'fury', text: 'x\n', textSha256: sha256('x\n') },
-      { artifactId: CENSOR, slug: 'censor', text: 'x\n', textSha256: sha256('x\n') },
+      { artifactId: FURY, slug: 'fury', text: 'x\n', textSha256: await sha256('x\n') },
+      { artifactId: CENSOR, slug: 'censor', text: 'x\n', textSha256: await sha256('x\n') },
       {
         artifactId: BLOOD_FOR_BLOOD.artifactId,
         slug: BLOOD_FOR_BLOOD.slug,
@@ -66,12 +68,32 @@ async function seedRecords(t: Harness) {
         statsJson: SKITTERLING.statsJson,
       },
       {
+        artifactId: KOBOLD_SIGNIFER.artifactId,
+        slug: KOBOLD_SIGNIFER.slug,
+        text: KOBOLD_SIGNIFER.text,
+        textSha256: KOBOLD_SIGNIFER.textSha256,
+        statsJson: KOBOLD_SIGNIFER.statsJson,
+      },
+      {
+        artifactId: HEALING_GRACE.artifactId,
+        slug: HEALING_GRACE.slug,
+        text: HEALING_GRACE.text,
+        textSha256: HEALING_GRACE.textSha256,
+      },
+      {
+        artifactId: WAR_DOG_AEROCITE.artifactId,
+        slug: WAR_DOG_AEROCITE.slug,
+        text: WAR_DOG_AEROCITE.text,
+        textSha256: WAR_DOG_AEROCITE.textSha256,
+        statsJson: WAR_DOG_AEROCITE.statsJson,
+      },
+      {
         artifactId: WODE_SENTRY,
         slug: 'wode-elf-sentry',
         // Exact accepted-corpus Effect lines in occurrence order; the host
         // test needs only these cuts, while exhaustive canon owns the record.
         text: WODE_EFFECT_TEXT,
-        textSha256: sha256(WODE_EFFECT_TEXT),
+        textSha256: await sha256(WODE_EFFECT_TEXT),
       },
     ]) {
       await ctx.db.insert('canonRecords', record);
@@ -644,5 +666,206 @@ test('next-roll grants store on the target, surface in the view, and are consume
     log.some((entry) =>
       Array.isArray((entry.data as { removedGrantIds?: string[] } | null)?.removedGrantIds),
     ),
+  ).toBe(true);
+});
+
+test('flat regain: Glory to the Legion regains exactly 5 Stamina per bound target', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [
+      { id: 'signifer', recordId: KOBOLD_SIGNIFER.artifactId },
+      { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+      { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+    ],
+  });
+  // Damage both targets first through the existing automatic-damage path
+  // (wode sentry Effect #2, 3 damage each), twice: 15 → 9. 9 + 5 = 14 stays
+  // under the maximum, so the regain is unclamped and exact [R-0017].
+  for (let repeat = 0; repeat < 2; repeat += 1) {
+    await table.owner.client.mutation(api.encounters.useEffect, {
+      campaignId: table.campaignId,
+      artifactId: WODE_SENTRY,
+      effectOrdinal: 2,
+      actorParticipantId: 'signifer',
+      targetParticipantIds: ['warrior-a', 'warrior-b'],
+    });
+  }
+  // Signifer's Glory to the Legion, Effect #2: "Each target regains 5
+  // Stamina." — automatic, binding-targeted [R-0020].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: KOBOLD_SIGNIFER.artifactId,
+    effectOrdinal: 2,
+    actorParticipantId: 'signifer',
+    targetParticipantIds: ['warrior-a', 'warrior-b'],
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!view) throw new Error('no active encounter');
+  for (const id of ['warrior-a', 'warrior-b']) {
+    expect(view.participants.find((participant) => participant.id === id)?.vitals).toMatchObject({
+      staminaCurrent: 14,
+      staminaMax: 15,
+      // Director creatures have no Recoveries [R-0019b] — untracked in view.
+      recoveriesCurrent: null,
+      recoveriesMax: null,
+    });
+  }
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  const regains = log
+    .map((entry) => (entry.data as { regained?: number } | null)?.regained)
+    .filter((regained) => regained !== undefined);
+  expect(regains).toEqual([5, 5]);
+});
+
+test('spend-recovery: recoverySpends passes through — every bound target must answer, accepting regains', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [
+      { id: 'conduit', recordId: FURY },
+      { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId },
+    ],
+  });
+  // Damage the recipient so the regain is visible: 15 → 9 (two wode Effect
+  // #2 dispatches); 9 + 5 = 14 stays under the maximum (unclamped).
+  for (let repeat = 0; repeat < 2; repeat += 1) {
+    await table.owner.client.mutation(api.encounters.useEffect, {
+      campaignId: table.campaignId,
+      artifactId: WODE_SENTRY,
+      effectOrdinal: 2,
+      actorParticipantId: 'conduit',
+      targetParticipantIds: ['warrior'],
+    });
+  }
+  // Healing Grace Effect #1: "The target can spend a Recovery." A dispatch
+  // with no accept/decline answer is refused by the engine (a log row,
+  // state untouched) [R-0018].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: HEALING_GRACE.artifactId,
+    effectOrdinal: 1,
+    actorParticipantId: 'conduit',
+    targetParticipantIds: ['warrior'],
+  });
+  const unanswered = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    unanswered?.participants.find((participant) => participant.id === 'warrior')?.vitals
+      ?.staminaCurrent,
+  ).toBe(9);
+  // Accepting spends. NOTE: hero recoveriesMax is not seedable through the
+  // existing start path (participants seed as director-creatures from
+  // statblock statsJson, which carries no Recoveries), so this asserts the
+  // Director-creature conversion instead: the offered spend converts to a
+  // regain of one-third Stamina maximum, floor(15 / 3) = 5, and nothing
+  // decrements [R-0019b].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: HEALING_GRACE.artifactId,
+    effectOrdinal: 1,
+    actorParticipantId: 'conduit',
+    targetParticipantIds: ['warrior'],
+    recoverySpends: { warrior: true },
+  });
+  const accepted = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    accepted?.participants.find((participant) => participant.id === 'warrior')?.vitals,
+  ).toMatchObject({ staminaCurrent: 14, recoveriesCurrent: null, recoveriesMax: null });
+  // Declining is legal and receipted — no state change [R-0018].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: HEALING_GRACE.artifactId,
+    effectOrdinal: 1,
+    actorParticipantId: 'conduit',
+    targetParticipantIds: ['warrior'],
+    recoverySpends: { warrior: false },
+  });
+  const declined = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    declined?.participants.find((participant) => participant.id === 'warrior')?.vitals
+      ?.staminaCurrent,
+  ).toBe(14);
+  if (!declined) throw new Error('no active encounter');
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: declined.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  expect(
+    log.some((entry) =>
+      entry.message.includes("a Recovery offer needs every bound participant's answer"),
+    ),
+  ).toBe(true);
+  expect(log.some((entry) => entry.message.includes('declines the offered Recovery'))).toBe(true);
+});
+
+test('terrain facts surface in the view; clearing is Director adjudication', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [{ id: 'aerocite', recordId: WAR_DOG_AEROCITE.artifactId }],
+  });
+  // Caustic Paste Bomb Effect #1: "The area is difficult terrain." — a
+  // typed, attributed fact; no targets bind [R-0022].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: WAR_DOG_AEROCITE.artifactId,
+    effectOrdinal: 1,
+    actorParticipantId: 'aerocite',
+    targetParticipantIds: [],
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!view) throw new Error('no active encounter');
+  expect(view.terrainFacts).toEqual([
+    {
+      factId: expect.stringContaining(WAR_DOG_AEROCITE.artifactId),
+      terrain: 'difficult',
+      areaText: '3 cube within 5',
+      sourceRecordSlug: 'war-dog-aerocite',
+      createdBy: 'aerocite',
+    },
+  ]);
+  const factId = view.terrainFacts[0]?.factId;
+  if (!factId) throw new Error('no terrain fact recorded');
+  // A non-director member cannot clear terrain — Director adjudication only.
+  await expect(
+    table.member.client.mutation(api.encounters.clearTerrainFact, {
+      campaignId: table.campaignId,
+      factId,
+    }),
+  ).rejects.toThrow('Director');
+  await table.owner.client.mutation(api.encounters.clearTerrainFact, {
+    campaignId: table.campaignId,
+    factId,
+    reason: 'the paste is scraped away',
+  });
+  const cleared = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(cleared?.terrainFacts).toEqual([]);
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  expect(
+    log.some((entry) => entry.message.includes('terrain fact cleared: the paste is scraped away')),
   ).toBe(true);
 });
