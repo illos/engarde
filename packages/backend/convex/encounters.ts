@@ -636,6 +636,9 @@ export const useEffect = mutation({
     effectOrdinal: v.number(),
     actorParticipantId: v.string(),
     targetParticipantIds: v.array(v.string()),
+    /** Non-participant object targets of a characteristic test — they never
+     * roll and automatically obtain a tier 1 result [R-0007]. */
+    objectTargetLabels: v.optional(v.array(v.string())),
     knockOut: v.optional(v.boolean()),
   },
   returns: v.null(),
@@ -668,6 +671,7 @@ export const useEffect = mutation({
         actorParticipantId: args.actorParticipantId,
         effect,
         targets: args.targetParticipantIds,
+        objectTargets: args.objectTargetLabels ?? [],
         knockOut: args.knockOut ?? false,
       },
     };

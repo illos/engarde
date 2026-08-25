@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ingestStructuredRecord } from '../extract.js';
 import { statblockStats } from '../statblock-stats.js';
 import { BLOOD_FOR_BLOOD } from './blood-for-blood.verbatim.js';
+import { DEVIL_ADJUDICATOR } from './devil-adjudicator.verbatim.js';
 import { GOBLIN_WARRIOR } from './goblin-warrior.verbatim.js';
 
 /**
@@ -54,5 +55,26 @@ describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpu
       GOBLIN_WARRIOR.textSha256,
     );
     expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(GOBLIN_WARRIOR.statsJson);
+  });
+
+  it('devil-adjudicator is byte-identical to the corpus cut', async () => {
+    const markdownPath = 'en/books/monsters/md/monster/devil/statblock/devil-adjudicator.md';
+    const jsonPath = markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+    const bundle = ingestStructuredRecord({
+      markdownPath,
+      markdown: await readFile(resolve(sourceRoot ?? '', markdownPath)),
+      jsonPath,
+      json: await readFile(resolve(sourceRoot ?? '', jsonPath)),
+    });
+    const artifact = bundle.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact');
+    expect(artifact.id).toBe(DEVIL_ADJUDICATOR.artifactId);
+    expect(artifact.text).toBe(DEVIL_ADJUDICATOR.text);
+    expect(createHash('sha256').update(DEVIL_ADJUDICATOR.text, 'utf8').digest('hex')).toBe(
+      DEVIL_ADJUDICATOR.textSha256,
+    );
+    expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(
+      DEVIL_ADJUDICATOR.statsJson,
+    );
   });
 });

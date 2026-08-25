@@ -247,6 +247,9 @@ function ActiveEncounter({
   const [targetId, setTargetId] = useState(second);
   const [effectTargetIds, setEffectTargetIds] = useState<string[]>(second ? [second] : []);
   const [effectKnockOut, setEffectKnockOut] = useState(false);
+  // Comma-separated object labels for a characteristic test: objects never
+  // roll and automatically obtain a tier 1 result [R-0007].
+  const [effectObjectLabels, setEffectObjectLabels] = useState('');
   const selectedEffect = pickedEffect?.effects.find(
     (effect) => effect.effectOrdinal === effectOrdinal,
   );
@@ -598,6 +601,7 @@ function ActiveEncounter({
               setEffectTargetless(false);
               setEffectTargetIds(targetId ? [targetId] : []);
               setEffectKnockOut(false);
+              setEffectObjectLabels('');
             }}
           />
         </div>
@@ -614,6 +618,7 @@ function ActiveEncounter({
                     setEffectOrdinal(Number(event.target.value));
                     setEffectTargetless(false);
                     setEffectKnockOut(false);
+                    setEffectObjectLabels('');
                   }}
                 >
                   {pickedEffect.effects.map((effect) => (
@@ -674,7 +679,21 @@ function ActiveEncounter({
                   no participant target
                 </label>
               ) : null}
-              {selectedEffect.resolutionKind === 'damage' ? (
+              {selectedEffect.resolutionKind === 'test' ? (
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  objects
+                  <input
+                    type="text"
+                    aria-label="Test object targets"
+                    placeholder="door, statue"
+                    className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                    value={effectObjectLabels}
+                    onChange={(event) => setEffectObjectLabels(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              {selectedEffect.resolutionKind === 'damage' ||
+              selectedEffect.resolutionKind === 'test' ? (
                 <label className="flex items-center gap-1 text-xs text-text-mute">
                   <input
                     type="checkbox"
@@ -688,21 +707,38 @@ function ActiveEncounter({
               <Button
                 variant="primary"
                 size="sm"
-                disabled={busy || (!effectTargetless && effectTargetIds.length === 0)}
-                onClick={() =>
-                  run(() =>
+                disabled={
+                  busy ||
+                  (!effectTargetless &&
+                    effectTargetIds.length === 0 &&
+                    !(
+                      selectedEffect.resolutionKind === 'test' &&
+                      effectObjectLabels.trim().length > 0
+                    ))
+                }
+                onClick={() => {
+                  const objectLabels = effectObjectLabels
+                    .split(',')
+                    .map((label) => label.trim())
+                    .filter((label) => label.length > 0);
+                  return run(() =>
                     useEffectInstruction({
                       campaignId,
                       artifactId: pickedEffect.artifactId,
                       effectOrdinal: selectedEffect.effectOrdinal,
                       actorParticipantId: actorId,
                       targetParticipantIds: effectTargetless ? [] : effectTargetIds,
-                      ...(selectedEffect.resolutionKind === 'damage' && effectKnockOut
+                      ...(selectedEffect.resolutionKind === 'test' && objectLabels.length > 0
+                        ? { objectTargetLabels: objectLabels }
+                        : {}),
+                      ...((selectedEffect.resolutionKind === 'damage' ||
+                        selectedEffect.resolutionKind === 'test') &&
+                      effectKnockOut
                         ? { knockOut: true }
                         : {}),
                     }),
-                  )
-                }
+                  );
+                }}
               >
                 Resolve Effect
               </Button>

@@ -9,7 +9,8 @@
     "./effect-conformance": "./src/effect-conformance.ts",
     "./fixtures/blood-for-blood": "./src/fixtures/blood-for-blood.verbatim.ts",
     "./statblock-stats": "./src/statblock-stats.ts",
-    "./fixtures/goblin-warrior": "./src/fixtures/goblin-warrior.verbatim.ts"
+    "./fixtures/goblin-warrior": "./src/fixtures/goblin-warrior.verbatim.ts",
+    "./fixtures/devil-adjudicator": "./src/fixtures/devil-adjudicator.verbatim.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

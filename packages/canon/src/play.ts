@@ -54,7 +54,7 @@ const HELP = `commands:
   show <query>                            verbatim record text + what parses
   use <query> <tier> <actor> <target>     use an ability at a tier outcome
                                           (tier: t1|t2|t3 for ≤11|12-16|17+)
-  effect <query> <actor> <target|none> [n] resolve Effect instruction n
+  effect <query> <actor> <targets|none> [n] resolve Effect n (targets: a,b,obj:door)
   endturn <actor> [<condition>=<roll>..]  end of turn; roll omitted = auto-roll
   remove <target> <condition> [as <actor>] [because <reason..>]
   end [keep <condition>..]                end the encounter (keeps are opt-in)
@@ -298,21 +298,43 @@ export function createPlaySession(options: {
   function commandEffect(args: string[]): string {
     const [recordQuery, actorQuery, targetQuery, ordinalText] = args;
     if (!recordQuery || !actorQuery || !targetQuery) {
-      return 'usage: effect <query> <actor> <target|none> [n]';
+      return 'usage: effect <query> <actor> <targets|none> [n]';
     }
     const record = resolveRecord(recordQuery);
     if ('error' in record) return record.error;
     const actor = resolveParticipant(actorQuery);
     if ('error' in actor) return actor.error;
-    const target = targetQuery === 'none' ? null : resolveParticipant(targetQuery);
-    if (target && 'error' in target) return target.error;
+    // Comma-separated targets ("hero-1,hero-2"); `obj:<label>` tokens are
+    // object targets of a test — they never roll and auto-obtain tier 1
+    // [R-0007]; `none` = targetless manual instruction.
+    const targetIds: string[] = [];
+    const objectTargets: string[] = [];
+    if (targetQuery !== 'none') {
+      for (const token of targetQuery.split(',')) {
+        if (token.startsWith('obj:')) {
+          const label = token.slice('obj:'.length);
+          if (label.length === 0) return `empty object label in "${token}"`;
+          objectTargets.push(label);
+          continue;
+        }
+        const resolved = resolveParticipant(token);
+        if ('error' in resolved) return resolved.error;
+        targetIds.push(resolved.id);
+      }
+    }
     const programs = compileEffectPrograms(parsedRecord(record.id), record.id);
     if (programs.length === 0) return `${record.id} has no parsed Effect instructions`;
     if (programs.length > 1 && ordinalText === undefined) {
       return `${record.id} has ${programs.length} Effect instructions; choose [n]:\n${programs
         .map(
           (program, index) =>
-            `  ${index + 1}. ${program.resolution.kind === 'table' ? 'TABLE' : 'AUTO'}: ${program.sourceText}`,
+            `  ${index + 1}. ${
+              program.resolution.kind === 'table'
+                ? 'TABLE'
+                : program.resolution.kind === 'test'
+                  ? 'TEST'
+                  : 'AUTO'
+            }: ${program.sourceText}`,
         )
         .join('\n')}`;
     }
@@ -322,8 +344,9 @@ export function createPlaySession(options: {
     }
     const effect = programs[ordinal - 1];
     if (!effect) return `Effect index must be 1–${programs.length}`;
+    const targetLabel = [...targetIds, ...objectTargets.map((label) => `obj:${label}`)].join(', ');
     const lines = [
-      `${actor.id} resolves ${record.id} Effect ${ordinal}/${programs.length}${target ? ` on ${target.id}` : ''}`,
+      `${actor.id} resolves ${record.id} Effect ${ordinal}/${programs.length}${targetLabel ? ` on ${targetLabel}` : ''}`,
       ...dispatchAll([
         {
           intentId: nextIntentId(),
@@ -332,7 +355,8 @@ export function createPlaySession(options: {
           payload: {
             actorParticipantId: actor.id,
             effect,
-            targets: target ? [target.id] : [],
+            targets: targetIds,
+            objectTargets,
           },
         },
       ]),

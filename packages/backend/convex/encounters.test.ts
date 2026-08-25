@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
+import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
@@ -48,6 +49,13 @@ async function seedRecords(t: Harness) {
         text: GOBLIN_WARRIOR.text,
         textSha256: GOBLIN_WARRIOR.textSha256,
         statsJson: GOBLIN_WARRIOR.statsJson,
+      },
+      {
+        artifactId: DEVIL_ADJUDICATOR.artifactId,
+        slug: DEVIL_ADJUDICATOR.slug,
+        text: DEVIL_ADJUDICATOR.text,
+        textSha256: DEVIL_ADJUDICATOR.textSha256,
+        statsJson: DEVIL_ADJUDICATOR.statsJson,
       },
       {
         artifactId: WODE_SENTRY,
@@ -503,4 +511,60 @@ describe('encounter host', () => {
       },
     ]);
   });
+});
+
+test('characteristic tests roll each target server-side; objects auto-obtain tier 1', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [
+      { id: 'adjudicator', recordId: DEVIL_ADJUDICATOR.artifactId },
+      { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+      { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+    ],
+  });
+  // Effect #2 is Adjudicator's Interdiction: "The target makes a Presence
+  // test." — each creature target rolls server-side (seeded, replayable);
+  // the object target never rolls and gets a tier 1 result [R-0007].
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: DEVIL_ADJUDICATOR.artifactId,
+    effectOrdinal: 2,
+    actorParticipantId: 'adjudicator',
+    targetParticipantIds: ['warrior-a', 'warrior-b'],
+    objectTargetLabels: ['iron door'],
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!view) throw new Error('no active encounter');
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  const rolls = log
+    .map((entry) => (entry.data as { testRoll?: { targetId: string } } | null)?.testRoll)
+    .filter((roll) => roll !== undefined);
+  expect(rolls.map((roll) => roll?.targetId)).toEqual(['warrior-a', 'warrior-b']);
+  expect(
+    log.some(
+      (entry) =>
+        (entry.data as { objectTestTier1?: { objectLabel: string } } | null)?.objectTestTier1
+          ?.objectLabel === 'iron door',
+    ),
+  ).toBe(true);
+  // The object's directive carries the EXACT tier-1 bullet line from the
+  // verbatim record — never a paraphrase.
+  const tier1Line = DEVIL_ADJUDICATOR.text
+    .split('\n')
+    .find((line) => line.includes('**≤11:** The target is [slowed]'));
+  if (!tier1Line) throw new Error('fixture missing the Interdiction tier-1 bullet');
+  const objectDirective = log.find(
+    (entry) =>
+      (entry.data as { testTierDirective?: { objectLabel?: string } } | null)?.testTierDirective
+        ?.objectLabel === 'iron door',
+  );
+  expect(objectDirective?.message).toBe(tier1Line);
 });
