@@ -144,8 +144,10 @@ id + ordinal + payload SHA-256, test-enforced against the pin):
   Charm patience), **bespoke condition states** (swallowed), and open rule
   research (Deathcount, servitor explosion damage).
 
-Resulting corpus accounting at the pin: **12 automated · 12 ruled
-permanently-manual · 1,652 mechanism-pending table directives.** The
+Resulting corpus accounting at the pin (updated 2026-08-25 after the
+characteristic-test slice shipped — see `characteristic-test-report.md`):
+**41 automated (12 exact + 29 test) · 12 ruled permanently-manual · 1,647
+mechanism-pending table directives.** The
 `--max-signals 1` widening (335 lines) is available for a future second
 review sitting.
 
