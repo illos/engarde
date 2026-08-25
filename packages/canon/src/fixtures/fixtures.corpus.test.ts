@@ -7,6 +7,7 @@ import { statblockStats } from '../statblock-stats.js';
 import { BLOOD_FOR_BLOOD } from './blood-for-blood.verbatim.js';
 import { DEVIL_ADJUDICATOR } from './devil-adjudicator.verbatim.js';
 import { GOBLIN_WARRIOR } from './goblin-warrior.verbatim.js';
+import { SKITTERLING } from './skitterling.verbatim.js';
 
 /**
  * The drift guard for committed verbatim fixtures: re-cut each fixture's
@@ -76,5 +77,24 @@ describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpu
     expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(
       DEVIL_ADJUDICATOR.statsJson,
     );
+  });
+
+  it('skitterling is byte-identical to the corpus cut', async () => {
+    const markdownPath = 'en/books/monsters/md/monster/goblin/statblock/skitterling.md';
+    const jsonPath = markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+    const bundle = ingestStructuredRecord({
+      markdownPath,
+      markdown: await readFile(resolve(sourceRoot ?? '', markdownPath)),
+      jsonPath,
+      json: await readFile(resolve(sourceRoot ?? '', jsonPath)),
+    });
+    const artifact = bundle.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact');
+    expect(artifact.id).toBe(SKITTERLING.artifactId);
+    expect(artifact.text).toBe(SKITTERLING.text);
+    expect(createHash('sha256').update(SKITTERLING.text, 'utf8').digest('hex')).toBe(
+      SKITTERLING.textSha256,
+    );
+    expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(SKITTERLING.statsJson);
   });
 });

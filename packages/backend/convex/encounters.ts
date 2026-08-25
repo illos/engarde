@@ -89,6 +89,23 @@ const encounterView = v.union(
             sourceRecordSlug: v.union(v.string(), v.null()),
           }),
         ),
+        /** Pending next-roll edge/bane grants [R-0012..R-0016]. */
+        grants: v.array(
+          v.object({
+            grantId: v.string(),
+            polarity: v.union(
+              v.literal('edge'),
+              v.literal('double-edge'),
+              v.literal('bane'),
+              v.literal('double-bane'),
+            ),
+            scope: v.union(v.literal('strike'), v.literal('power-roll')),
+            direction: v.union(v.literal('outbound'), v.literal('inbound')),
+            window: v.union(v.literal('end-of-targets-next-turn'), v.null()),
+            sourceParticipantId: v.union(v.string(), v.null()),
+            sourceRecordSlug: v.union(v.string(), v.null()),
+          }),
+        ),
       }),
     ),
   }),
@@ -285,6 +302,17 @@ export const getActive = query({
             ? slugOf(instance.source.effectArtifactId)
             : null,
         })),
+        grants: participant.grants.map((grant) => ({
+          grantId: grant.grantId,
+          polarity: grant.polarity,
+          scope: grant.scope,
+          direction: grant.direction,
+          window: grant.window,
+          sourceParticipantId: grant.source.participantId ?? null,
+          sourceRecordSlug: grant.source.effectArtifactId
+            ? slugOf(grant.source.effectArtifactId)
+            : null,
+        })),
       })),
     };
   },
@@ -348,6 +376,7 @@ export const searchRecords = query({
             v.literal('damage'),
             v.literal('condition'),
             v.literal('test'),
+            v.literal('next-roll-grant'),
             v.literal('table'),
           ),
         }),

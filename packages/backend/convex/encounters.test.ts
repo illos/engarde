@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
 import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
+import { SKITTERLING } from '@engarde/canon/fixtures/skitterling';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
@@ -56,6 +57,13 @@ async function seedRecords(t: Harness) {
         text: DEVIL_ADJUDICATOR.text,
         textSha256: DEVIL_ADJUDICATOR.textSha256,
         statsJson: DEVIL_ADJUDICATOR.statsJson,
+      },
+      {
+        artifactId: SKITTERLING.artifactId,
+        slug: SKITTERLING.slug,
+        text: SKITTERLING.text,
+        textSha256: SKITTERLING.textSha256,
+        statsJson: SKITTERLING.statsJson,
       },
       {
         artifactId: WODE_SENTRY,
@@ -567,4 +575,76 @@ test('characteristic tests roll each target server-side; objects auto-obtain tie
         ?.objectLabel === 'iron door',
   );
   expect(objectDirective?.message).toBe(tier1Line);
+});
+
+test('next-roll grants store on the target, surface in the view, and are consumed by the next strike', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [
+      { id: 'skitterling', recordId: SKITTERLING.artifactId },
+      { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+      { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+    ],
+  });
+  // Skitterling Claws Effect #1: "The target takes a bane on their next
+  // strike." [R-0012, R-0013] — stored on the struck warrior.
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: SKITTERLING.artifactId,
+    effectOrdinal: 1,
+    actorParticipantId: 'skitterling',
+    targetParticipantIds: ['warrior-a'],
+  });
+  const marked = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  const warriorA = marked?.participants.find((participant) => participant.id === 'warrior-a');
+  expect(warriorA?.grants).toEqual([
+    expect.objectContaining({
+      polarity: 'bane',
+      scope: 'strike',
+      direction: 'outbound',
+      window: null,
+      sourceParticipantId: 'skitterling',
+      sourceRecordSlug: 'skitterling',
+    }),
+  ]);
+  // The warrior's next strike (Strike keyword) consumes the bane: asserted
+  // dice 5+4 = 9, +2 fixed, −2 bane → total 9 [R-0015].
+  await table.owner.client.mutation(api.encounters.useAbility, {
+    campaignId: table.campaignId,
+    artifactId: GOBLIN_WARRIOR.artifactId,
+    actorParticipantId: 'warrior-a',
+    targetParticipantIds: ['skitterling'],
+    dice: [5, 4],
+  });
+  const after = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    after?.participants.find((participant) => participant.id === 'warrior-a')?.grants,
+  ).toEqual([]);
+  if (!after) throw new Error('no active encounter');
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: after.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  const roll = log
+    .map(
+      (entry) =>
+        (entry.data as { powerRoll?: { banes: number; assertedBanes?: number } } | null)
+          ?.powerRoll,
+    )
+    .find((data) => data !== undefined);
+  expect(roll?.banes).toBe(1);
+  expect(roll?.assertedBanes).toBe(0);
+  expect(
+    log.some(
+      (entry) =>
+        Array.isArray((entry.data as { removedGrantIds?: string[] } | null)?.removedGrantIds),
+    ),
+  ).toBe(true);
 });
