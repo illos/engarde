@@ -40,6 +40,10 @@ export interface StatblockStats {
   weaknesses: StatblockDamageRow[];
   potencies: null;
   organization: string | null;
+  /** Stat blocks never carry Recoveries — "Director-controlled creatures
+   * don't have Recoveries or a recovery value" [rule.health/stamina
+   * §No Recoveries]; hero values arrive via character data, never here. */
+  recoveriesMax: null;
   /** Upstream rows the deterministic parser cannot read — shown at the
    * table, never silently dropped or guessed. */
   unparsedRows: string[];
@@ -89,6 +93,7 @@ export function statblockStats(structuredData: Record<string, unknown>): Statblo
     immunities: parseRows(structuredData.immunities, unparsedRows, 'immunity'),
     weaknesses: parseRows(structuredData.weaknesses, unparsedRows, 'weakness'),
     potencies: null,
+    recoveriesMax: null,
     organization:
       typeof structuredData.organization === 'string' && structuredData.organization !== ''
         ? structuredData.organization
