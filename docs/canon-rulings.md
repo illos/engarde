@@ -262,3 +262,145 @@ effect was imposed on their current turn." [rule.combat/end-of-turn].
 Carriers at this pin: Raider's Awe [feature.ability.raider/raiders-awe,
 also the raider kit record]; same template in the Displacing II/III
 enhancement (outside the current corpus family).
+
+## R-0017 — Regained Stamina adds signed and clamps at maximum; winded/dying end by definition (approved 2026-08-25)
+
+**Ruling:** "Regains X Stamina" adds X to current Stamina as a signed value
+(a dying hero at −3 regaining 5 goes to 2) and never takes current Stamina
+above Stamina maximum. Winded and dying are derived predicates: rising above
+the winded value / above 0 ends those states automatically with
+informational log entries, no action required. Leaving dying does NOT
+auto-remove the dying-mandated bleeding instance — it becomes removable
+again (R-0004's refusal gate keys on the derived dying state). Regaining
+Stamina never restores temporary Stamina. The clamp and the signed
+arithmetic are adjudications: the books state neither generally.
+
+**Evidence (verbatim):** "Some effects can also reduce your Stamina maximum,
+limiting the amount of Stamina you can regain." [Combat §Stamina, Heroes
+p.277 — clamp by implication only]. "While your Stamina is lower than 0, if
+it reaches the negative of your winded value, you die." [Combat §Dying and
+Death, p.278 — one signed number]. "Your winded value equals half your
+Stamina maximum. When your Stamina is equal to or less than your winded
+value, you are winded." [Combat §Winded, p.278]. "…you are bleeding, and
+this instance of the condition can't be negated or removed in any way until
+you are no longer dying." [Combat §Dying and Death, p.278]. "Regaining
+Stamina can't restore temporary Stamina." [Combat §Temporary Stamina,
+p.278]. Per-ability clamp precedent: Renegotiated Contract "Neither of you
+can gain more Stamina than your maximum this way." [Classes, p.214].
+
+## R-0018 — Ability-granted Recovery spends: one-third-max one home, no action cost, declinable offer, dying may accept (approved 2026-08-25)
+
+**Ruling:** Spending a Recovery decrements the hero's Recoveries by 1 and
+regains Stamina equal to their recovery value = floor(staminaMax / 3), a
+single implementation home serving every consumer; temporary Stamina is
+excluded from the derivation. An ability-granted spend consumes nothing from
+the recipient's action economy — the granting ability already paid. "Can
+spend" is an offer: the dispatch carries each offered participant's
+accept/decline, declining is legal, and the receipt records who did what. A
+dying hero may accept (explicit in the book); the Catch-Breath-while-dying
+prohibition does not apply to ability-granted spends. Eligibility phrases
+("one ally within distance", "adjacent to the target", "in the area") are
+table-asserted dispatch bindings — the engine has no spatial model.
+
+**Evidence (verbatim):** "Each hero has a number of Recoveries determined by
+their class. A hero also has a recovery value that equals one-third of their
+Stamina maximum, rounded down." [Combat §Recoveries and Recovery Value,
+p.277]. "Some heroes have abilities that allow them or their allies to spend
+more Recoveries without using the Catch Breath maneuver." [Basics §Spending
+Recoveries, p.7]. "While you are dying, you can still act, your allies can
+help you spend Recoveries in combat…" [Combat §Dying and Death, p.278].
+"Temporary Stamina shouldn't be included in a creature's Stamina total when
+figuring out a creature's recovery value or winded value." [Combat
+§Temporary Stamina, p.278].
+
+## R-0019 — Zero Recoveries refuses; NPCs convert to one-third max; minions route to table (approved 2026-08-25)
+
+**Ruling:** (a) A hero with 0 Recoveries cannot accept a spend: the engine
+refuses that binding with a receipt while the rest of the ability applies
+(the over-state is canon-incoherent — there is no pool to draw from).
+User amendment recorded verbatim: "right you cant spend recoveries you
+don't have. the only exeption would be a class that gives their recoveries
+away to their allys." — a donation-style ability, when one enters the
+automated corpus, is its own future ruling, not covered by this refusal.
+(b) A Director-controlled non-minion creature offered a spend or a
+recovery-value regain instead regains floor(staminaMax / 3); nothing
+decrements and the book places no limit on repetition. (c) A minion as the
+target of any Stamina regain or temporary-Stamina gain routes to a
+not-automated table receipt (the squad pool is not yet mechanized, and the
+book forbids the regain outright).
+
+**Evidence (verbatim):** "Outside of combat, you can spend as many
+Recoveries as you have remaining." [Combat §Recoveries and Recovery Value,
+p.277]. "If the hero has no Recoveries left, they can't wake up until they
+finish a respite." [Combat §Knocking Creatures Out, p.278]. "Director-
+controlled creatures don't have Recoveries or a recovery value. […] In such
+cases, a Director-controlled creature regains Stamina equal to one-third of
+their Stamina maximum." [Combat §No Recoveries, p.278]. "Because minion
+Stamina is tracked as a pool, minions can't be winded, can't regain Stamina,
+and can't gain temporary Stamina during a battle." [Monster Basics §Shared
+Low Stamina, Monsters p.7].
+
+## R-0020 — Flat "regains X Stamina" is automatic; targets are asserted at dispatch (approved 2026-08-25)
+
+**Ruling:** A flat regain applies to the bound targets automatically — no
+recipient choice, no action. The book writes choice language explicitly when
+it means it ("can spend"); these lines carry none. "One creature within 5
+squares" permits any creature, including an enemy, as the Director rules;
+the binding is asserted at dispatch like all targeting. User note recorded
+verbatim: "yes, once you choose to use the recovery you just get the
+stamina."
+
+**Evidence (verbatim):** "The target creature can spend a Recovery to regain
+Stamina, or can make a saving throw against one effect they are suffering
+that is ended by a saving throw." [Combat §Heal, p.274 — choice written when
+intended]. "Some abilities, items, and other effects allow you to spend a
+Recovery to regain Stamina equal to your recovery value plus a little extra
+(as described by the effect), or to regain Stamina without spending a
+Recovery." [Combat §Recoveries and Recovery Value, p.277]. Carriers: Human
+Death Acolyte Necrotic Bolt "One creature within 5 squares regains 1
+Stamina." [Monsters p.181]; Kobold Signifer Glory to the Legion "Each target
+regains 5 Stamina." [Monsters p.193].
+
+## R-0021 — Temporary Stamina: max-not-sum, no cap, cleared by the end-encounter sweep (approved 2026-08-25)
+
+**Ruling:** Gaining temporary Stamina sets the pool to max(current
+remaining, granted) — never the sum; the book's own example compares what is
+left, not the original grant. No cap exists. The closed template carries no
+duration override, so the default applies: the end-encounter sweep clears
+temporary Stamina to 0 alongside the existing condition and grant sweeps.
+(Damage-drains-temporary-first and the winded/recovery-value exclusion are
+already shipped engine behavior from this same rule.)
+
+**Evidence (verbatim):** "If you have temporary Stamina and then gain more
+temporary Stamina, you get whichever amount of temporary Stamina is greater,
+rather than adding the two pools together. For instance, if an ability
+grants you 10 temporary Stamina when you already have 5, you have 10
+temporary Stamina, not 15." / "There is no maximum to how much temporary
+Stamina you can have." / "Unless otherwise indicated, temporary Stamina
+disappears at the end of an encounter." [Combat §Temporary Stamina, Heroes
+p.278]. Carrier: fury L3 Steelbreaker "You gain 20 temporary Stamina."
+
+## R-0022 — "The area is difficult terrain." becomes a persistent attributed terrain fact; movement math stays table (approved 2026-08-25)
+
+**Ruling:** The engine records a typed, attributed terrain fact — source
+artifact + ordinal, the ability's verbatim area line, the creating
+participant, the intent id — instead of an unread table directive. The
++1-square entry cost remains table-adjudicated until spatial substrate
+lands. Duration: the fact persists until the Director clears it (a
+director-authority clear intent) and does not survive the encounter. The
+books give no default duration for ability-created terrain — when MCDM
+intends a window they print one — and all three carriers are physical
+alterations (rubble, sunken ground, caustic paste). Adjudication, not
+printed text; the burst area's momentary targeting life does not evaporate
+the terrain its Effect created — the footprint freezes.
+
+**Evidence (verbatim):** "Areas of thick underbrush, rubble, spiderwebs, or
+other obstacles to movement create difficult terrain. It costs 1 additional
+square of movement to enter a square of difficult terrain." [Combat
+§Difficult Terrain, Heroes p.270]. Duration contrast: "Until the start of
+the ballistite's next turn, the area is difficult terrain…" [War Dog
+Ballistite Kill Zone, Monsters p.311]. "…the radius of the burst, which
+always originates from you and lasts only for as long as it takes to affect
+its targets." [Classes §Burst, Heroes p.71]. Carriers: Pillar Toppling
+Pillar [Monsters p.340], Orc Terranova Sinkhole [Monsters p.220], War Dog
+Aerocite Caustic Paste Bomb [Monsters p.311].
