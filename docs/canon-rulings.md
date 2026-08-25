@@ -153,3 +153,112 @@ end-of-encounter ending is typed and certified. Build preconditions: fix the
 `compileAbilities` cluster-ownership leak (test tier clauses must not join
 the preceding power-roll cluster), and resolve trailing prose / sibling
 Effect lines once at ability level, never once per target.
+
+## R-0012 — Bare next-roll grants: until consumed, swept at encounter end (approved 2026-08-25)
+
+**Ruling:** A grant with no printed bound ("The target takes a bane on their
+next strike.") pends until its matching roll consumes it; anything unconsumed
+is cleared by the encounter-end sweep. This is an **engine adjudication, not
+a claimed printed duration** — the books are silent on one-shot grant expiry.
+No next-turn expiry is imported: the authors write bounds explicitly when
+they intend them (Raider's Awe "made before the end of their next turn"
+[feature.ability.raider/raiders-awe]; Orc Warleader "before the end of the
+encounter"; Hobgoblin Bloodlord "until the start of their next turn").
+
+**Evidence (verbatim):** "When a creature suffers a lasting effect, whatever
+ability, feature, hazard, or other mechanic imposed the effect specifies how
+long the effect lasts. Unless otherwise noted, all effects and conditions
+that are imposed on heroes during a combat encounter end when the encounter
+is over if the hero wants them to, except for being winded, unconscious, or
+dying." [chapter/classes §Ending Effects]. That hero-retention option means
+out-of-encounter persistence of a beneficial unconsumed grant remains
+Director/table state — outside the encounter runtime, documented here, not
+modeled.
+
+## R-0013 — Consumption scope: "next strike" waits for a Strike-keyword ability roll; "next power roll" catches ability roll or test; saving throws never (approved 2026-08-25)
+
+**Ruling:** A "next strike" grant is consumed only by the target's next
+Strike-keyword ability roll; intervening tests and Area-ability rolls are
+neither modified nor consume it (dormancy is the plain reading of "next
+strike", confirmed at Gate 3). A "next power roll" grant is consumed by the
+next ability roll **or test**, whichever comes first. Saving throws are d10
+rolls, not power rolls — grants never touch them.
+
+**Evidence (verbatim):** "The Strike keyword and phrases such as 'makes a
+strike' are reserved for abilities that have a creature targeting specific
+creatures or objects (not affecting creatures or objects in an area) and
+harming those targets in some way by making a power roll. … That means if a
+feature distinctly interacts with a strike, that feature has no effect on
+abilities with the Area keyword." [rule.combat/strike]. "The game uses two
+types of power rolls. An ability roll … A test is a power roll you make
+outside of using your abilities…" [rule.dice/power-roll §Types of Power
+Rolls]. "To make a saving throw, a creature rolls a d10." [rule.general/
+saving-throw]. Free strikes carry the Strike keyword
+[feature.ability.common/melee-weapon-free-strike] and qualify.
+
+## R-0014 — Inbound marks are stored on the target, target-local, spent by the first qualifying strike against them (approved 2026-08-25)
+
+**Ruling:** "The next strike made against the target gains an edge" stores a
+mark on the struck target; the first Strike-keyword ability roll made against
+them (by any attacker) gains the edge and spends the mark. **Target-local
+resolution:** under Roll Against Multiple Creatures, one multi-target strike
+computes edges/banes per target — a strike hitting two marked creatures gains
+each mark's edge against that creature only; marks on different targets never
+combine into a global double edge. Different-ability marks on the same target
+combine into that target's count; same-ability duplicates on one target
+collapse. Every included marked target's qualifying mark is consumed by the
+strike. Expiry follows R-0012's default. The one-shot storage model is an
+adjudication forced by book silence (nearest printed analogues — surprised,
+flanking — are continuous, not one-shot).
+
+**Evidence (verbatim):** "When an ability has multiple targets (whether a
+strike with more than one target or an area affect), you make one power roll
+and apply the total to all targets. If you have edges or banes … against some
+but not all of your targets, you might apply a different tier outcome to
+individual targets." [chapter/classes §Roll Against Multiple Creatures]. "The
+unique effects of different abilities are combined—effectively stacking on
+top of each other—if their durations and targets overlap. However, the
+effects of the same ability used multiple times don't stack." [chapter/
+classes §Stacking Unique Effects].
+
+**Engine consequence:** the roll path must support per-target edge/bane
+pools on multi-target strikes (today's roll input carries one count per
+dispatch); the cancellation arithmetic runs per target through its one home.
+
+## R-0015 — Granted modifiers use the one edge/bane arithmetic; a grant is spent even when cancellation zeroes it (approved 2026-08-25)
+
+**Ruling:** "Gains an edge", "takes a bane", "has a double edge" are the
+rulebook's own operative verbs for its single edge/bane system. Granted
+modifiers join situational ones in the same count → cap (2) → cancel
+arithmetic, resolved through the engine's existing single implementation —
+never re-derived. Every matching granted modifier is recorded in the roll
+receipt and **consumed before the net result is evaluated**: a grant whose
+effect cancellation zeroes is still spent (adjudication — the books do not
+address consumption-on-cancel; the roll "is made" with the modifier
+factored). Target-local inbound modifiers use the same implementation.
+
+**Evidence (verbatim):** "In general, edges and banes cancel each other out,
+resolving as follows: If you have an edge and a bane, or if you have a double
+edge and a double bane, the roll is made as usual without any edges or banes.
+If you have a double edge and just one bane, the roll is made with one edge,
+regardless of how many individual edges contribute to the double edge. If you
+have a double bane and just one edge, the roll is made with one bane…"
+[rule.dice/power-roll §Rolling With Edges and Banes]; edge/bane values and
+double-tier steps [rule.dice/edge], [rule.dice/bane].
+
+## R-0016 — "Made before the end of their next turn" is the target's window via the standard EoT rule (approved 2026-08-25)
+
+**Ruling:** Both "their"s are the target's. The grant window uses the book's
+standard EoT machinery including the current-turn clause: imposed during the
+target's own turn, it expires at the end of that current turn; otherwise at
+the end of their next turn. Inside the window it is consumed by the target's
+first power roll of any kind (the text says "power roll" — a test inside the
+window consumes it); it expires unconsumed when the window closes.
+
+**Evidence (verbatim):** "Many effects last until the end of the target's
+next turn, abbreviated as '(EoT)' … A creature suffers from such an effect
+until the end of their next turn, or the end of their current turn if the
+effect was imposed on their current turn." [rule.combat/end-of-turn].
+Carriers at this pin: Raider's Awe [feature.ability.raider/raiders-awe,
+also the raider kit record]; same template in the Displacing II/III
+enhancement (outside the current corpus family).
