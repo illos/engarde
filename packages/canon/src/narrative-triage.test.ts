@@ -70,7 +70,7 @@ describe.skipIf(!existsSync(manifestPath))('narrative triage (accepted pin)', ()
     const report = buildNarrativeTriage(fixtures, EFFECT_CANON_PIN);
 
     expect(report.canonPin).toBe(EFFECT_CANON_PIN);
-    expect(report.tablePrograms).toBe(1633);
+    expect(report.tablePrograms).toBe(1621);
     // Frozen at the accepted pin: a signal-table or corpus change must
     // surface here on purpose.
     expect(report.candidates).toHaveLength(24);
@@ -87,9 +87,11 @@ describe.skipIf(!existsSync(manifestPath))('narrative triage (accepted pin)', ()
     expect(ids).toContain('mcdm.monsters.v1/monster.basilisk/basilisk-malice#1');
     expect(ids).toContain('mcdm.monsters.v1/monster.dragon.statblock/omen-dragon#5');
 
-    // Widening the net is monotonic and frozen at max-signals = 1.
+    // Widening the net is monotonic and frozen at max-signals = 1. Re-frozen
+    // 2026-08-25: 335 → 325 when the 12 flat-resource lines compiled out of
+    // the table set (R-0017..R-0022) — 10 of them sat in the widened pool.
     const widened = buildNarrativeTriage(fixtures, EFFECT_CANON_PIN, 1);
-    expect(widened.candidates).toHaveLength(335);
+    expect(widened.candidates).toHaveLength(325);
     for (const id of ids) {
       expect(widened.candidates.map((c) => `${c.artifactId}#${c.effectOrdinal}`)).toContain(id);
     }

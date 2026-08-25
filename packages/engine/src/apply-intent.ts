@@ -9,7 +9,7 @@ import {
 } from './condition-lifecycle.js';
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import { executeUseEffect } from './effect-execution.js';
+import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { endEncounterGrantSweep, endOfTurnGrantSweep } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
@@ -218,7 +218,43 @@ export function applyIntent(
           });
         }
       }
+      // Terrain facts do not survive the encounter [R-0022].
+      if (nextState.terrainFacts.length > 0) {
+        log.push({
+          kind: 'mutation',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [TERRAIN_CANON.difficultTerrain],
+          message: `${nextState.terrainFacts.length} recorded terrain fact(s) end with the encounter`,
+          data: { terrainFactsCleared: nextState.terrainFacts.map((fact) => fact.factId) },
+        });
+        nextState = { ...nextState, terrainFacts: [] };
+      }
       return { state: nextState, log };
+    }
+    case 'clear-terrain-fact': {
+      const fact = state.terrainFacts.find(
+        (candidate) => candidate.factId === intent.payload.factId,
+      );
+      if (!fact) {
+        return { state, log: [refusal(intent, `unknown terrain fact ${intent.payload.factId}`)] };
+      }
+      return {
+        state: {
+          ...state,
+          terrainFacts: state.terrainFacts.filter((candidate) => candidate !== fact),
+        },
+        log: [
+          {
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [TERRAIN_CANON.difficultTerrain],
+            message: `terrain fact cleared${intent.payload.reason ? `: ${intent.payload.reason}` : ''} — the area${fact.areaText ? ` (${fact.areaText})` : ''} is no longer difficult terrain`,
+            data: { terrainFactCleared: fact },
+          },
+        ],
+      };
     }
   }
 }

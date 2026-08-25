@@ -26,6 +26,7 @@ const STATS: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: null,
+  recoveriesMax: null,
 };
 
 /** Skitterling, Claws (monsters/md/monster/goblin/statblock/skitterling.md):
@@ -70,6 +71,7 @@ const CLAWS_GRANT_EFFECT: EffectProgramData = {
   canonRefs: [],
   actionType: 'Main action',
   targetsText: 'One creature per minion',
+  distanceText: null,
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'bane',
@@ -90,6 +92,7 @@ const GHOST_MARK_EFFECT: EffectProgramData = {
   canonRefs: [],
   actionType: 'Main action',
   targetsText: 'Two creatures or objects',
+  distanceText: null,
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'edge',
@@ -120,6 +123,7 @@ const RAIDERS_AWE_EFFECT: EffectProgramData = {
   canonRefs: [],
   actionType: 'Main action',
   targetsText: 'One creature',
+  distanceText: null,
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'bane',
@@ -141,6 +145,7 @@ function testEffect(): EffectProgramData {
     canonRefs: [],
     actionType: 'Maneuver',
     targetsText: 'One creature',
+    distanceText: null,
     resolution: {
       kind: 'test',
       characteristic: 'presence',

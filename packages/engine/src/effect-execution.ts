@@ -1,11 +1,28 @@
 import { targetCountOf } from './ability-execution.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
-import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
+import {
+  applyDamage,
+  damageAutomationBlocker,
+  gainTemporaryStamina,
+  recoverySpendBlocker,
+  regainAutomationBlocker,
+  regainStamina,
+  spendRecovery,
+  withParticipant,
+} from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { GRANT_CANON, addGrant, grantContribution, splitGrants } from './grant-lifecycle.js';
+import { HEALTH_CANON } from './health.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type { EncounterState, LogEntry, ParsedIntent, TestTier } from './schemas.js';
+
+/** Canon grounding for recorded terrain facts [R-0022]. */
+export const TERRAIN_CANON = {
+  /** "It costs 1 additional square of movement to enter a square of
+   * difficult terrain." — the cost stays table-adjudicated. */
+  difficultTerrain: 'mcdm.heroes.v1/movement/difficult-terrain',
+} as const;
 
 /** Canon grounding for characteristic-test resolution [R-0006..R-0011]. */
 export const TEST_CANON = {
@@ -217,6 +234,191 @@ export function executeUseEffect(
       );
     }
     return { state: nextState, log };
+  }
+
+  if (effect.resolution.kind === 'spend-recovery') {
+    const resolution = effect.resolution;
+    for (const targetId of targets) {
+      if (intent.payload.recoverySpends[targetId] === undefined) {
+        return {
+          state,
+          log: [
+            entry(
+              context,
+              'refusal',
+              `no accept/decline recorded for ${targetId} — a Recovery offer needs every bound participant's answer`,
+              refs(effect, [HEALTH_CANON.recoveries]),
+              receipt(intent),
+            ),
+          ],
+        };
+      }
+    }
+    if (resolution.singular && targets.length > 1) {
+      log.push(
+        entry(
+          context,
+          'warning',
+          `${targets.length} participants bound; the effect's subject reads "${resolution.subjectText}"`,
+          refs(effect, [HEALTH_CANON.recoveries]),
+          { subjectText: resolution.subjectText, namedTargets: targets.length },
+        ),
+      );
+    }
+    let recoveryState = state;
+    for (const targetId of targets) {
+      const target = recoveryState.participants[targetId];
+      if (!target) continue; // presence proven by the refusal gates
+      if (intent.payload.recoverySpends[targetId] !== true) {
+        log.push(
+          entry(
+            context,
+            'informational',
+            `${targetId} declines the offered Recovery`,
+            refs(effect, [HEALTH_CANON.recoveries]),
+            { declined: true, targetId },
+          ),
+        );
+        continue;
+      }
+      const blocker = recoverySpendBlocker(target);
+      if (blocker !== null) {
+        log.push(
+          entry(
+            context,
+            'table-directive',
+            `${targetId} accepts the offered Recovery — ${blocker}`,
+            refs(effect, [HEALTH_CANON.recoveries]),
+            { unautomatedRecoverySpend: { targetId, blocker } },
+          ),
+        );
+        continue;
+      }
+      // R-0019a: a hero with 0 Recoveries cannot spend — this one binding
+      // does not apply while the rest of the dispatch proceeds, so it is a
+      // per-binding non-application (the whole-dispatch `refusal` kind would
+      // wrongly void sibling spenders; cf. the potency-gate pattern).
+      if (target.kind === 'hero' && target.stamina?.recoveries === 0) {
+        log.push(
+          entry(
+            context,
+            'informational',
+            `${targetId} has no Recoveries left and cannot spend one`,
+            refs(effect, [HEALTH_CANON.recoveries]),
+            { recoverySpendRefused: { targetId, recoveries: 0, ruling: 'R-0019' } },
+          ),
+        );
+        continue;
+      }
+      const outcome = spendRecovery(
+        target,
+        { reason: `offered by ${effect.effectArtifactId} Effect` },
+        context,
+      );
+      recoveryState = withParticipant(recoveryState, outcome.participant);
+      log.push(
+        ...outcome.log.map((item) => ({
+          ...item,
+          canonRefs: refs(effect, item.canonRefs),
+        })),
+      );
+    }
+    return { state: recoveryState, log };
+  }
+
+  if (
+    effect.resolution.kind === 'regain-stamina' ||
+    effect.resolution.kind === 'temporary-stamina'
+  ) {
+    const resolution = effect.resolution;
+    if (resolution.singular && targets.length > 1) {
+      log.push(
+        entry(
+          context,
+          'warning',
+          `${targets.length} participants bound; the effect's subject reads "${resolution.subjectText}"`,
+          refs(effect),
+          { subjectText: resolution.subjectText, namedTargets: targets.length },
+        ),
+      );
+    }
+    let regainState = state;
+    for (const targetId of targets) {
+      const target = regainState.participants[targetId];
+      if (!target) continue; // presence proven by the refusal gates
+      const blocker = regainAutomationBlocker(target);
+      if (blocker !== null) {
+        log.push(
+          entry(
+            context,
+            'table-directive',
+            `${targetId} ${resolution.kind === 'regain-stamina' ? `regains ${resolution.amount} Stamina` : `gains ${resolution.amount} temporary Stamina`} — ${blocker}`,
+            refs(effect),
+            { unautomatedRegain: { targetId, kind: resolution.kind, amount: resolution.amount } },
+          ),
+        );
+        continue;
+      }
+      const outcome =
+        resolution.kind === 'regain-stamina'
+          ? regainStamina(
+              target,
+              resolution.amount,
+              { reason: `from ${effect.effectArtifactId} Effect` },
+              context,
+            )
+          : gainTemporaryStamina(
+              target,
+              resolution.amount,
+              { reason: `from ${effect.effectArtifactId} Effect` },
+              context,
+            );
+      regainState = withParticipant(regainState, outcome.participant);
+      log.push(
+        ...outcome.log.map((item) => ({
+          ...item,
+          canonRefs: refs(effect, item.canonRefs),
+        })),
+      );
+    }
+    return { state: regainState, log };
+  }
+
+  if (effect.resolution.kind === 'terrain-fact') {
+    const factId = `${effect.effectArtifactId}#${intent.intentId}-terrain`;
+    if (state.terrainFacts.some((fact) => fact.factId === factId)) {
+      return {
+        state,
+        log: [
+          entry(
+            context,
+            'refusal',
+            `terrain fact ${factId} already exists`,
+            refs(effect, [TERRAIN_CANON.difficultTerrain]),
+            receipt(intent),
+          ),
+        ],
+      };
+    }
+    const fact = {
+      factId,
+      terrain: effect.resolution.terrain,
+      effectArtifactId: effect.effectArtifactId,
+      effectOrdinal: effect.effectOrdinal,
+      areaText: effect.distanceText,
+      createdBy: intent.payload.actorParticipantId,
+      intentId: intent.intentId,
+    };
+    log.push(
+      entry(
+        context,
+        'mutation',
+        `the area${effect.distanceText ? ` (${effect.distanceText})` : ''} is difficult terrain — recorded; +1 square to enter stays table-adjudicated [R-0022]`,
+        refs(effect, [TERRAIN_CANON.difficultTerrain]),
+        { terrainFactAdded: fact },
+      ),
+    );
+    return { state: { ...state, terrainFacts: [...state.terrainFacts, fact] }, log };
   }
 
   if (effect.resolution.kind === 'table') {

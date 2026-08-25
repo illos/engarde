@@ -6,6 +6,7 @@ import {
   isDead,
   isDying,
   isWinded,
+  recoveryValue,
 } from './health.js';
 import type { DamageType, EncounterState, LogEntry, ParticipantState } from './schemas.js';
 
@@ -147,6 +148,7 @@ function reduceStamina(
   const nextStamina = {
     current: stamina.current - appliedToCurrent,
     temporary: stamina.temporary - absorbedByTemporary,
+    recoveries: stamina.recoveries,
   };
   const next: ParticipantState = { ...participant, stamina: nextStamina };
 
@@ -216,7 +218,7 @@ function reduceStamina(
       entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {}),
     );
     const applied = applyConditionInstance(
-      { schemaVersion: 3, participants: { [result.id]: result } },
+      { schemaVersion: 4, participants: { [result.id]: result }, terrainFacts: [] },
       {
         target: result,
         instance: {
@@ -240,7 +242,7 @@ function reduceStamina(
   if (!deadBefore && wouldBeDead) {
     if (options.knockOut) {
       const applied = applyConditionInstance(
-        { schemaVersion: 3, participants: { [result.id]: result } },
+        { schemaVersion: 4, participants: { [result.id]: result }, terrainFacts: [] },
         {
           target: result,
           instance: {
@@ -321,6 +323,239 @@ export function loseStamina(
     options,
     context,
   );
+}
+
+/** Why a participant's Stamina regain cannot be automated, if it can't.
+ * Minions additionally CAN'T regain by rule — "minions can't be winded,
+ * can't regain Stamina, and can't gain temporary Stamina during a battle"
+ * [monsters chapter/monster-basics §Shared Low Stamina, R-0019c] — but the
+ * pool is also not mechanized, so both regain paths route to the table. */
+export function regainAutomationBlocker(participant: ParticipantState): string | null {
+  if (participant.stats === null || participant.stamina === null) {
+    return 'no stats tracked for this participant — resolve at the table';
+  }
+  if (participant.stats.organization?.toLowerCase() === 'minion') {
+    return 'minions cannot regain Stamina or gain temporary Stamina during a battle, and squad pools are not mechanized — resolve at the table';
+  }
+  return null;
+}
+
+/** Why a participant cannot be offered an automated Recovery spend, if they
+ * can't. Director-controlled non-minions are NOT blocked — they convert to
+ * the one-third-maximum regain [rule.health/stamina §No Recoveries,
+ * R-0019b]. */
+export function recoverySpendBlocker(participant: ParticipantState): string | null {
+  const regainBlocker = regainAutomationBlocker(participant);
+  if (regainBlocker !== null) return regainBlocker;
+  if (participant.kind === 'hero' && participant.stats?.recoveriesMax == null) {
+    return 'Recoveries are not tracked for this hero — resolve at the table';
+  }
+  return null;
+}
+
+/**
+ * REGAINING STAMINA [R-0017]: signed addition clamped at Stamina maximum
+ * ("Some effects can also reduce your Stamina maximum, limiting the amount
+ * of Stamina you can regain" [rule.health/stamina] — the clamp and the
+ * signed arithmetic are Gate-3 adjudications). Never touches temporary
+ * Stamina ("Regaining Stamina can't restore temporary Stamina"
+ * [rule.health/temporary-stamina]). Winded and dying end by definition —
+ * informational transitions, no action [rule.health/winded,
+ * rule.health/dying]; the dying-mandated bleeding instance is NOT
+ * auto-removed — it becomes removable again (R-0004 gates on the derived
+ * dying state).
+ */
+export function regainStamina(
+  participant: ParticipantState,
+  amount: number,
+  options: { reason: string; canonRefs?: string[] },
+  context: LifecycleContext,
+): DamageOutcome {
+  const stats = participant.stats;
+  const stamina = participant.stamina;
+  if (stats === null || stamina === null) throw new Error('regainStamina requires tracked stats');
+
+  const clampedTo = Math.min(stamina.current + amount, stats.staminaMax);
+  const regained = clampedTo - stamina.current;
+  const nextStamina = { ...stamina, current: clampedTo };
+  const next: ParticipantState = { ...participant, stamina: nextStamina };
+
+  const log: LogEntry[] = [
+    entry(
+      context,
+      'mutation',
+      `${participant.id} regains ${regained} Stamina (${options.reason})`,
+      options.canonRefs ?? [HEALTH_CANON.stamina],
+      {
+        requestedAmount: amount,
+        regained,
+        clampedAtMax: regained < amount,
+        staminaDeltas: [
+          {
+            participantId: participant.id,
+            from: stamina.current,
+            to: clampedTo,
+            temporaryFrom: stamina.temporary,
+            temporaryTo: stamina.temporary,
+          },
+        ],
+      },
+    ),
+  ];
+
+  if (isDying(stamina.current) && !isDying(clampedTo)) {
+    log.push(
+      entry(
+        context,
+        'informational',
+        `${participant.id} is no longer dying`,
+        [HEALTH_CANON.dying],
+        {},
+      ),
+    );
+  }
+  if (isWinded(stamina.current, stats.staminaMax) && !isWinded(clampedTo, stats.staminaMax)) {
+    log.push(
+      entry(
+        context,
+        'informational',
+        `${participant.id} is no longer winded`,
+        [HEALTH_CANON.winded],
+        {},
+      ),
+    );
+  }
+
+  return { participant: next, log };
+}
+
+/**
+ * GAINING TEMPORARY STAMINA [R-0021]: the pool becomes whichever amount is
+ * greater — what remains or what is granted — never the sum; no cap; the
+ * end-encounter sweep clears it ("Unless otherwise indicated, temporary
+ * Stamina disappears at the end of an encounter")
+ * [rule.health/temporary-stamina].
+ */
+export function gainTemporaryStamina(
+  participant: ParticipantState,
+  amount: number,
+  options: { reason: string },
+  context: LifecycleContext,
+): DamageOutcome {
+  const stamina = participant.stamina;
+  if (participant.stats === null || stamina === null) {
+    throw new Error('gainTemporaryStamina requires tracked stats');
+  }
+
+  const nextTemporary = Math.max(stamina.temporary, amount);
+  const next: ParticipantState = {
+    ...participant,
+    stamina: { ...stamina, temporary: nextTemporary },
+  };
+  const log: LogEntry[] = [
+    entry(
+      context,
+      'mutation',
+      `${participant.id} gains ${amount} temporary Stamina (${options.reason})${
+        nextTemporary === stamina.temporary && stamina.temporary >= amount
+          ? ' — existing pool is greater, no change'
+          : ''
+      }`,
+      [HEALTH_CANON.temporaryStamina],
+      {
+        grantedAmount: amount,
+        maxNotSum: true,
+        staminaDeltas: [
+          {
+            participantId: participant.id,
+            from: stamina.current,
+            to: stamina.current,
+            temporaryFrom: stamina.temporary,
+            temporaryTo: nextTemporary,
+          },
+        ],
+      },
+    ),
+  ];
+  return { participant: next, log };
+}
+
+/**
+ * SPENDING A RECOVERY via an ability-granted offer [R-0018, R-0019]:
+ * - hero — Recoveries −1, regain recoveryValue(staminaMax); 0 Recoveries
+ *   refuses (there is no pool to draw from — R-0019a);
+ * - Director-controlled non-minion — regains floor(staminaMax / 3), nothing
+ *   decrements, no repetition limit [rule.health/stamina §No Recoveries].
+ * The spend costs the recipient nothing from their action economy
+ * [rule.health/recoveries §Spending Recoveries]; dying heroes may accept
+ * ("your allies can help you spend Recoveries in combat"
+ * [rule.health/dying]). Callers consult recoverySpendBlocker first.
+ */
+export function spendRecovery(
+  participant: ParticipantState,
+  options: { reason: string },
+  context: LifecycleContext,
+): DamageOutcome {
+  const stats = participant.stats;
+  const stamina = participant.stamina;
+  if (stats === null || stamina === null) throw new Error('spendRecovery requires tracked stats');
+
+  if (participant.kind !== 'hero') {
+    return regainStamina(
+      participant,
+      recoveryValue(stats.staminaMax),
+      {
+        reason: `${options.reason} — Director-creature conversion, one-third Stamina maximum`,
+        canonRefs: [HEALTH_CANON.noRecoveries, HEALTH_CANON.stamina],
+      },
+      context,
+    );
+  }
+
+  if (stats.recoveriesMax === null || stamina.recoveries === null) {
+    throw new Error('spendRecovery requires tracked Recoveries for a hero');
+  }
+  if (stamina.recoveries === 0) {
+    return {
+      participant,
+      log: [
+        entry(
+          context,
+          'refusal',
+          `${participant.id} has no Recoveries left and cannot spend one`,
+          [HEALTH_CANON.recoveries],
+          { recoveries: 0, recoveriesMax: stats.recoveriesMax, ruling: 'R-0019' },
+        ),
+      ],
+    };
+  }
+
+  const decremented: ParticipantState = {
+    ...participant,
+    stamina: { ...stamina, recoveries: stamina.recoveries - 1 },
+  };
+  const spendEntry = entry(
+    context,
+    'mutation',
+    `${participant.id} spends a Recovery (${options.reason})`,
+    [HEALTH_CANON.recoveries],
+    {
+      recoveriesDeltas: [
+        {
+          participantId: participant.id,
+          from: stamina.recoveries,
+          to: stamina.recoveries - 1,
+        },
+      ],
+    },
+  );
+  const outcome = regainStamina(
+    decremented,
+    recoveryValue(stats.staminaMax),
+    { reason: 'Recovery: one-third Stamina maximum, rounded down' },
+    context,
+  );
+  return { participant: outcome.participant, log: [spendEntry, ...outcome.log] };
 }
 
 /** Helper for reducers: swap one participant into the state. */

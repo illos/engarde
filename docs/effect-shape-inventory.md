@@ -145,14 +145,19 @@ id + ordinal + payload SHA-256, test-enforced against the pin):
   research (Deathcount, servitor explosion damage).
 
 Resulting corpus accounting at the pin (updated 2026-08-25 after the
-next-roll grant slice shipped — see `next-roll-grant-report.md`; previous
-step `characteristic-test-report.md`):
-**55 automated (12 exact + 29 test + 14 next-roll grant) · 1,633 table
-directives, of which 12 are ruled permanently-manual and 1,621
-mechanism-pending.** The edge-bane family drops 152 → 138; both of its
-closed templates (`edge-bane-next-roll`, `next-strike-against-target`) are
-fully implemented, count 0. The `--max-signals 1` widening (335 lines) is
-available for a future second review sitting.
+flat-resource slice shipped — see `flat-resource-design.md` and
+`canon-rulings.md` R-0017..R-0022; previous steps `next-roll-grant-report.md`
+and `characteristic-test-report.md`):
+**67 automated (12 exact + 29 test + 14 next-roll grant + 12 flat-resource)
+· 1,621 table directives, of which 12 are ruled permanently-manual and 1,609
+mechanism-pending.** Families drop: recovery 34 → 28, stamina-regain
+35 → 33, temporary-stamina 22 → 21, terrain 30 → 27 (edge-bane stays 138).
+Every closed whole-payload template except `choice-menu-intro` (deferred by
+design — §Ranked candidates #3) is now fully implemented, count 0. The
+closed-template pool is exhausted: the next family selection must come from
+the open-form families or the roadmap arcs (minion pools, action economy).
+The `--max-signals 1` widening (now 325 lines) is available for a future
+second review sitting.
 
 ## Definition of done for the selected slice
 

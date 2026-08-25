@@ -92,13 +92,15 @@ function characteristicStats(): ParticipantStats {
     // pretending the corpus has resolved hero character construction.
     potencies: { weak: 1, average: 2, strong: 3 },
     organization: null,
+    recoveriesMax: null,
   };
 }
 
 function state(): EncounterState {
   const stats = characteristicStats();
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    terrainFacts: [],
     participants: {
       actor: {
         id: 'actor',
@@ -106,7 +108,7 @@ function state(): EncounterState {
         sourceRecordId: null,
         kind: 'hero',
         stats,
-        stamina: { current: 100, temporary: 0 },
+        stamina: { current: 100, temporary: 0, recoveries: null },
         grants: [],
       },
       target: {
@@ -115,7 +117,7 @@ function state(): EncounterState {
         sourceRecordId: null,
         kind: 'director-creature',
         stats: { ...stats, potencies: null },
-        stamina: { current: 100, temporary: 0 },
+        stamina: { current: 100, temporary: 0, recoveries: null },
         grants: [],
       },
     },

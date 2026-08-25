@@ -10,6 +10,8 @@ import type { ConditionInstance, ParticipantState } from './schemas.js';
 export const HEALTH_CANON = {
   stamina: 'mcdm.heroes.v1/rule.health/stamina',
   temporaryStamina: 'mcdm.heroes.v1/rule.health/temporary-stamina',
+  recoveries: 'mcdm.heroes.v1/rule.health/recoveries',
+  noRecoveries: 'mcdm.heroes.v1/rule.health/stamina#no-recoveries',
   winded: 'mcdm.heroes.v1/rule.health/winded',
   dying: 'mcdm.heroes.v1/rule.health/dying',
   alwaysRoundDown: 'mcdm.heroes.v1/rule.general/always-round-down',
@@ -36,6 +38,15 @@ export const UNCONSCIOUS_CONDITION_ID = 'mcdm.heroes.v1/rule.health/stamina#unco
  * Stamina is excluded from the derivation [rule.health/temporary-stamina]. */
 export function windedValue(staminaMax: number): number {
   return Math.floor(staminaMax / 2);
+}
+
+/** "A hero also has a recovery value that equals one-third of their Stamina
+ * maximum, rounded down" [rule.health/recoveries]. The SAME derivation
+ * serves the Director-creature conversion — "regains Stamina equal to
+ * one-third of their Stamina maximum" [rule.health/stamina §No Recoveries,
+ * R-0019b]. Temporary Stamina is excluded [rule.health/temporary-stamina]. */
+export function recoveryValue(staminaMax: number): number {
+  return Math.floor(staminaMax / 3);
 }
 
 /** "When your Stamina is equal to or less than your winded value, you are

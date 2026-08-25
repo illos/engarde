@@ -26,6 +26,7 @@ const GOBLIN_ASSASSIN: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: 'Horde',
+  recoveriesMax: null,
 };
 
 /** Count Rhodar von Glauer — corruption 10 / poison 10 immunities
@@ -40,6 +41,7 @@ const RHODAR: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: 'Solo',
+  recoveriesMax: null,
 };
 
 const context = { intentId: 'i1', actor: { kind: 'director' as const } };
@@ -55,7 +57,7 @@ function participant(
     grants: [],
     kind: 'director-creature',
     stats,
-    stamina: { current: stats.staminaMax, temporary: 0 },
+    stamina: { current: stats.staminaMax, temporary: 0, recoveries: null },
     ...overrides,
   };
 }
@@ -70,7 +72,7 @@ describe('damage pipeline [rule.damage/*]', () => {
       options,
       context,
     );
-    expect(outcome.participant.stamina).toEqual({ current: 9, temporary: 0 });
+    expect(outcome.participant.stamina).toEqual({ current: 9, temporary: 0, recoveries: null });
   });
 
   it('typed immunity reduces matching damage, minimum 0 [rule.damage/damage-immunity]', () => {
@@ -146,10 +148,10 @@ describe('damage pipeline [rule.damage/*]', () => {
     // The record's worked example: 10 temporary, 16 damage → lose the
     // temporary, then 6 Stamina.
     const target = participant(GOBLIN_ASSASSIN, {
-      stamina: { current: 15, temporary: 10 },
+      stamina: { current: 15, temporary: 10, recoveries: null },
     });
     const outcome = applyDamage(target, { amount: 16, type: null }, options, context);
-    expect(outcome.participant.stamina).toEqual({ current: 9, temporary: 0 });
+    expect(outcome.participant.stamina).toEqual({ current: 9, temporary: 0, recoveries: null });
   });
 });
 
@@ -175,7 +177,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
   it('a hero crossing into dying gains the mandated bleeding instance', () => {
     const hero = participant(GOBLIN_ASSASSIN, {
       kind: 'hero',
-      stamina: { current: 3, temporary: 0 },
+      stamina: { current: 3, temporary: 0, recoveries: null },
     });
     const outcome = applyDamage(hero, { amount: 5, type: null }, options, context);
     expect(isDying(outcome.participant.stamina?.current ?? Number.NaN)).toBe(true);
@@ -190,7 +192,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
   it('a hero dies at the negative of their winded value', () => {
     const hero = participant(GOBLIN_ASSASSIN, {
       kind: 'hero',
-      stamina: { current: 1, temporary: 0 },
+      stamina: { current: 1, temporary: 0, recoveries: null },
     });
     // winded value 7 → death at −7.
     const outcome = applyDamage(hero, { amount: 8, type: null }, options, context);
@@ -201,7 +203,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
 
   it('a director-controlled creature dies at 0 Stamina', () => {
     const outcome = applyDamage(
-      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0 } }),
+      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0, recoveries: null } }),
       { amount: 5, type: null },
       options,
       context,
@@ -211,7 +213,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
 
   it('knock-out replaces death with a tracked unconscious instance', () => {
     const outcome = applyDamage(
-      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0 } }),
+      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0, recoveries: null } }),
       { amount: 9, type: null },
       { knockOut: true, reason: 'damage (test vector)' },
       context,
@@ -226,7 +228,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
 
   it('damage while unconscious from a knock-out kills [rule.health/stamina]', () => {
     const knockedOut = applyDamage(
-      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0 } }),
+      participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0, recoveries: null } }),
       { amount: 9, type: null },
       { knockOut: true, reason: 'damage (test vector)' },
       context,
@@ -251,6 +253,7 @@ describe('automation blockers', () => {
       weaknesses: [],
       potencies: null,
       organization: 'Minion',
+      recoveriesMax: null,
     };
     expect(damageAutomationBlocker(participant(sniper))).toMatch(/minion/i);
     expect(damageAutomationBlocker(participant(GOBLIN_ASSASSIN))).toBeNull();
@@ -273,7 +276,7 @@ describe('automation blockers', () => {
 describe('stamina claims (state↔log reconciliation feed)', () => {
   it('every application logs a machine-readable staminaDeltas claim', () => {
     const outcome = applyDamage(
-      participant(GOBLIN_ASSASSIN, { stamina: { current: 15, temporary: 4 } }),
+      participant(GOBLIN_ASSASSIN, { stamina: { current: 15, temporary: 4, recoveries: null } }),
       { amount: 6, type: null },
       options,
       context,

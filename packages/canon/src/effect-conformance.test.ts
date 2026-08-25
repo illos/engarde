@@ -25,7 +25,8 @@ async function ingestText(markdownPath: string): Promise<string> {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    terrainFacts: [],
     participants: {
       fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
       target: {
@@ -66,7 +67,8 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
     // EXHAUSTIVE delta: the target gains exactly these two instances, in this
     // order, with these endings and provenance — and nothing else changes.
     expect(state).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
+      terrainFacts: [],
       participants: {
         fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
         target: {

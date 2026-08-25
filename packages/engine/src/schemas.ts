@@ -20,6 +20,10 @@ import { z } from 'zod';
  * R-0012..R-0016): adds the participant `grants` slot — the first persistent
  * non-condition modifier state. `upgradeEncounterState` in migrate.ts lifts
  * stored v1/v2 states.
+ * schemaVersion 4 (flat-resource family, docs/flat-resource-design.md,
+ * R-0017..R-0022): adds stored `recoveriesMax` / tracked `recoveries`
+ * (the potencies precedent — class-determined, never derived) and the
+ * encounter-level `terrainFacts` slot with the clear-terrain-fact intent.
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -154,6 +158,12 @@ export const ParticipantStatsSchema = z.object({
    * pool the engine cannot yet represent — damage against a Minion routes to
    * a not-automated receipt [monsters chapter/monster-basics §Minions]. */
   organization: z.string().nullable(),
+  /** "Each hero has a number of Recoveries determined by their class"
+   * [rule.health/recoveries] — STORED like potencies, never derived. Null =
+   * untracked (all Director-controlled creatures: "Director-controlled
+   * creatures don't have Recoveries or a recovery value" [Combat §No
+   * Recoveries]; heroes without character data). */
+  recoveriesMax: z.number().int().min(0).nullable().default(null),
 });
 
 export type ParticipantStats = z.infer<typeof ParticipantStatsSchema>;
@@ -163,6 +173,9 @@ export const StaminaStateSchema = z.object({
   current: z.number().int(),
   /** Separate pool, absorbs damage first [rule.health/temporary-stamina]. */
   temporary: z.number().int().min(0),
+  /** Remaining Recoveries (v4, R-0018/R-0019). Tracked exactly when
+   * stats.recoveriesMax is tracked; null otherwise. */
+  recoveries: z.number().int().min(0).nullable().default(null),
 });
 
 export type StaminaState = z.infer<typeof StaminaStateSchema>;
@@ -187,20 +200,62 @@ export const ParticipantStateSchema = z
   .object(participantShape)
   .refine((participant) => (participant.stats === null) === (participant.stamina === null), {
     message: 'stamina is tracked exactly when stats are known (stats ⇔ stamina)',
-  });
+  })
+  .refine(
+    (participant) =>
+      participant.stats === null ||
+      participant.stamina === null ||
+      (participant.stats.recoveriesMax === null) === (participant.stamina.recoveries === null),
+    { message: 'recoveries are tracked exactly when recoveriesMax is known' },
+  );
 
 export type ParticipantState = z.infer<typeof ParticipantStateSchema>;
 
+/**
+ * One recorded terrain alteration (v4, R-0022): "The area is difficult
+ * terrain." becomes a typed, attributed fact — the +1-square entry cost
+ * [rule.combat/difficult-terrain via movement/difficult-terrain] stays
+ * table-adjudicated until spatial substrate lands. Persists until the
+ * Director clears it; does not survive the encounter.
+ */
+export const TerrainFactSchema = z.object({
+  factId: z.string().min(1),
+  terrain: z.literal('difficult'),
+  /** Provenance: the Effect instruction that created it. */
+  effectArtifactId: z.string().min(1),
+  effectOrdinal: z.number().int().positive(),
+  /** The ability header's verbatim area/distance cell ("3 burst",
+   * "4 x 1 line within 1"), when the artifact carries one. */
+  areaText: z.string().nullable(),
+  /** The participant whose ability created it, when known. */
+  createdBy: ParticipantIdSchema.nullable(),
+  intentId: z.string().min(1),
+});
+
+export type TerrainFact = z.infer<typeof TerrainFactSchema>;
+
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(3),
+  schemaVersion: z.literal(4),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
+   * literals valid while migration stamps the version. */
+  terrainFacts: z.array(TerrainFactSchema).default([]),
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
 
-/** The power-roll-cluster stored shape, retained for migration (migrate.ts).
- * Participant bodies parse through the current schema — `grants` defaults
- * to [] — so only the version literal distinguishes the wrapper. */
+/** The next-roll-grant stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — `recoveries` /
+ * `recoveriesMax` default to null — so only the version literal
+ * distinguishes the wrapper. */
+export const EncounterStateV3Schema = z.object({
+  schemaVersion: z.literal(3),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+});
+
+export type EncounterStateV3 = z.infer<typeof EncounterStateV3Schema>;
+
+/** The power-roll-cluster stored shape, retained for migration (migrate.ts). */
 export const EncounterStateV2Schema = z.object({
   schemaVersion: z.literal(2),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
@@ -391,6 +446,42 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
     subject: z.enum(['the-target', 'each-target']),
     window: GrantWindowSchema.nullable(),
   }),
+  /** "<subject> can spend a Recovery." — a declinable offer to each bound
+   * participant [R-0018]; spending = −1 Recovery, +recoveryValue Stamina
+   * through the one home; 0 Recoveries refuses the binding [R-0019a];
+   * Director creatures convert to floor(staminaMax/3) with no pool
+   * [R-0019b]; minions route to table [R-0019c]. */
+  z.object({
+    kind: z.literal('spend-recovery'),
+    /** Links-stripped subject phrase, verbatim ("You or one ally within
+     * distance") — eligibility is table-asserted at dispatch. */
+    subjectText: z.string().min(1),
+    /** True when the phrase names exactly one spender; over-binding warns
+     * and applies (the established permissive receipt). */
+    singular: z.boolean(),
+  }),
+  /** "<subject> regains N Stamina." — automatic, no recipient choice or
+   * action [R-0020]; signed addition clamped at Stamina maximum [R-0017]. */
+  z.object({
+    kind: z.literal('regain-stamina'),
+    amount: z.number().int().nonnegative(),
+    subjectText: z.string().min(1),
+    singular: z.boolean(),
+  }),
+  /** "<subject> gains N temporary Stamina." — pool becomes max(current,
+   * granted), never the sum; cleared by the end-encounter sweep [R-0021]. */
+  z.object({
+    kind: z.literal('temporary-stamina'),
+    amount: z.number().int().nonnegative(),
+    subjectText: z.string().min(1),
+    singular: z.boolean(),
+  }),
+  /** "The area is difficult terrain." — records an attributed terrain fact;
+   * movement math stays table until spatial substrate lands [R-0022]. */
+  z.object({
+    kind: z.literal('terrain-fact'),
+    terrain: z.literal('difficult'),
+  }),
   z.object({ kind: z.literal('table') }),
 ]);
 
@@ -410,6 +501,10 @@ export const EffectProgramDataSchema = z.object({
   canonRefs: z.array(z.string().min(1)),
   actionType: z.string().nullable(),
   targetsText: z.string().nullable(),
+  /** Verbatim area/distance header cell ("3 burst") — terrain facts record
+   * it as the area's only available description [R-0022]. Default keeps
+   * pre-v4 program literals valid. */
+  distanceText: z.string().nullable().default(null),
   resolution: EffectResolutionSchema,
 });
 
@@ -528,6 +623,10 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         objectTargets: z.array(z.string().min(1)).default([]),
         /** rule.health/stamina §Knocking Creatures Out. */
         knockOut: z.boolean().default(false),
+        /** Per-offered-participant accept/decline for a spend-recovery
+         * resolution [R-0018]: true = spends, false = declines. Every bound
+         * target must answer; the receipt records who did what. */
+        recoverySpends: z.record(ParticipantIdSchema, z.boolean()).default({}),
       })
       .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
         message: 'targets must be distinct',
@@ -535,6 +634,16 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       .refine((payload) => new Set(payload.objectTargets).size === payload.objectTargets.length, {
         message: 'object targets must be distinct',
       })
+      .refine(
+        (payload) =>
+          payload.effect.resolution.kind === 'spend-recovery'
+            ? Object.keys(payload.recoverySpends).every((id) => payload.targets.includes(id))
+            : Object.keys(payload.recoverySpends).length === 0,
+        {
+          message:
+            'recoverySpends applies only to spend-recovery resolutions, over declared targets',
+        },
+      )
       .refine(
         (payload) =>
           payload.effect.resolution.kind !== 'test' ||
@@ -555,9 +664,19 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         (payload) =>
           payload.effect.resolution.kind === 'table' ||
           payload.effect.resolution.kind === 'test' ||
+          payload.effect.resolution.kind === 'terrain-fact' ||
           payload.targets.length > 0,
         { message: 'automatic Effect programs require at least one target' },
       ),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('clear-terrain-fact'),
+    payload: z.object({
+      /** Director adjudication: rubble cleared, paste scraped away [R-0022]. */
+      factId: z.string().min(1),
+      reason: z.string().min(1).optional(),
+    }),
   }),
   z.object({
     ...intentBase,

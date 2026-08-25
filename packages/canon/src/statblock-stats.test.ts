@@ -23,6 +23,7 @@ describe.skipIf(!sourceRoot)('statblockStats over real stat blocks', () => {
       weaknesses: [],
       potencies: null,
       organization: 'Horde',
+      recoveriesMax: null,
       unparsedRows: [],
     });
   });

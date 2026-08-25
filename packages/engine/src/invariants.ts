@@ -39,7 +39,14 @@ export interface InvariantViolation {
     | 'dice-out-of-range'
     | 'breakdown-mismatch'
     | 'potency-gate-bypassed'
-    | 'effect-receipt-mismatch';
+    | 'effect-receipt-mismatch'
+    | 'unattributed-recoveries-change'
+    | 'phantom-recoveries-claim'
+    | 'recoveries-out-of-bounds'
+    | 'stamina-above-maximum'
+    | 'duplicate-terrain-fact-id'
+    | 'unattributed-terrain-change'
+    | 'phantom-terrain-claim';
   detail: string;
 }
 
@@ -282,6 +289,132 @@ export function checkInvariants(
       violations.push({
         code: 'unattributed-stamina-change',
         detail: `${participant.id} ended at ${afterStamina.current}/${afterStamina.temporary}; claims walk to ${current}/${temporary}`,
+      });
+    }
+  }
+
+  // ── Recoveries↔log reconciliation (v4, R-0018/R-0019) ───────────────────
+  // Every participant's Recoveries delta must be walked, in log order, by the
+  // machine-readable `recoveriesDeltas` claims; every claim must be real.
+  // Bounds: 0 ≤ recoveries ≤ recoveriesMax whenever tracked.
+  interface RecoveriesClaim {
+    participantId: string;
+    from: number;
+    to: number;
+  }
+  const recoveriesClaims = new Map<string, RecoveriesClaim[]>();
+  for (const entry of mutations) {
+    const rows = entry.data.recoveriesDeltas;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const claim = row as RecoveriesClaim;
+      if (typeof claim?.participantId !== 'string') continue;
+      const list = recoveriesClaims.get(claim.participantId) ?? [];
+      list.push(claim);
+      recoveriesClaims.set(claim.participantId, list);
+    }
+  }
+  for (const participant of Object.values(result.state.participants)) {
+    const beforeParticipant = before.participants[participant.id];
+    const beforeRecoveries = beforeParticipant?.stamina?.recoveries ?? null;
+    const afterRecoveries = participant.stamina?.recoveries ?? null;
+    const claims = recoveriesClaims.get(participant.id) ?? [];
+    if (beforeRecoveries === null || afterRecoveries === null) {
+      if (claims.length > 0) {
+        violations.push({
+          code: 'phantom-recoveries-claim',
+          detail: `claims for ${participant.id}, whose Recoveries are untracked`,
+        });
+      }
+      continue;
+    }
+    let current = beforeRecoveries;
+    for (const claim of claims) {
+      if (claim.from !== current) {
+        violations.push({
+          code: 'phantom-recoveries-claim',
+          detail: `claim on ${participant.id} starts at ${claim.from}, state was ${current}`,
+        });
+      }
+      current = claim.to;
+    }
+    if (current !== afterRecoveries) {
+      violations.push({
+        code: 'unattributed-recoveries-change',
+        detail: `${participant.id} ended at ${afterRecoveries} Recoveries; claims walk to ${current}`,
+      });
+    }
+    const max = participant.stats?.recoveriesMax;
+    if (typeof max === 'number' && (afterRecoveries < 0 || afterRecoveries > max)) {
+      violations.push({
+        code: 'recoveries-out-of-bounds',
+        detail: `${participant.id} has ${afterRecoveries} Recoveries of ${max}`,
+      });
+    }
+  }
+
+  // Regain clamps at Stamina maximum [R-0017]; nothing may exceed it.
+  for (const participant of Object.values(result.state.participants)) {
+    if (participant.stats !== null && participant.stamina !== null) {
+      if (participant.stamina.current > participant.stats.staminaMax) {
+        violations.push({
+          code: 'stamina-above-maximum',
+          detail: `${participant.id} at ${participant.stamina.current}/${participant.stats.staminaMax}`,
+        });
+      }
+    }
+  }
+
+  // ── Terrain-fact↔log reconciliation (v4, R-0022) ────────────────────────
+  const beforeFactIds = before.terrainFacts.map((fact) => fact.factId);
+  const afterFactIds = result.state.terrainFacts.map((fact) => fact.factId);
+  const seenFactIds = new Set<string>();
+  for (const factId of afterFactIds) {
+    if (seenFactIds.has(factId)) {
+      violations.push({ code: 'duplicate-terrain-fact-id', detail: factId });
+    }
+    seenFactIds.add(factId);
+  }
+  const factsAdded = afterFactIds.filter((id) => !beforeFactIds.includes(id));
+  const factsRemoved = beforeFactIds.filter((id) => !afterFactIds.includes(id));
+  const claimedFactAdds = new Set<string>();
+  const claimedFactRemoves = new Set<string>();
+  for (const entry of mutations) {
+    const addedFact = entry.data.terrainFactAdded as { factId?: unknown } | undefined;
+    if (typeof addedFact?.factId === 'string') claimedFactAdds.add(addedFact.factId);
+    const clearedFact = entry.data.terrainFactCleared as { factId?: unknown } | undefined;
+    if (typeof clearedFact?.factId === 'string') claimedFactRemoves.add(clearedFact.factId);
+    for (const id of claimed(entry.data, 'terrainFactsCleared')) claimedFactRemoves.add(id);
+  }
+  for (const id of factsAdded) {
+    if (!claimedFactAdds.has(id)) {
+      violations.push({
+        code: 'unattributed-terrain-change',
+        detail: `terrain fact ${id} appeared with no claim`,
+      });
+    }
+  }
+  for (const id of factsRemoved) {
+    if (!claimedFactRemoves.has(id)) {
+      violations.push({
+        code: 'unattributed-terrain-change',
+        detail: `terrain fact ${id} vanished with no claim`,
+      });
+    }
+  }
+  for (const id of claimedFactAdds) {
+    if (!factsAdded.includes(id)) {
+      violations.push({
+        code: 'phantom-terrain-claim',
+        detail: `mutation entry claims added fact ${id} but the state shows no such change`,
+      });
+    }
+  }
+  for (const id of claimedFactRemoves) {
+    if (!factsRemoved.includes(id)) {
+      violations.push({
+        code: 'phantom-terrain-claim',
+        detail: `mutation entry claims removed fact ${id} but the state shows no such change`,
       });
     }
   }

@@ -12,6 +12,7 @@ const STATS: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: null,
+  recoveriesMax: null,
 };
 
 function state() {
@@ -40,6 +41,7 @@ function baseEffect(resolution: EffectProgramData['resolution']): EffectProgramD
     canonRefs: ['canon/rule/example'],
     actionType: 'Main action',
     targetsText: 'One creature',
+    distanceText: null,
     resolution,
   };
 }
@@ -249,6 +251,7 @@ function testEffect(): EffectProgramData {
     canonRefs: [],
     actionType: 'Main action',
     targetsText: 'One creature',
+    distanceText: null,
     resolution: {
       kind: 'test',
       characteristic: 'presence',

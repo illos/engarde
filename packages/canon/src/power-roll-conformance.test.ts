@@ -121,11 +121,13 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     weaknesses: [],
     potencies: null,
     organization: 'Horde',
+    recoveriesMax: null,
   };
 
   function freshState(): EncounterState {
     return {
-      schemaVersion: 3,
+      schemaVersion: 4,
+      terrainFacts: [],
       participants: {
         warrior: {
           id: 'warrior',
@@ -142,7 +144,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
           sourceRecordId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-assassin',
           kind: 'director-creature',
           stats: targetStats,
-          stamina: { current: 15, temporary: 0 },
+          stamina: { current: 15, temporary: 0, recoveries: null },
           grants: [],
         },
       },
@@ -182,7 +184,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     const result = applyIntent(before, intent, { random: createSeededRandomSource(1) });
     expect(checkInvariants(before, intent, result)).toEqual([]);
     const assassin = result.state.participants.assassin;
-    expect(assassin?.stamina).toEqual({ current: 10, temporary: 0 });
+    expect(assassin?.stamina).toEqual({ current: 10, temporary: 0, recoveries: null });
     expect(assassin?.conditions.map((instance) => instance.conditionId)).toEqual([
       'mcdm.heroes.v1/condition/bleeding',
     ]);
@@ -215,7 +217,11 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     };
     const result = applyIntent(before, intent, { random: createSeededRandomSource(1) });
     expect(checkInvariants(before, intent, result)).toEqual([]);
-    expect(result.state.participants.assassin?.stamina).toEqual({ current: 8, temporary: 0 });
+    expect(result.state.participants.assassin?.stamina).toEqual({
+      current: 8,
+      temporary: 0,
+      recoveries: null,
+    });
     expect(result.state.participants.assassin?.conditions).toHaveLength(1);
   });
 });
@@ -242,6 +248,7 @@ describe.skipIf(!sourceRoot)(
         weaknesses: [],
         potencies: null,
         organization: 'Horde',
+        recoveriesMax: null,
       };
 
       const runFight = () => {

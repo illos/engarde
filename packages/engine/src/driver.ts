@@ -60,7 +60,7 @@ export function initialEncounterState(participants: readonly DriverParticipant[]
     seen.add(participant.id);
   }
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
@@ -71,12 +71,19 @@ export function initialEncounterState(participants: readonly DriverParticipant[]
           kind: participant.kind,
           stats: participant.stats ?? null,
           stamina: participant.stats
-            ? { current: participant.stats.staminaMax, temporary: 0 }
+            ? {
+                current: participant.stats.staminaMax,
+                temporary: 0,
+                // Seeds full, mirroring the Stamina-at-maximum convention;
+                // hosts asserting mid-day attrition adjust post-seed.
+                recoveries: participant.stats.recoveriesMax ?? null,
+              }
             : null,
           grants: [],
         },
       ]),
     ),
+    terrainFacts: [],
   };
 }
 

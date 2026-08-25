@@ -388,6 +388,7 @@ export function compileEffectPrograms(
         canonRefs: clause.data.canonRefs,
         actionType: lastHeader?.actionType ?? null,
         targetsText: lastHeader?.targets ?? null,
+        distanceText: lastHeader?.distance ?? null,
         resolution,
       }),
     );

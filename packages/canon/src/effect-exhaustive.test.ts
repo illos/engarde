@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTOMATIC_EFFECT_CANON_EXPECTATIONS,
   EFFECT_CANON_PIN,
+  FLAT_RESOURCE_CANON_EXPECTATIONS,
   NEXT_ROLL_GRANT_CANON_EXPECTATIONS,
   TEST_EFFECT_CANON_EXPECTATIONS,
 } from './effect-canon-expectations.js';
@@ -50,6 +51,13 @@ const grantExpectationByKey = new Map(
   ]),
 );
 
+const flatExpectationByKey = new Map(
+  FLAT_RESOURCE_CANON_EXPECTATIONS.map((expectation) => [
+    effectKey(expectation.artifactId, expectation.effectOrdinal),
+    expectation,
+  ]),
+);
+
 const STATS: ParticipantStats = {
   staminaMax: 100_000,
   characteristics: { might: 0, agility: 0, reason: 0, intuition: 0, presence: 0 },
@@ -57,6 +65,7 @@ const STATS: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: null,
+  recoveriesMax: null,
 };
 
 function state() {
@@ -90,7 +99,13 @@ function dispatch(program: EffectProgramData, intentId: string) {
     intentId,
     kind: 'use-effect' as const,
     actor: { kind: 'participant' as const, participantId: 'actor' },
-    payload: { actorParticipantId: 'actor', effect: program, targets: ['target'] },
+    payload: {
+      actorParticipantId: 'actor',
+      effect: program,
+      targets: ['target'],
+      // A Recovery offer needs every bound participant's answer [R-0018].
+      ...(program.resolution.kind === 'spend-recovery' ? { recoverySpends: { target: true } } : {}),
+    },
   };
   const result = applyIntent(before, intent, { random: createSeededRandomSource(1) });
   return { before, intent, result };
@@ -113,16 +128,29 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     expect(testExpectationByKey.size).toBe(29);
     expect(grantExpectationByKey.size).toBe(NEXT_ROLL_GRANT_CANON_EXPECTATIONS.length);
     expect(grantExpectationByKey.size).toBe(14);
+    expect(flatExpectationByKey.size).toBe(FLAT_RESOURCE_CANON_EXPECTATIONS.length);
+    expect(flatExpectationByKey.size).toBe(12);
 
     const fixtures = await loadCoreEffectFixtures(manifestPath);
     expect(fixtures).toHaveLength(1688);
     expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(1044);
     expect(new Set(fixtures.map((fixture) => fixture.fixtureId)).size).toBe(fixtures.length);
 
-    const counts = { damage: 0, condition: 0, test: 0, 'next-roll-grant': 0, table: 0 };
+    const counts = {
+      damage: 0,
+      condition: 0,
+      test: 0,
+      'next-roll-grant': 0,
+      'spend-recovery': 0,
+      'regain-stamina': 0,
+      'temporary-stamina': 0,
+      'terrain-fact': 0,
+      table: 0,
+    };
     const seenAutomatic = new Set<string>();
     const seenTest = new Set<string>();
     const seenGrant = new Set<string>();
+    const seenFlat = new Set<string>();
     for (const fixture of fixtures) {
       expect(fixture.program.sourceText, fixture.fixtureId).toBe(
         rawPayload(fixture.clause.span.text),
@@ -168,14 +196,34 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
           );
           counts['next-roll-grant'] += 1;
         } else {
-          expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
-          counts.table += 1;
+          const flatExpectation = flatExpectationByKey.get(key);
+          if (flatExpectation) {
+            seenFlat.add(key);
+            expect(fixture.artifact.source.path, fixture.fixtureId).toBe(
+              flatExpectation.sourcePath,
+            );
+            expect(fixture.program.sourceSpan, fixture.fixtureId).toEqual(
+              flatExpectation.sourceSpan,
+            );
+            expect(fixture.program.sourceText, fixture.fixtureId).toBe(flatExpectation.sourceText);
+            expect(fixture.program.targetsText, fixture.fixtureId).toBe(
+              flatExpectation.targetsText,
+            );
+            expect(fixture.program.resolution, fixture.fixtureId).toEqual(
+              flatExpectation.resolution,
+            );
+            counts[flatExpectation.resolution.kind] += 1;
+          } else {
+            expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
+            counts.table += 1;
+          }
         }
       }
     }
     expect(seenAutomatic).toEqual(new Set(expectationByKey.keys()));
     expect(seenTest).toEqual(new Set(testExpectationByKey.keys()));
     expect(seenGrant).toEqual(new Set(grantExpectationByKey.keys()));
+    expect(seenFlat).toEqual(new Set(flatExpectationByKey.keys()));
     // 87 attached bullets across the 29 tests: 21 automatic / 66 verbatim.
     const bullets = TEST_EFFECT_CANON_EXPECTATIONS.flatMap((expectation) => [
       expectation.resolution.tiers.tier1,
@@ -184,15 +232,21 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     ]);
     expect(bullets).toHaveLength(87);
     expect(bullets.filter((bullet) => bullet.kind === 'automatic')).toHaveLength(21);
-    // Re-frozen 2026-08-25 after the 14 next-roll grant lines compiled out
-    // of the table set (R-0012..R-0016; edge-bane-next-roll 12 → 0,
-    // next-strike-against-target 2 → 0).
+    // Re-frozen 2026-08-25 after the 12 flat-resource lines compiled out of
+    // the table set (R-0017..R-0022; spend-recovery-exact 6 → 0,
+    // regains-stamina-flat 2 → 0, temporary-stamina-flat 1 → 0,
+    // area-difficult-terrain 3 → 0). Previous freeze: the 14 next-roll grant
+    // lines (R-0012..R-0016).
     expect(counts).toEqual({
       damage: 5,
       condition: 7,
       test: 29,
       'next-roll-grant': 14,
-      table: 1633,
+      'spend-recovery': 6,
+      'regain-stamina': 2,
+      'temporary-stamina': 1,
+      'terrain-fact': 3,
+      table: 1621,
     });
   });
 
@@ -329,6 +383,48 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
         expect(result.state.participants.target?.stamina?.current, fixture.fixtureId).toBe(
           STATS.staminaMax,
         );
+        continue;
+      }
+      const flatExpectation = flatExpectationByKey.get(key);
+      if (!expectation && flatExpectation) {
+        const golden = flatExpectation.resolution;
+        expect(fixture.program.resolution, fixture.fixtureId).toEqual(golden);
+        const target = result.state.participants.target;
+        if (golden.kind === 'spend-recovery') {
+          // The synthetic target is a Director-controlled creature at full
+          // Stamina: the accepted offer converts to a one-third-maximum
+          // regain [R-0019b], clamped to 0 at the maximum [R-0017].
+          expect(target?.stamina, fixture.fixtureId).toEqual({
+            current: STATS.staminaMax,
+            temporary: 0,
+            recoveries: null,
+          });
+          const regain = result.log.find((entry) => entry.data.staminaDeltas !== undefined);
+          expect(regain?.data.clampedAtMax, fixture.fixtureId).toBe(true);
+          expect(regain?.data.requestedAmount, fixture.fixtureId).toBe(
+            Math.floor(STATS.staminaMax / 3),
+          );
+        } else if (golden.kind === 'regain-stamina') {
+          expect(target?.stamina?.current, fixture.fixtureId).toBe(STATS.staminaMax);
+          const regain = result.log.find((entry) => entry.data.staminaDeltas !== undefined);
+          expect(regain?.data.requestedAmount, fixture.fixtureId).toBe(golden.amount);
+        } else if (golden.kind === 'temporary-stamina') {
+          expect(target?.stamina, fixture.fixtureId).toEqual({
+            current: STATS.staminaMax,
+            temporary: golden.amount,
+            recoveries: null,
+          });
+        } else {
+          expect(result.state.terrainFacts, fixture.fixtureId).toHaveLength(1);
+          expect(result.state.terrainFacts[0], fixture.fixtureId).toMatchObject({
+            terrain: 'difficult',
+            effectArtifactId: fixture.artifactId,
+            effectOrdinal: fixture.program.effectOrdinal,
+            areaText: fixture.program.distanceText,
+            createdBy: 'actor',
+          });
+          expect(result.state.participants, fixture.fixtureId).toEqual(before.participants);
+        }
         continue;
       }
       if (!expectation) {

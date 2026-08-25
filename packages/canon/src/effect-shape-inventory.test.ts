@@ -87,11 +87,11 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
     const inventory = buildEffectShapeInventory(totalPrograms, rows);
 
     expect(inventory.totalPrograms).toBe(1688);
-    expect(inventory.tablePrograms).toBe(1633);
+    expect(inventory.tablePrograms).toBe(1621);
 
     // Every table program lands in exactly one primary family.
     const familySum = inventory.families.reduce((sum, family) => sum + family.lineCount, 0);
-    expect(familySum).toBe(1633);
+    expect(familySum).toBe(1621);
     for (const family of inventory.families) {
       expect(EFFECT_SHAPE_FAMILIES).toContain(family.family);
     }
@@ -101,8 +101,12 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
     // table set (family 54 → 25; its exact closed template is now fully
     // implemented, count 0), then again 2026-08-25 after the 14 next-roll
     // grant lines compiled out (edge-bane 152 → 138; both closed templates
-    // now fully implemented, count 0 — R-0012..R-0016). A corpus drift,
-    // precedence change, or pattern edit must surface here on purpose.
+    // now fully implemented, count 0 — R-0012..R-0016), then again 2026-08-25
+    // after the 12 flat-resource lines compiled out (recovery 34 → 28,
+    // stamina-regain 35 → 33, temporary-stamina 22 → 21, terrain 30 → 27;
+    // all four closed templates now fully implemented, count 0 —
+    // R-0017..R-0022). A corpus drift, precedence change, or pattern edit
+    // must surface here on purpose.
     const familyCounts = Object.fromEntries(
       inventory.families.map((family) => [family.family, family.lineCount]),
     );
@@ -116,10 +120,10 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
       'characteristic-test': 25,
       surge: 45,
       'choice-menu': 40,
-      'stamina-regain': 35,
-      recovery: 34,
-      terrain: 30,
-      'temporary-stamina': 22,
+      'stamina-regain': 33,
+      recovery: 28,
+      terrain: 27,
+      'temporary-stamina': 21,
       malice: 17,
       'heroic-resource': 11,
     });
@@ -131,11 +135,11 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
       'choice-menu-intro': 40,
       'characteristic-test-exact': 0,
       'edge-bane-next-roll': 0,
-      'spend-recovery-exact': 6,
-      'area-difficult-terrain': 3,
+      'spend-recovery-exact': 0,
+      'area-difficult-terrain': 0,
       'next-strike-against-target': 0,
-      'regains-stamina-flat': 2,
-      'temporary-stamina-flat': 1,
+      'regains-stamina-flat': 0,
+      'temporary-stamina-flat': 0,
     });
 
     // Closed matches stay inside their families and never exceed them.

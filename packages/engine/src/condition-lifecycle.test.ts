@@ -19,7 +19,8 @@ const DYING = 'mcdm.heroes.v1/rule.health/dying';
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    terrainFacts: [],
     participants: {
       hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
       cultist: {
@@ -232,8 +233,9 @@ describe('remove-condition', () => {
         weaknesses: [],
         potencies: null,
         organization: null,
+        recoveriesMax: null,
       },
-      stamina: { current: 0, temporary: 0 },
+      stamina: { current: 0, temporary: 0, recoveries: null },
       grants: [],
       conditions: [
         {

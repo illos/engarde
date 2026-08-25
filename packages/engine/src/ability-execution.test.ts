@@ -93,6 +93,7 @@ const CONDUIT_STATS: ParticipantStats = {
   weaknesses: [],
   potencies: { weak: 0, average: 1, strong: 2 },
   organization: null,
+  recoveriesMax: null,
 };
 
 const BANDIT_STATS: ParticipantStats = {
@@ -102,11 +103,13 @@ const BANDIT_STATS: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: null,
+  recoveriesMax: null,
 };
 
 function state(): EncounterState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    terrainFacts: [],
     participants: {
       conduit: {
         id: 'conduit',
@@ -114,7 +117,7 @@ function state(): EncounterState {
         sourceRecordId: null,
         kind: 'hero',
         stats: CONDUIT_STATS,
-        stamina: { current: 21, temporary: 0 },
+        stamina: { current: 21, temporary: 0, recoveries: null },
         grants: [],
       },
       bandit: {
@@ -123,7 +126,7 @@ function state(): EncounterState {
         sourceRecordId: null,
         kind: 'director-creature',
         stats: BANDIT_STATS,
-        stamina: { current: 15, temporary: 0 },
+        stamina: { current: 15, temporary: 0, recoveries: null },
         grants: [],
       },
       'bandit-2': {
@@ -132,7 +135,7 @@ function state(): EncounterState {
         sourceRecordId: null,
         kind: 'director-creature',
         stats: BANDIT_STATS,
-        stamina: { current: 15, temporary: 0 },
+        stamina: { current: 15, temporary: 0, recoveries: null },
         grants: [],
       },
     },
@@ -164,7 +167,7 @@ describe('the worked example, tier by tier [rule.character/potency]', () => {
   it('tier 1 (dice 4+5, I 2 → 11): 5 holy damage, potency A < 0 resisted', () => {
     const result = dispatchChecked(state(), hammer({ dice: [4, 5] }));
     const bandit = must(result.state.participants.bandit);
-    expect(bandit.stamina).toEqual({ current: 10, temporary: 0 });
+    expect(bandit.stamina).toEqual({ current: 10, temporary: 0, recoveries: null });
     expect(bandit.conditions).toEqual([]);
     expect(
       result.log.some(
@@ -176,7 +179,7 @@ describe('the worked example, tier by tier [rule.character/potency]', () => {
   it('tier 2 (dice 6+5, I 2 → 13): 8 holy damage and prone', () => {
     const result = dispatchChecked(state(), hammer({ dice: [6, 5] }));
     const bandit = must(result.state.participants.bandit);
-    expect(bandit.stamina).toEqual({ current: 7, temporary: 0 });
+    expect(bandit.stamina).toEqual({ current: 7, temporary: 0, recoveries: null });
     expect(bandit.conditions.map((instance) => instance.conditionId)).toEqual([PRONE]);
     expect(must(bandit.conditions[0]).ending).toEqual({ kind: 'external' });
   });
@@ -184,7 +187,7 @@ describe('the worked example, tier by tier [rule.character/potency]', () => {
   it('tier 3 (dice 10+7, I 2 → 19): 11 holy damage and prone (save ends)', () => {
     const result = dispatchChecked(state(), hammer({ dice: [10, 7] }));
     const bandit = must(result.state.participants.bandit);
-    expect(bandit.stamina).toEqual({ current: 4, temporary: 0 });
+    expect(bandit.stamina).toEqual({ current: 4, temporary: 0, recoveries: null });
     expect(must(bandit.conditions[0]).ending).toEqual({ kind: 'save-ends' });
   });
 });

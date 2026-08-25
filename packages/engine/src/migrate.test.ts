@@ -21,7 +21,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
     };
     const lifted = upgradeEncounterState(v1);
-    expect(lifted.schemaVersion).toBe(3);
+    expect(lifted.schemaVersion).toBe(4);
     const fury = lifted.participants.fury;
     if (!fury) throw new Error('fury missing after upgrade');
     expect(fury.kind).toBe('director-creature');
@@ -48,7 +48,8 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v2);
     expect(lifted).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
+      terrainFacts: [],
       participants: {
         goblin: { ...v2.participants.goblin, grants: [] },
       },
@@ -57,7 +58,8 @@ describe('upgradeEncounterState (design SE-2)', () => {
 
   it('passes a v3 state through unchanged', () => {
     const v3 = {
-      schemaVersion: 3,
+      schemaVersion: 4,
+      terrainFacts: [],
       participants: {
         goblin: {
           id: 'goblin',

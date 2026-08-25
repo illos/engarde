@@ -71,6 +71,34 @@ export type EffectLineResolutionData =
       subject: 'the-target' | 'each-target';
       window: 'end-of-targets-next-turn' | null;
     }
+  | {
+      /** "<subject> can spend a Recovery." — a declinable per-participant
+       * offer [R-0018, R-0019]. */
+      kind: 'spend-recovery';
+      subjectText: string;
+      singular: boolean;
+    }
+  | {
+      /** "<subject> regains N Stamina." — automatic flat regain [R-0020]. */
+      kind: 'regain-stamina';
+      amount: number;
+      subjectText: string;
+      singular: boolean;
+    }
+  | {
+      /** "<subject> gains N temporary Stamina." — max-not-sum pool grant
+       * [R-0021]. */
+      kind: 'temporary-stamina';
+      amount: number;
+      subjectText: string;
+      singular: boolean;
+    }
+  | {
+      /** "The area is difficult terrain." — recorded attributed terrain
+       * fact [R-0022]. */
+      kind: 'terrain-fact';
+      terrain: 'difficult';
+    }
   | { kind: 'table' };
 
 export interface EffectLineData {
@@ -192,6 +220,21 @@ const NEXT_ROLL_GRANT_EFFECT =
   /^(The target|Each target) (takes a bane|takes a double bane|gains an edge|has a double edge) on their next (strike|power roll)( made before the end of their next turn)?\.$/;
 const INBOUND_NEXT_STRIKE_EFFECT =
   /^The next strike made against the target (gains an edge|takes a bane)\.$/;
+/** The four flat-resource closed templates (effect-shape inventory ids
+ * `spend-recovery-exact`, `regains-stamina-flat`, `temporary-stamina-flat`,
+ * `area-difficult-terrain`) — anchored whole payload; any rider or second
+ * sentence stays table [R-0017..R-0022]. Subject alternations are the
+ * observed corpus forms only. */
+const SPEND_RECOVERY_EFFECT =
+  /^(You|The target|Each target|You or one ally within distance|One ally adjacent to the target|Each ally in the area) can spend a Recovery\.$/;
+const REGAIN_STAMINA_FLAT_EFFECT =
+  /^(The target|Each target|One creature within \d+ squares) regains (\d+) Stamina\.$/;
+const TEMPORARY_STAMINA_FLAT_EFFECT =
+  /^(You|The target|Each target) gains? (\d+) temporary Stamina\.$/;
+const AREA_DIFFICULT_TERRAIN_EFFECT = /^The area is difficult terrain\.$/;
+/** Plural subjects among the flat-resource templates; everything else names
+ * exactly one recipient. */
+const PLURAL_SUBJECTS = new Set(['Each target', 'Each ally in the area']);
 const GRANT_POLARITY: Record<string, 'edge' | 'double-edge' | 'bane' | 'double-bane'> = {
   'gains an edge': 'edge',
   'has a double edge': 'double-edge',
@@ -304,6 +347,55 @@ function parseEffectPayload(payload: string): EffectLineData {
         },
       };
     }
+  }
+
+  const spendRecovery = SPEND_RECOVERY_EFFECT.exec(plain);
+  if (spendRecovery) {
+    const subjectText = spendRecovery[1] ?? '';
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'spend-recovery',
+        subjectText,
+        singular: !PLURAL_SUBJECTS.has(subjectText),
+      },
+    };
+  }
+  const regainFlat = REGAIN_STAMINA_FLAT_EFFECT.exec(plain);
+  if (regainFlat) {
+    const subjectText = regainFlat[1] ?? '';
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'regain-stamina',
+        amount: Number(regainFlat[2]),
+        subjectText,
+        singular: !PLURAL_SUBJECTS.has(subjectText),
+      },
+    };
+  }
+  const temporaryFlat = TEMPORARY_STAMINA_FLAT_EFFECT.exec(plain);
+  if (temporaryFlat) {
+    const subjectText = temporaryFlat[1] ?? '';
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'temporary-stamina',
+        amount: Number(temporaryFlat[2]),
+        subjectText,
+        singular: !PLURAL_SUBJECTS.has(subjectText),
+      },
+    };
+  }
+  if (AREA_DIFFICULT_TERRAIN_EFFECT.test(plain)) {
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: { kind: 'terrain-fact', terrain: 'difficult' },
+    };
   }
 
   return { sourceText: payload, canonRefs, resolution: { kind: 'table' } };

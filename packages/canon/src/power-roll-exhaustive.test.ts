@@ -72,6 +72,7 @@ const ACTOR_STATS: ParticipantStats = {
   weaknesses: [],
   potencies: { weak: 1, average: 2, strong: 3 },
   organization: null,
+  recoveriesMax: null,
 };
 
 const TARGET_STATS: ParticipantStats = {
@@ -81,6 +82,7 @@ const TARGET_STATS: ParticipantStats = {
   weaknesses: [],
   potencies: null,
   organization: null,
+  recoveriesMax: null,
 };
 
 const STARTING_STAMINA = 100_000;
@@ -155,7 +157,8 @@ function diceForTier(ability: AbilityEffectData, tier: Tier): [number, number] {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    terrainFacts: [],
     participants: {
       actor: {
         id: 'actor',
@@ -163,7 +166,7 @@ function freshState(): EncounterState {
         sourceRecordId: null,
         kind: 'hero',
         stats: ACTOR_STATS,
-        stamina: { current: STARTING_STAMINA, temporary: 0 },
+        stamina: { current: STARTING_STAMINA, temporary: 0, recoveries: null },
         grants: [],
       },
       target: {
@@ -172,7 +175,7 @@ function freshState(): EncounterState {
         sourceRecordId: null,
         kind: 'director-creature',
         stats: TARGET_STATS,
-        stamina: { current: STARTING_STAMINA, temporary: 0 },
+        stamina: { current: STARTING_STAMINA, temporary: 0, recoveries: null },
         grants: [],
       },
     },
