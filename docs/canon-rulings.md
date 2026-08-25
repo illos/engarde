@@ -429,11 +429,39 @@ squad." [Minions Come in Groups of Four, Monsters p.12]
 **Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
 d9c216ce verified), 2026-08-25.
 
-## R-0024 — (PENDING) Non-area damage: threshold kills confirmed in principle; overflow semantics under amendment
+## R-0024 — Non-area damage: full pool decrement with carryover; threshold kills; past-the-end excess discarded on the record (approved 2026-08-25)
 
-**Status:** not yet ruled. The user's amendment ("Overflow is never
-discarded", with a worked example) is being reconciled on a revised card;
-this slot is reserved and will be replaced by the accepted ruling.
+**Ruling:** A damage instance against a squad member reduces the pool by
+the **full** post-modifier damage; the remainder between kill thresholds
+stays in the pool and counts toward the next kill — nothing rounds away
+(user amendment: "Overflow is never discarded"; worked example: minions of
+2 Stamina, 7 damage → three kills and the seventh point carried). One
+minion dies at each per-minion-Stamina threshold crossing
+(`kills == floor((poolMax − pool) / perMinion)` is the standing invariant);
+the hit (bound) minion dies first automatically; additional victims are
+"nearest" (spatial — not modeled), so the dispatch may name them and
+otherwise the engine records the kills as pending identity with a table
+directive. Every death fires the 0-Stamina trigger receipt (R-0027). When
+a hit kills every remaining minion with damage left over, the excess has
+no destination in the core book: the receipt records the full damage and
+nothing further happens mechanically ("Yes, then discard" — ruled in chat
+after the rev-2 card).
+
+**Evidence (verbatim):** "Whenever a minion squad's Stamina pool is reduced
+by an amount equal to an individual minion's Stamina, one minion dies or is
+otherwise taken out of the fight. If a squad of goblin spinecleavers has
+its Stamina pool reduced from 40 to 35, the minion who took the damage that
+reduced the pool dies. When the Stamina pool hits 30, 25, 20, 15, 10, 5,
+and finally 0, another minion in the squad dies each time. If multiple
+minions take the damage that results in the pool dropping low enough to
+kill one minion, the creature who dealt the damage to the minions decides
+which of those minions dies." [Dropping One Minion, Monsters p.7]. "After
+dropping any minions who took the damage first, the minions nearest to
+those taken out suffer the same fate." [Dropping Multiple Minions,
+Monsters p.8]
+
+**Gate 3:** rev-2 card (cardHash 639a19c8) accepted by the user in chat,
+2026-08-25 ("Gotcha. Yes, then discard").
 
 ## R-0025 — Area damage: each in-area minion feeds the pool at most its own Stamina; only in-area minions die (approved 2026-08-25)
 
