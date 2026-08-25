@@ -1,7 +1,12 @@
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import { GRANT_CANON, grantContribution, scopeMatchesRoll, splitGrants } from './grant-lifecycle.js';
+import {
+  GRANT_CANON,
+  grantContribution,
+  scopeMatchesRoll,
+  splitGrants,
+} from './grant-lifecycle.js';
 import { CHARACTERISTIC_KEY, POTENCY_CANON, resolvePotency } from './potency.js';
 import {
   POWER_ROLL_CANON,
@@ -211,10 +216,7 @@ export function executeUseAbility(
   // mutation: grant consumption precedes the roll, and a refusal may never
   // follow a mutation (refusal-with-change). Binding errors are
   // target-independent, so this is safe to hoist.
-  const damageBindings = new Map<
-    Tier,
-    { value: number; label: string; defaulted: boolean }
-  >();
+  const damageBindings = new Map<Tier, { value: number; label: string; defaulted: boolean }>();
   for (const tierNumber of [1, 2, 3] as const) {
     const tierDamage = ability.tiers[`tier${tierNumber}`].damage;
     if (!tierDamage) continue;
@@ -507,8 +509,7 @@ export function executeUseAbility(
   for (const targetId of payload.targets) {
     const target = nextState.participants[targetId];
     if (!target) continue; // presence proven by the refusal gates
-    const tierData =
-      ability.tiers[`tier${tierNumberFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
+    const tierData = ability.tiers[`tier${tierNumberFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
     if (tierData.conditionIds.length === 0) continue;
 
     if (tierData.potency) {

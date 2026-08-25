@@ -418,6 +418,27 @@ function ActiveEncounter({
                 })}
               </ul>
             )}
+            {participant.grants.length > 0 ? (
+              <ul className="mt-1 flex flex-col gap-1">
+                {participant.grants.map((grant) => (
+                  <li key={grant.grantId} className="text-sm text-text-dim">
+                    pending:{' '}
+                    {grant.direction === 'inbound'
+                      ? `next strike against them carries a ${grant.polarity}`
+                      : `${grant.polarity} on their next ${
+                          grant.scope === 'strike' ? 'strike' : 'power roll'
+                        }`}
+                    <span className="text-xs text-text-mute">
+                      {grant.window === 'end-of-targets-next-turn'
+                        ? ' (until end of their next turn)'
+                        : ''}
+                      {grant.sourceRecordSlug ? ` · ${grant.sourceRecordSlug}` : ''}
+                      {grant.sourceParticipantId ? ` · from ${grant.sourceParticipantId}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </li>
         ))}
       </ul>

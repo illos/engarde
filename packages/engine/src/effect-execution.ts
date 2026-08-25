@@ -118,9 +118,7 @@ export function executeUseEffect(
   if (effect.resolution.kind === 'next-roll-grant') {
     for (const targetId of targets) {
       const grantId = `${effect.effectArtifactId}#${intent.intentId}-${targetId}`;
-      if (
-        state.participants[targetId]?.grants.some((grant) => grant.grantId === grantId)
-      ) {
+      if (state.participants[targetId]?.grants.some((grant) => grant.grantId === grantId)) {
         return {
           state,
           log: [

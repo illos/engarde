@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
 import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
-import { SKITTERLING } from '@engarde/canon/fixtures/skitterling';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
+import { SKITTERLING } from '@engarde/canon/fixtures/skitterling';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -623,9 +623,9 @@ test('next-roll grants store on the target, surface in the view, and are consume
   const after = await table.owner.client.query(api.encounters.getActive, {
     campaignId: table.campaignId,
   });
-  expect(
-    after?.participants.find((participant) => participant.id === 'warrior-a')?.grants,
-  ).toEqual([]);
+  expect(after?.participants.find((participant) => participant.id === 'warrior-a')?.grants).toEqual(
+    [],
+  );
   if (!after) throw new Error('no active encounter');
   const log = await table.owner.client.query(api.encounters.listLog, {
     campaignId: table.campaignId,
@@ -635,16 +635,14 @@ test('next-roll grants store on the target, surface in the view, and are consume
   const roll = log
     .map(
       (entry) =>
-        (entry.data as { powerRoll?: { banes: number; assertedBanes?: number } } | null)
-          ?.powerRoll,
+        (entry.data as { powerRoll?: { banes: number; assertedBanes?: number } } | null)?.powerRoll,
     )
     .find((data) => data !== undefined);
   expect(roll?.banes).toBe(1);
   expect(roll?.assertedBanes).toBe(0);
   expect(
-    log.some(
-      (entry) =>
-        Array.isArray((entry.data as { removedGrantIds?: string[] } | null)?.removedGrantIds),
+    log.some((entry) =>
+      Array.isArray((entry.data as { removedGrantIds?: string[] } | null)?.removedGrantIds),
     ),
   ).toBe(true);
 });

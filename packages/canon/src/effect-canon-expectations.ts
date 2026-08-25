@@ -1349,8 +1349,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 2,
     sourcePath: 'en/books/monsters/md/monster/elf-shadow/statblock/shadow-elf-luminator.md',
     sourceSpan: { byteStart: 1638, byteEnd: 1700 },
-    sourceText:
-      'Each target gains an edge on their next strike.',
+    sourceText: 'Each target gains an edge on their next strike.',
     targetsText: 'Each ally in the area',
     resolution: {
       kind: 'next-roll-grant',
@@ -1366,8 +1365,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/elf-shadow/statblock/shadow-elf-noctis-mage.md',
     sourceSpan: { byteStart: 992, byteEnd: 1052 },
-    sourceText:
-      'The target takes a bane on their next strike.',
+    sourceText: 'The target takes a bane on their next strike.',
     targetsText: 'One creature or object',
     resolution: {
       kind: 'next-roll-grant',
@@ -1383,8 +1381,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/elf-shadow/statblock/shadow-elf-sniper.md',
     sourceSpan: { byteStart: 1150, byteEnd: 1219 },
-    sourceText:
-      'The next strike made against the target gains an edge.',
+    sourceText: 'The next strike made against the target gains an edge.',
     targetsText: 'One creature or object per minion',
     resolution: {
       kind: 'next-roll-grant',
@@ -1400,8 +1397,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/gnoll/statblock/gnoll-mage-mauler.md',
     sourceSpan: { byteStart: 1149, byteEnd: 1213 },
-    sourceText:
-      'The target takes a bane on their next power roll.',
+    sourceText: 'The target takes a bane on their next power roll.',
     targetsText: 'One creature or object per minion',
     resolution: {
       kind: 'next-roll-grant',
@@ -1417,8 +1413,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/goblin/statblock/skitterling.md',
     sourceSpan: { byteStart: 1036, byteEnd: 1096 },
-    sourceText:
-      'The target takes a bane on their next strike.',
+    sourceText: 'The target takes a bane on their next strike.',
     targetsText: 'One creature per minion',
     resolution: {
       kind: 'next-roll-grant',
@@ -1434,8 +1429,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/lizardfolk/statblock/lizardfolk-shellguard.md',
     sourceSpan: { byteStart: 1082, byteEnd: 1142 },
-    sourceText:
-      'The target takes a bane on their next strike.',
+    sourceText: 'The target takes a bane on their next strike.',
     targetsText: 'One creature or object per minion',
     resolution: {
       kind: 'next-roll-grant',
@@ -1502,8 +1496,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 1,
     sourcePath: 'en/books/monsters/md/monster/undead/1st-echelon/statblock/ghost.md',
     sourceSpan: { byteStart: 1326, byteEnd: 1395 },
-    sourceText:
-      'The next strike made against the target gains an edge.',
+    sourceText: 'The next strike made against the target gains an edge.',
     targetsText: 'Two creatures',
     resolution: {
       kind: 'next-roll-grant',
@@ -1519,8 +1512,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 2,
     sourcePath: 'en/books/monsters/md/monster/undead/1st-echelon/statblock/skeleton.md',
     sourceSpan: { byteStart: 1858, byteEnd: 1919 },
-    sourceText:
-      'Each target takes a bane on their next strike.',
+    sourceText: 'Each target takes a bane on their next strike.',
     targetsText: 'Each enemy in the area',
     resolution: {
       kind: 'next-roll-grant',
@@ -1536,8 +1528,7 @@ export const NEXT_ROLL_GRANT_CANON_EXPECTATIONS: NextRollGrantCanonExpectation[]
     effectOrdinal: 4,
     sourcePath: 'en/books/monsters/md/monster/undead/2nd-echelon/statblock/mummy-lord.md',
     sourceSpan: { byteStart: 3842, byteEnd: 3903 },
-    sourceText:
-      'Each target takes a bane on their next strike.',
+    sourceText: 'Each target takes a bane on their next strike.',
     targetsText: 'Each enemy in the area',
     resolution: {
       kind: 'next-roll-grant',

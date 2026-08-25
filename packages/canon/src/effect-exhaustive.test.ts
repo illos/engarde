@@ -325,14 +325,10 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
             effectArtifactId: fixture.artifactId,
           },
         });
-        expect(
-          result.state.participants.target?.conditions,
-          fixture.fixtureId,
-        ).toEqual([]);
-        expect(
-          result.state.participants.target?.stamina?.current,
-          fixture.fixtureId,
-        ).toBe(STATS.staminaMax);
+        expect(result.state.participants.target?.conditions, fixture.fixtureId).toEqual([]);
+        expect(result.state.participants.target?.stamina?.current, fixture.fixtureId).toBe(
+          STATS.staminaMax,
+        );
         continue;
       }
       if (!expectation) {

@@ -74,6 +74,7 @@ const activeEncounter = {
       recordSlug: 'fury',
       vitals: null,
       conditions: [],
+      grants: [],
     },
     {
       id: 'censor',
@@ -96,6 +97,17 @@ const activeEncounter = {
           ending: 'save-ends' as const,
           sourceParticipantId: 'fury',
           sourceRecordSlug: 'blood-for-blood',
+        },
+      ],
+      grants: [
+        {
+          grantId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling#d2-censor',
+          polarity: 'bane' as const,
+          scope: 'strike' as const,
+          direction: 'outbound' as const,
+          window: null,
+          sourceParticipantId: 'fury',
+          sourceRecordSlug: 'skitterling',
         },
       ],
     },
@@ -167,6 +179,8 @@ describe('EncounterPanel', () => {
     ]);
     render(<EncounterPanel campaignId={campaignId} />);
     expect(screen.getByText('bleeding')).toBeTruthy();
+    // Pending next-roll grants render on the holder's card [R-0012..R-0016].
+    expect(screen.getByText(/pending:\s*bane on their next strike/)).toBeTruthy();
     expect(screen.getByText('Resolve at the table')).toBeTruthy();
     expect(screen.getByText('**Effect:** verbatim card text')).toBeTruthy();
 

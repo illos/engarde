@@ -456,10 +456,7 @@ describe('inbound marks are target-local (R-0014)', () => {
       keywords: ['Area', 'Magic'],
     };
     const before = withGrants(freshState(), 'hero-1', [mark]);
-    const result = dispatchChecked(
-      before,
-      clawsIntent(['hero-1'], { ability: nonStrike }),
-    );
+    const result = dispatchChecked(before, clawsIntent(['hero-1'], { ability: nonStrike }));
     const roll = result.log.find((entry) => entry.data.powerRoll !== undefined)?.data.powerRoll as {
       edges: number;
       perTarget?: unknown;

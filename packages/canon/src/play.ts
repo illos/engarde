@@ -188,7 +188,7 @@ export function createPlaySession(options: {
     const lines: string[] = [];
     for (const participant of Object.values(state.participants)) {
       lines.push(`${participant.id}  (${participant.sourceRecordId ?? 'no source record'})`);
-      if (participant.conditions.length === 0) {
+      if (participant.conditions.length === 0 && participant.grants.length === 0) {
         lines.push('  no conditions');
         continue;
       }
@@ -200,6 +200,21 @@ export function createPlaySession(options: {
         lines.push(
           `  ${shortName(instance.conditionId)} (${instance.ending.kind})${from}${via}  [${instance.instanceId}]`,
         );
+      }
+      for (const grant of participant.grants) {
+        // Pending next-roll modifiers [R-0012..R-0016]: outbound rides this
+        // participant's next matching roll; inbound rides the next
+        // qualifying strike against them.
+        const shape =
+          grant.direction === 'inbound'
+            ? `next strike against them: ${grant.polarity}`
+            : `${grant.polarity} on next ${grant.scope === 'strike' ? 'strike' : 'power roll'}`;
+        const until =
+          grant.window === 'end-of-targets-next-turn' ? ' until end of their next turn' : '';
+        const via = grant.source.effectArtifactId
+          ? ` via ${shortName(grant.source.effectArtifactId)}`
+          : '';
+        lines.push(`  pending: ${shape}${until}${via}  [${grant.grantId}]`);
       }
     }
     return lines.join('\n');

@@ -27,8 +27,7 @@ export const GRANT_CANON = {
   endOfTurn: 'mcdm.heroes.v1/rule.combat/end-of-turn',
   endingEffects: 'mcdm.heroes.v1/chapter/classes#ending-effects',
   stackingUniqueEffects: 'mcdm.heroes.v1/chapter/classes#stacking-unique-effects',
-  rollAgainstMultipleCreatures:
-    'mcdm.heroes.v1/chapter/classes#roll-against-multiple-creatures',
+  rollAgainstMultipleCreatures: 'mcdm.heroes.v1/chapter/classes#roll-against-multiple-creatures',
 } as const;
 
 function entry(
