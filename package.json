@@ -14,7 +14,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "corpus:certify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts",
+    "corpus:verify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts --verify"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
