@@ -70,7 +70,20 @@ stamp refreshed (CONV-0003); all counts re-frozen with in-place comments.
 - `pnpm corpus:certify` green — stamp committed with the change; the full
   1,688-program corpus executes with zero invariant violations.
 
+Fresh read-only audit verdict: **GO** (2026-08-25). Its four second-order
+findings: `grantsConsumed` shape drift and the design doc's "bold-tolerant"
+overclaim (both fixed same-day), two unexercised test corners (table-mode
+holder; hero-format linked Strike keyword — both covered same-day), and the
+latent collapse-key note below.
+
 ## Follow-ups / notes for the next implementer
+
+- **Collapse-key granularity (latent, audit finding):** `addGrant` collapses
+  same-ability duplicates on `source.effectArtifactId` — for monsters that
+  is the whole statblock, not the ability. No artifact in the shipped 14
+  carries two grant lines, so nothing is live-wrong; when the first
+  statblock with two grant-family Effect lines ships, add the ability id or
+  effect ordinal to the collapse key.
 
 - The bounded monster variants ("until the start of their next turn", Orc
   Warleader's "before the end of the encounter") need only new `window` enum

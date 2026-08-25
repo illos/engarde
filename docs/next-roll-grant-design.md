@@ -84,8 +84,10 @@ holder). Grammar (canon package):
 - `The next strike made against the target (gains an edge|takes a bane).`
   → inbound, scope strike, window null.
 
-Bold-tolerant, link-stripped, anchored whole-payload — exactly the closed
-templates the shape inventory froze; grammar supports all four polarities.
+Link-stripped, anchored whole-payload — exactly the closed templates the
+shape inventory froze; grammar supports all four polarities. (No bold
+tolerance: all 14 pinned lines are bold-free; a future bolded line fails
+closed to table.)
 
 ## Expiry
 

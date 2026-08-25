@@ -207,3 +207,19 @@ describe('compileAbilities cluster ownership (R-0011 hardening)', () => {
     expect(abilities).toHaveLength(1);
   });
 });
+
+describe.skipIf(!sourceRoot)('hero-format keyword compilation (R-0013)', () => {
+  it('the free strike compiles with its linked Strike keyword recognized', async () => {
+    // R-0013: free strikes carry the Strike keyword and consume strike-scoped
+    // grants. Hero-format records link their keywords
+    // ("[Strike](scc.v1:…)") — the header parser must strip the links so
+    // the compiled ability carries the plain keyword.
+    const text = await ingestText(
+      'en/books/heroes/md/feature/ability/common/melee-weapon-free-strike.md',
+    );
+    const { abilities, incomplete } = compileAbilities(parseEffectText(text), 'free-strike');
+    expect(incomplete).toEqual([]);
+    expect(abilities).toHaveLength(1);
+    expect(abilities[0]?.keywords).toContain('Strike');
+  });
+});

@@ -521,6 +521,38 @@ describe('expiry (R-0012, R-0016)', () => {
   });
 });
 
+describe('table-mode holders (stats: null)', () => {
+  it('an inbound mark on a table-mode target is consumed by the strike while damage stays a receipt', () => {
+    const base = initialEncounterState([
+      { id: 'skitterling', kind: 'director-creature', stats: STATS },
+      { id: 'husk', kind: 'director-creature' },
+    ]);
+    const mark: NextRollGrant = {
+      grantId: 'mark-husk',
+      polarity: 'edge',
+      scope: 'strike',
+      direction: 'inbound',
+      source: {
+        effectArtifactId: 'mcdm.monsters.v1/monster.undead.1st-echelon.statblock/ghost',
+      },
+      window: null,
+    };
+    const before = withGrants(base, 'husk', [mark]);
+    const result = dispatchChecked(before, clawsIntent(['husk']));
+    // The mark applies to the strike against the table-mode holder and is
+    // spent; per-target receipt carries the edge; damage automation stays
+    // blocked (stats: null) and routes to a table directive.
+    const roll = result.log.find((entry) => entry.data.powerRoll !== undefined)?.data.powerRoll as {
+      perTarget: Record<string, { edges: number; resolution: { tier: number } }>;
+    };
+    expect(roll.perTarget.husk?.edges).toBe(1);
+    expect(roll.perTarget.husk?.resolution.tier).toBe(2); // 9 + 2 + 2 = 13
+    expect(result.state.participants.husk?.grants).toEqual([]);
+    expect(result.state.participants.husk?.stamina).toBeNull();
+    expect(result.log.some((entry) => entry.data.unautomatedDamage !== undefined)).toBe(true);
+  });
+});
+
 describe('grant Effect dispatch bookkeeping', () => {
   it('re-dispatching the same intent id refuses without mutation', () => {
     const before = freshState();

@@ -374,6 +374,7 @@ function executeTest(
             grantsConsumed: consumed.map((grant) => ({
               grantId: grant.grantId,
               holderId: targetId,
+              direction: grant.direction,
               polarity: grant.polarity,
               contribution: grantContribution(grant.polarity),
             })),
