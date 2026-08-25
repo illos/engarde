@@ -67,3 +67,89 @@ unchanged, not a warn-and-apply violation.
 0 or lower unless the damaging intent explicitly chooses knockout. Other
 exceptional circumstances can be introduced later as attributed Director
 assertions.
+
+## R-0006 — Tests resolve through the power-roll core, with the test critical layer (approved 2026-08-25)
+
+**Ruling:** A statblock-forced characteristic test resolves through the
+certified power-roll core unchanged: 2d10 + the roller's named characteristic
+score, tier bands ≤11 / 12–16 / 17+, natural 19–20 floors to tier 3. In
+addition, natural 19–20 on a test is a named **critical success** recorded on
+the receipt so the Director can grant the reward layer.
+
+**Evidence (verbatim, accepted pin):** "A test is any power roll that has
+failure or consequences as an option." [chapter/tests §overview]. "Whenever
+you get a natural 19 or 20 on the power roll for a test—a total of 19 or 20
+before adding your characteristic score or other modifiers you score a
+critical success. This critical success automatically lets you succeed on the
+task with a reward, even if the test has a medium or hard difficulty."
+[rule.dice/natural-19-20].
+
+**Engine consequence:** no new roll math; the existing `naturalTopEnd`
+resolution flag is surfaced as test critical success in the log entry.
+
+## R-0007 — Each creature target rolls independently; objects auto-obtain tier 1 (approved 2026-08-25)
+
+**Ruling:** "(The|Each) target makes a[n] X test" means each creature target
+rolls their own independent test using their own named characteristic score;
+the acting monster contributes nothing to the roll; target cardinality comes
+from the ability's targets header. An **object** target does not roll: it
+automatically obtains a tier 1 result.
+
+**Evidence (verbatim):** "If an ability forces an object to make a test, the
+object automatically gets a tier 1 result on the test." [rule.combat/target].
+Structural corroboration: Sanguine Mist's tier table deals the roller less
+damage at 17+ than at ≤11 — the target is the roller.
+
+**Engine consequence:** one roll per creature target, each banded and
+resolved separately. Nine of the 29 occurrences permit object targets; the
+slice must support object auto-tier-1 explicitly (participant schema has no
+object kind yet — the mechanism must not fake an object as a rolling
+creature).
+
+## R-0008 — Test difficulty is outcome mapping, displaced by statblock tier tables (approved 2026-08-25)
+
+**Ruling:** Easy/moderate/hard difficulty supplies **no DC and no roll
+modifier** — the engine applies nothing numeric. Difficulty does carry real
+tier-to-outcome mapping semantics for ordinary (non-statblock) tests; in this
+slice the statblock's own exact tier table displaces that mapping entirely.
+A future ordinary-test feature must not inherit "difficulty is nothing."
+
+**Evidence:** the difficulty guidance is framed "though these are not hard
+and fast rules" [chapter/tests §heroes-make-tests]; the natural-19-20 rule's
+"even if the test has a medium or hard difficulty" presupposes the
+outcome-mapping reading [rule.dice/natural-19-20].
+
+## R-0009 — Skills cannot modify creature/DTO reactive tests (approved 2026-08-25)
+
+**Ruling:** Skill modifiers are **rejected**, not defaulted off, for
+statblock-forced tests: the intent shape simply carries no skill input.
+Sourced edges/banes and rule-specified numeric modifiers remain valid inputs
+through the core's existing attributed-modifier channels.
+
+**Evidence (verbatim):** "Creature and DTO Tests: Some creatures and dynamic
+terrain objects in *Draw Steel: Monsters* have features and abilities that
+require heroes to make reactive tests. These tests can't be modified by
+skills." [rule.test/reactive-test].
+
+## R-0010 — Assist is unavailable on creature/DTO reactive tests (approved 2026-08-25)
+
+**Ruling:** The Assist-a-Test mechanism does not apply to statblock-forced
+tests. **Derived, user-approved:** Assist is predicated on an applicable
+skill — "provided you have a skill that applies to the test" [chapter/tests
+§assist-a-test] — and R-0009's source prohibits skills from modifying these
+tests; therefore no assist. This is a derivation, not a verbatim sentence,
+and was explicitly approved as such.
+
+## R-0011 — All 87 tier bullets attach losslessly; 21 automatic today (approved 2026-08-25)
+
+**Ruling:** The characteristic-test slice attaches **all 87** tier bullets
+across the 29 occurrences, each either executing through the certified tier
+grammar or emitted as a verbatim tier-level table directive — never only the
+zero-parse occurrences, never a lossy parse. The safe automatic boundary at
+this pin is **21 bullets**: the Sanguine Mist ≤11 bullet parses today but
+drops its explicit "until the end of the encounter" duration
+[count-rhodar-von-glauer §Sanguine Mist], so it stays verbatim unless the
+end-of-encounter ending is typed and certified. Build preconditions: fix the
+`compileAbilities` cluster-ownership leak (test tier clauses must not join
+the preceding power-roll cluster), and resolve trailing prose / sibling
+Effect lines once at ability level, never once per target.
