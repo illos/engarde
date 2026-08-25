@@ -227,3 +227,194 @@ describe('compiled Effect execution', () => {
     expect(checkInvariants(before, dispatched, result)).toEqual([]);
   });
 });
+
+// ── characteristic tests [R-0006..R-0011] ─────────────────────────────────
+// Verbatim devil-adjudicator Interdiction fixture: "**Effect:** The target
+// makes a Presence test." with its three tier bullets. The 17+ payload
+// parses in the certified tier grammar (automatic); ≤11 and 12-16 say more
+// than the grammar reads and stay verbatim.
+const INTERDICTION_TIER1 =
+  "- **≤11:** The target is [slowed](scc.v1:mcdm.heroes.v1/condition/slowed), takes a [bane](scc.v1:mcdm.heroes.v1/rule.dice/bane) on power rolls, and can't regain [Stamina](scc.v1:mcdm.heroes.v1/rule.health/stamina) (save ends).";
+const INTERDICTION_TIER2 =
+  '- **12-16:** The target is [slowed](scc.v1:mcdm.heroes.v1/condition/slowed) and takes a [bane](scc.v1:mcdm.heroes.v1/rule.dice/bane) on power rolls (save ends).';
+const INTERDICTION_TIER3 =
+  '- **17+:** [Slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (save ends)';
+
+function testEffect(): EffectProgramData {
+  return {
+    effectArtifactId: 'mcdm.monsters.v1/monster.devil.statblock/devil-adjudicator',
+    effectOrdinal: 2,
+    sourceSpan: { byteStart: 10, byteEnd: 60 },
+    sourceText: 'The target makes a Presence test.',
+    canonRefs: [],
+    actionType: 'Main action',
+    targetsText: 'One creature',
+    resolution: {
+      kind: 'test',
+      characteristic: 'presence',
+      subject: 'the-target',
+      tiers: {
+        tier1: { kind: 'verbatim', sourceText: INTERDICTION_TIER1 },
+        tier2: { kind: 'verbatim', sourceText: INTERDICTION_TIER2 },
+        tier3: {
+          kind: 'automatic',
+          sourceText: INTERDICTION_TIER3,
+          data: {
+            damage: null,
+            potency: null,
+            conditionIds: ['mcdm.heroes.v1/condition/slowed'],
+            ending: 'save-ends',
+          },
+        },
+      },
+    },
+  };
+}
+
+function testIntent(
+  effect: EffectProgramData,
+  overrides: Partial<Extract<Intent, { kind: 'use-effect' }>['payload']> = {},
+): Intent {
+  return {
+    intentId: 'effect-test-i1',
+    kind: 'use-effect',
+    actor: { kind: 'participant', participantId: 'actor' },
+    payload: { actorParticipantId: 'actor', effect, targets: ['target'], ...overrides },
+  };
+}
+
+describe('characteristic-test execution [R-0006..R-0011]', () => {
+  it('rolls the TARGET’s named characteristic and applies an automatic tier through the condition core', () => {
+    const before = state();
+    // dice 9+9 = natural 18 (< 19, no crit), presence 0 → total 18 → tier 3.
+    const dispatched = testIntent(testEffect(), {
+      testRolls: { target: { dice: [9, 9] } },
+    });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+
+    const roll = result.log.find((entry) => entry.data.testRoll !== undefined)?.data.testRoll as {
+      targetId: string;
+      characteristic: string;
+      characteristicValue: number;
+      testCriticalSuccess: boolean;
+      resolution: { tier: number };
+    };
+    expect(roll.targetId).toBe('target');
+    expect(roll.characteristic).toBe('presence');
+    expect(roll.characteristicValue).toBe(0);
+    expect(roll.resolution.tier).toBe(3);
+    expect(roll.testCriticalSuccess).toBe(false);
+    expect(
+      result.state.participants.target?.conditions.map((instance) => instance.conditionId),
+    ).toEqual(['mcdm.heroes.v1/condition/slowed']);
+    expect(result.state.participants.target?.conditions[0]?.ending).toEqual({
+      kind: 'save-ends',
+    });
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('emits the verbatim tier bullet as a table directive on a low roll, mutating nothing', () => {
+    const before = state();
+    // dice 1+2 = 3, presence 0 → tier 1 → verbatim directive.
+    const dispatched = testIntent(testEffect(), {
+      testRolls: { target: { dice: [1, 2] } },
+    });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+
+    expect(result.state).toEqual(before);
+    const directive = result.log.find((entry) => entry.data.testTierDirective !== undefined);
+    expect(directive?.kind).toBe('table-directive');
+    expect(directive?.message).toBe(INTERDICTION_TIER1);
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('floors natural 19–20 to tier 3 and records the test critical success [R-0006]', () => {
+    const before = state();
+    const dispatched = testIntent(testEffect(), {
+      testRolls: { target: { dice: [10, 9], banes: 2 } },
+    });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+
+    const roll = result.log.find((entry) => entry.data.testRoll !== undefined)?.data.testRoll as {
+      resolution: { tier: number };
+      testCriticalSuccess: boolean;
+    };
+    expect(roll.resolution.tier).toBe(3);
+    expect(roll.testCriticalSuccess).toBe(true);
+    expect(result.log.some((entry) => entry.data.testCriticalSuccess !== undefined)).toBe(true);
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('rolls each target independently with their own dice [R-0007]', () => {
+    const before = state();
+    const dispatched = testIntent(testEffect(), {
+      targets: ['target', 'actor-2'],
+      testRolls: { target: { dice: [9, 9] }, 'actor-2': { dice: [1, 2] } },
+    });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+
+    const rolls = result.log
+      .filter((entry) => entry.data.testRoll !== undefined)
+      .map((entry) => entry.data.testRoll as { targetId: string; resolution: { tier: number } });
+    expect(rolls.map((roll) => [roll.targetId, roll.resolution.tier])).toEqual([
+      ['target', 3],
+      ['actor-2', 1],
+    ]);
+    // tier 3 target gains slowed; tier 1 target untouched.
+    expect(result.state.participants.target?.conditions).toHaveLength(1);
+    expect(result.state.participants['actor-2']?.conditions).toEqual([]);
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('object targets do not roll and automatically obtain tier 1 [R-0007]', () => {
+    const before = state();
+    const dispatched = testIntent(testEffect(), {
+      targets: [],
+      objectTargets: ['portcullis'],
+    });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+
+    expect(result.state).toEqual(before);
+    const auto = result.log.find((entry) => entry.data.objectTestTier1 !== undefined);
+    expect(auto?.canonRefs).toContain('mcdm.heroes.v1/rule.combat/target');
+    const directive = result.log.find((entry) => entry.data.testTierDirective !== undefined);
+    expect(directive?.message).toBe(INTERDICTION_TIER1);
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('draws per-target dice from the injected source when none are asserted', () => {
+    const before = state();
+    const dispatched = testIntent(testEffect(), { targets: ['target', 'actor-2'] });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(7) });
+    const rolls = result.log.filter((entry) => entry.data.testRoll !== undefined);
+    expect(rolls).toHaveLength(2);
+    for (const entry of rolls) {
+      const roll = entry.data.testRoll as { diceAsserted: boolean };
+      expect(roll.diceAsserted).toBe(false);
+    }
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+
+  it('refuses before mutation when a creature target has no stats', () => {
+    const seeded = initialEncounterState([{ id: 'actor', kind: 'hero', stats: STATS }]);
+    const before = {
+      ...seeded,
+      participants: {
+        ...seeded.participants,
+        target: {
+          id: 'target',
+          kind: 'director-creature' as const,
+          sourceRecordId: null,
+          conditions: [],
+          stats: null,
+          stamina: null,
+        },
+      },
+    };
+    const dispatched = testIntent(testEffect(), { testRolls: { target: { dice: [9, 9] } } });
+    const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
+    expect(result.state).toEqual(before);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(checkInvariants(before, dispatched, result)).toEqual([]);
+  });
+});

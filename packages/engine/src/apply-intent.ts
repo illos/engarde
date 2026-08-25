@@ -115,7 +115,7 @@ export function applyIntent(
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);
     case 'use-effect':
-      return executeUseEffect(state, intent);
+      return executeUseEffect(state, intent, context.random);
     case 'apply-damage': {
       const target = state.participants[intent.payload.target];
       if (!target) {

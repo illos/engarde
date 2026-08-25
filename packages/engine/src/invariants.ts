@@ -288,7 +288,10 @@ export function checkInvariants(
         detail: 'use-effect log does not carry exactly one matching effectResolution receipt',
       });
     }
-    if (intent.payload.effect.resolution.kind === 'table') {
+    // A refused dispatch legitimately mutates nothing and emits no
+    // directive — its receipt travels on the refusal entry itself.
+    const refused = result.log.some((entry) => entry.kind === 'refusal');
+    if (intent.payload.effect.resolution.kind === 'table' && !refused) {
       const directive = result.log.find((entry) => entry.data.manualEffect !== undefined);
       const manual = directive?.data.manualEffect as { sourceText?: unknown } | undefined;
       if (
@@ -298,6 +301,27 @@ export function checkInvariants(
         violations.push({
           code: 'effect-receipt-mismatch',
           detail: 'manual Effect directive does not preserve the compiled source text',
+        });
+      }
+    }
+    // A test resolution logs exactly one roll receipt per creature target
+    // and one automatic tier-1 entry per object target — none on refusal.
+    if (intent.payload.effect.resolution.kind === 'test' && !refused) {
+      const rollReceipts = result.log.filter((entry) => entry.data.testRoll !== undefined);
+      const rolledTargets = rollReceipts.map(
+        (entry) => (entry.data.testRoll as { targetId?: unknown }).targetId,
+      );
+      if (JSON.stringify(rolledTargets) !== JSON.stringify(intent.payload.targets)) {
+        violations.push({
+          code: 'effect-receipt-mismatch',
+          detail: 'test resolution must log exactly one roll receipt per creature target, in order',
+        });
+      }
+      const objectEntries = result.log.filter((entry) => entry.data.objectTestTier1 !== undefined);
+      if (objectEntries.length !== (intent.payload.objectTargets ?? []).length) {
+        violations.push({
+          code: 'effect-receipt-mismatch',
+          detail: 'test resolution must log one automatic tier-1 entry per object target',
         });
       }
     }

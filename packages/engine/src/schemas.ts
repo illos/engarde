@@ -265,6 +265,33 @@ export type AbilityEffectData = z.infer<typeof AbilityEffectDataSchema>;
  * operation or emits the untouched instruction for table adjudication.
  * Unsupported prose is never rephrased into state.
  */
+/** The five characteristic names as printed in test payloads. */
+export const TEST_CHARACTERISTICS = [
+  'might',
+  'agility',
+  'reason',
+  'intuition',
+  'presence',
+] as const;
+export const TestCharacteristicSchema = z.enum(TEST_CHARACTERISTICS);
+export type TestCharacteristic = z.infer<typeof TestCharacteristicSchema>;
+
+/**
+ * One attached tier bullet of a characteristic test (R-0011): automatic when
+ * the certified tier grammar reads the whole payload, verbatim otherwise.
+ * Both retain the exact bullet line for receipts; nothing is paraphrased.
+ */
+export const TestTierSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('automatic'),
+    data: TierEffectDataSchema,
+    sourceText: z.string().min(1),
+  }),
+  z.object({ kind: z.literal('verbatim'), sourceText: z.string().min(1) }),
+]);
+
+export type TestTier = z.infer<typeof TestTierSchema>;
+
 export const EffectResolutionSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('damage'),
@@ -278,6 +305,20 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
     /** Canon-owned per-condition identity behavior (taunted replaces when
      * the source changes; grabbed does not). */
     replacesOnNewSource: z.boolean(),
+  }),
+  /** "(The|Each) target makes a[n] X test." — each creature target rolls
+   * independently with their own named characteristic through the power-roll
+   * core; objects auto-obtain tier 1 [R-0006, R-0007]. Skills cannot modify
+   * these tests, so no skill input exists [R-0009]. */
+  z.object({
+    kind: z.literal('test'),
+    characteristic: TestCharacteristicSchema,
+    subject: z.enum(['the-target', 'each-target']),
+    tiers: z.object({
+      tier1: TestTierSchema,
+      tier2: TestTierSchema,
+      tier3: TestTierSchema,
+    }),
   }),
   z.object({ kind: z.literal('table') }),
 ]);
@@ -392,14 +433,58 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         /** Manual area/world instructions may have no participant target;
          * automatic damage/condition programs require at least one. */
         targets: z.array(ParticipantIdSchema),
+        /** Per-creature-target roll inputs for a test resolution. Asserted
+         * dice win; absent → two draws per target from the injected source.
+         * Sourced edges/banes and rule-specified numeric modifiers are the
+         * ONLY modifier inputs — skills cannot modify creature/DTO reactive
+         * tests, so no skill field exists [R-0009]; Assist is likewise
+         * unavailable [R-0010]. */
+        testRolls: z
+          .record(
+            ParticipantIdSchema,
+            z.object({
+              dice: z.tuple([dieRoll, dieRoll]).optional(),
+              edges: z.number().int().min(0).default(0),
+              banes: z.number().int().min(0).default(0),
+              bonuses: z.array(attributedValue).default([]),
+              penalties: z.array(attributedValue).default([]),
+            }),
+          )
+          .default({}),
+        /** Non-participant object targets of a test: they do not roll and
+         * automatically obtain a tier 1 result [R-0007, rule.combat/target].
+         * Labels are Director-asserted names, not participant ids. */
+        objectTargets: z.array(z.string().min(1)).default([]),
         /** rule.health/stamina §Knocking Creatures Out. */
         knockOut: z.boolean().default(false),
       })
       .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
         message: 'targets must be distinct',
       })
+      .refine((payload) => new Set(payload.objectTargets).size === payload.objectTargets.length, {
+        message: 'object targets must be distinct',
+      })
       .refine(
-        (payload) => payload.effect.resolution.kind === 'table' || payload.targets.length > 0,
+        (payload) =>
+          payload.effect.resolution.kind !== 'test' ||
+          payload.targets.length + payload.objectTargets.length > 0,
+        { message: 'a test requires at least one creature or object target' },
+      )
+      .refine(
+        (payload) => Object.keys(payload.testRolls).every((id) => payload.targets.includes(id)),
+        { message: 'testRolls may only name declared targets' },
+      )
+      .refine(
+        (payload) =>
+          payload.effect.resolution.kind === 'test' ||
+          (Object.keys(payload.testRolls).length === 0 && payload.objectTargets.length === 0),
+        { message: 'testRolls/objectTargets apply only to test resolutions' },
+      )
+      .refine(
+        (payload) =>
+          payload.effect.resolution.kind === 'table' ||
+          payload.effect.resolution.kind === 'test' ||
+          payload.targets.length > 0,
         { message: 'automatic Effect programs require at least one target' },
       ),
   }),

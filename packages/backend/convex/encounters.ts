@@ -344,7 +344,12 @@ export const searchRecords = query({
         v.object({
           effectOrdinal: v.number(),
           sourceText: v.string(),
-          resolutionKind: v.union(v.literal('damage'), v.literal('condition'), v.literal('table')),
+          resolutionKind: v.union(
+            v.literal('damage'),
+            v.literal('condition'),
+            v.literal('test'),
+            v.literal('table'),
+          ),
         }),
       ),
       /** True when the power-roll cluster compiles — the engine can roll,
