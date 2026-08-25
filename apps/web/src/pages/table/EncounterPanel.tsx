@@ -228,6 +228,7 @@ function ActiveEncounter({
   const endEncounter = useMutation(api.encounters.endEncounter);
   const useAbility = useMutation(api.encounters.useAbility);
   const useEffectInstruction = useMutation(api.encounters.useEffect);
+  const clearTerrainFact = useMutation(api.encounters.clearTerrainFact);
   const { run, error, busy } = useRun();
   const [rolls, setRolls] = useState<Record<string, string>>({});
   const [keeps, setKeeps] = useState<Record<string, boolean>>({});
@@ -250,6 +251,11 @@ function ActiveEncounter({
   // Comma-separated object labels for a characteristic test: objects never
   // roll and automatically obtain a tier 1 result [R-0007].
   const [effectObjectLabels, setEffectObjectLabels] = useState('');
+  // "Can spend" is an offer [R-0018]: every bound target answers, declining
+  // is legal. Absent = accepts (auto-apply default); checked off = declines.
+  const [recoveryDeclines, setRecoveryDeclines] = useState<Record<string, boolean>>({});
+  // Optional Director note attached to a clear-terrain-fact dispatch [R-0022].
+  const [terrainReasons, setTerrainReasons] = useState<Record<string, string>>({});
   const selectedEffect = pickedEffect?.effects.find(
     (effect) => effect.effectOrdinal === effectOrdinal,
   );
@@ -341,6 +347,17 @@ function ActiveEncounter({
                     }}
                   />
                 </div>
+                {participant.vitals.recoveriesCurrent !== null &&
+                participant.vitals.recoveriesMax !== null ? (
+                  // Recoveries render only when tracked [R-0018/R-0019] —
+                  // null is untracked and omitted, never shown as zero.
+                  <div className="mt-1 flex items-center gap-2 text-xs">
+                    <span className="font-mono">
+                      {participant.vitals.recoveriesCurrent}/{participant.vitals.recoveriesMax}
+                    </span>
+                    <span className="type-label text-text-mute">Recoveries</span>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="mt-2 text-xs text-text-mute italic">
@@ -442,6 +459,62 @@ function ActiveEncounter({
           </li>
         ))}
       </ul>
+
+      {encounter.terrainFacts.length > 0 ? (
+        <div className="mt-4 border-t border-line-soft pt-4">
+          <h3 className="type-label text-xs text-text-mute">Terrain</h3>
+          {/* Recorded terrain alterations [R-0022]: attributed facts shown at
+              the table; the movement cost stays table-adjudicated. Clearing
+              is the Director's adjudication — director-only affordance. */}
+          <ul className="mt-2 flex flex-col gap-1">
+            {encounter.terrainFacts.map((fact) => (
+              <li key={fact.factId} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span>{fact.terrain} terrain</span>{' '}
+                  <span className="text-xs text-text-mute">
+                    {fact.areaText ? `(${fact.areaText})` : ''}
+                    {fact.sourceRecordSlug ? ` · ${fact.sourceRecordSlug}` : ''}
+                    {fact.createdBy ? ` · from ${fact.createdBy}` : ''}
+                  </span>
+                </span>
+                {encounter.viewerIsDirector ? (
+                  <>
+                    <input
+                      value={terrainReasons[fact.factId] ?? ''}
+                      onChange={(event) =>
+                        setTerrainReasons((current) => ({
+                          ...current,
+                          [fact.factId]: event.target.value,
+                        }))
+                      }
+                      placeholder="reason (optional)"
+                      aria-label={`Reason for clearing ${fact.factId}`}
+                      className="h-9 w-32 border border-line bg-ink-1 px-2 text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={busy}
+                      onClick={() => {
+                        const reason = terrainReasons[fact.factId]?.trim();
+                        run(() =>
+                          clearTerrainFact({
+                            campaignId,
+                            factId: fact.factId,
+                            ...(reason ? { reason } : {}),
+                          }),
+                        );
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="mt-4 border-t border-line-soft pt-4">
         <h3 className="type-label text-xs text-text-mute">Use an ability</h3>
@@ -623,6 +696,7 @@ function ActiveEncounter({
               setEffectTargetIds(targetId ? [targetId] : []);
               setEffectKnockOut(false);
               setEffectObjectLabels('');
+              setRecoveryDeclines({});
             }}
           />
         </div>
@@ -640,6 +714,7 @@ function ActiveEncounter({
                     setEffectTargetless(false);
                     setEffectKnockOut(false);
                     setEffectObjectLabels('');
+                    setRecoveryDeclines({});
                   }}
                 >
                   {pickedEffect.effects.map((effect) => (
@@ -690,7 +765,10 @@ function ActiveEncounter({
                   </label>
                 ))}
               </fieldset>
-              {selectedEffect.resolutionKind === 'table' ? (
+              {selectedEffect.resolutionKind === 'table' ||
+              selectedEffect.resolutionKind === 'terrain-fact' ? (
+                // A terrain fact records against the encounter, not a
+                // participant [R-0022] — targetless dispatch is legal.
                 <label className="flex items-center gap-1 text-xs text-text-mute">
                   <input
                     type="checkbox"
@@ -699,6 +777,32 @@ function ActiveEncounter({
                   />
                   no participant target
                 </label>
+              ) : null}
+              {selectedEffect.resolutionKind === 'spend-recovery' && effectTargetIds.length > 0 ? (
+                // "Can spend" is an offer [R-0018]: each bound participant
+                // answers; default accepts, unchecking declines.
+                <fieldset className="flex flex-wrap items-center gap-2">
+                  <legend className="sr-only">Recovery offer answers</legend>
+                  {effectTargetIds.map((participantId) => (
+                    <label
+                      key={participantId}
+                      className="flex items-center gap-1 text-xs text-text-mute"
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`${participantId} spends a Recovery`}
+                        checked={!recoveryDeclines[participantId]}
+                        onChange={(event) =>
+                          setRecoveryDeclines((current) => ({
+                            ...current,
+                            [participantId]: !event.target.checked,
+                          }))
+                        }
+                      />
+                      {participantId} spends
+                    </label>
+                  ))}
+                </fieldset>
               ) : null}
               {selectedEffect.resolutionKind === 'test' ? (
                 <label className="flex items-center gap-1 text-xs text-text-mute">
@@ -756,6 +860,18 @@ function ActiveEncounter({
                         selectedEffect.resolutionKind === 'test') &&
                       effectKnockOut
                         ? { knockOut: true }
+                        : {}),
+                      // Every bound target answers the Recovery offer
+                      // [R-0018]: true = spends, false = declines.
+                      ...(selectedEffect.resolutionKind === 'spend-recovery'
+                        ? {
+                            recoverySpends: Object.fromEntries(
+                              effectTargetIds.map((participantId) => [
+                                participantId,
+                                !recoveryDeclines[participantId],
+                              ]),
+                            ),
+                          }
                         : {}),
                     }),
                   );

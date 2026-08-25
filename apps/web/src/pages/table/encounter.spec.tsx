@@ -53,6 +53,8 @@ const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
 const BFB = 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood';
 const FURY = 'mcdm.heroes.v1/class/fury';
 const WODE_SENTRY = 'mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-sentry';
+const WORDS = 'mcdm.heroes.v1/feature.ability.conduit.level-3/words-of-wrath-and-grace';
+const PILLAR = 'mcdm.monsters.v1/dynamic-terrain.mechanisms/pillar';
 
 function setRoster(gameRole: 'player' | 'director') {
   setQuery(api.campaigns.listRoster, { viewer: { gameRole }, members: [] });
@@ -88,6 +90,8 @@ const activeEncounter = {
         dying: false,
         dead: false,
         organization: null,
+        recoveriesCurrent: 7,
+        recoveriesMax: 8,
       },
       conditions: [
         {
@@ -112,6 +116,7 @@ const activeEncounter = {
       ],
     },
   ],
+  terrainFacts: [],
 };
 
 beforeEach(() => {
@@ -328,7 +333,32 @@ describe('EncounterPanel', () => {
   test('vitals render: Stamina bar, table-mode note, and the roll breakdown log card', () => {
     setRoster('director');
     setSessionActive();
-    setQuery(api.encounters.getActive, activeEncounter);
+    setQuery(api.encounters.getActive, {
+      ...activeEncounter,
+      participants: [
+        ...activeEncounter.participants,
+        {
+          // Tracked Stamina but untracked Recoveries [R-0019b]: null is
+          // omitted, never displayed as zero.
+          id: 'wode-elf-sentry',
+          recordId: WODE_SENTRY,
+          recordSlug: 'wode-elf-sentry',
+          vitals: {
+            staminaCurrent: 10,
+            staminaTemporary: 0,
+            staminaMax: 10,
+            winded: false,
+            dying: false,
+            dead: false,
+            organization: null,
+            recoveriesCurrent: null,
+            recoveriesMax: null,
+          },
+          conditions: [],
+          grants: [],
+        },
+      ],
+    });
     setQuery(api.encounters.listLog, [
       {
         entryId: 'log-2',
@@ -356,7 +386,96 @@ describe('EncounterPanel', () => {
     // censor has vitals; fury is a table-mode record.
     expect(screen.getByText('9/15')).toBeTruthy();
     expect(screen.getByText('Table mode — no stat automation for this record')).toBeTruthy();
+    // Recoveries show when tracked [R-0018]; the sentry's null pool renders
+    // nothing — exactly one Recoveries line despite two vitals cards.
+    expect(screen.getByText('7/8')).toBeTruthy();
+    expect(screen.getAllByText('Recoveries')).toHaveLength(1);
     // The persisted breakdown renders as a receipt.
     expect(screen.getByText(/total 13 → tier 2/)).toBeTruthy();
+  });
+
+  test('terrain facts render attributed; clearing is a Director-only affordance', () => {
+    const fact = {
+      factId: `${PILLAR}#d3-pillar-effect-2-terrain`,
+      terrain: 'difficult' as const,
+      areaText: '4 x 1 line within 1',
+      sourceRecordSlug: 'pillar',
+      createdBy: 'fury',
+    };
+    setRoster('player');
+    setSessionActive();
+    setQuery(api.encounters.getActive, {
+      ...activeEncounter,
+      viewerIsDirector: false,
+      terrainFacts: [fact],
+    });
+    setQuery(api.encounters.listLog, []);
+    render(<EncounterPanel campaignId={campaignId} />);
+    // The fact is visible to everyone [R-0022], attributed to its source.
+    expect(screen.getByText('difficult terrain')).toBeTruthy();
+    expect(screen.getByText(/\(4 x 1 line within 1\)\s*· pillar\s*· from fury/)).toBeTruthy();
+    // No clear affordance for non-directors.
+    expect(screen.queryByText('Clear')).toBeNull();
+
+    cleanup();
+    setRoster('director');
+    setQuery(api.encounters.getActive, { ...activeEncounter, terrainFacts: [fact] });
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText(`Reason for clearing ${fact.factId}`), {
+      target: { value: 'rubble hauled away' },
+    });
+    fireEvent.click(screen.getByText('Clear'));
+    expect(spyFor(api.encounters.clearTerrainFact)).toHaveBeenCalledWith({
+      campaignId,
+      factId: fact.factId,
+      reason: 'rubble hauled away',
+    });
+  });
+
+  test('spend-recovery Effect: every bound target answers, declines included', () => {
+    setRoster('player');
+    setSessionActive();
+    setQuery(api.encounters.getActive, { ...activeEncounter, viewerIsDirector: false });
+    setQuery(api.encounters.listLog, []);
+    setQuery(api.encounters.searchRecords, [
+      {
+        artifactId: WORDS,
+        slug: 'words-of-wrath-and-grace',
+        parsedTiers: ['≤11', '12-16', '17+'],
+        residueSpans: 0,
+        effects: [
+          {
+            effectOrdinal: 1,
+            sourceText:
+              'Each ally in the area can spend a [Recovery](scc.v1:mcdm.heroes.v1/rule.health/recoveries).',
+            resolutionKind: 'spend-recovery',
+          },
+        ],
+        autoRollable: true,
+        hasStats: false,
+      },
+    ]);
+    render(<EncounterPanel campaignId={campaignId} />);
+
+    fireEvent.change(screen.getByLabelText('Search effects'), {
+      target: { value: 'words' },
+    });
+    fireEvent.click(screen.getByText('Pick Effect'));
+    // censor is bound by default; bind fury too, then decline censor's offer.
+    fireEvent.click(screen.getByLabelText('Effect target fury'));
+    expect((screen.getByLabelText('censor spends a Recovery') as HTMLInputElement).checked).toBe(
+      true,
+    );
+    fireEvent.click(screen.getByLabelText('censor spends a Recovery'));
+    fireEvent.click(screen.getByText('Resolve Effect'));
+
+    expect(spyFor(api.encounters.useEffect)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: WORDS,
+      effectOrdinal: 1,
+      actorParticipantId: 'fury',
+      targetParticipantIds: ['censor', 'fury'],
+      recoverySpends: { censor: false, fury: true },
+    });
   });
 });
