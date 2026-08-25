@@ -207,6 +207,7 @@ export function compileAbilities(
       AbilityEffectDataSchema.parse({
         abilityArtifactId,
         actionType: cluster.header?.actionType ?? null,
+        keywords: cluster.header?.keywords ?? [],
         targetsText: cluster.header?.targets ?? null,
         powerRollBonus: cluster.powerRoll.bonusData,
         tiers: {

@@ -87,11 +87,11 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
     const inventory = buildEffectShapeInventory(totalPrograms, rows);
 
     expect(inventory.totalPrograms).toBe(1688);
-    expect(inventory.tablePrograms).toBe(1647);
+    expect(inventory.tablePrograms).toBe(1633);
 
     // Every table program lands in exactly one primary family.
     const familySum = inventory.families.reduce((sum, family) => sum + family.lineCount, 0);
-    expect(familySum).toBe(1647);
+    expect(familySum).toBe(1633);
     for (const family of inventory.families) {
       expect(EFFECT_SHAPE_FAMILIES).toContain(family.family);
     }
@@ -99,8 +99,10 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
     // Frozen at canon pin 520553438a4e8d199bfaaf676b8aa9bd273f4d61; re-frozen
     // 2026-08-25 after the 29 characteristic-test lines compiled out of the
     // table set (family 54 → 25; its exact closed template is now fully
-    // implemented, count 0). A corpus drift, precedence change, or pattern
-    // edit must surface here on purpose.
+    // implemented, count 0), then again 2026-08-25 after the 14 next-roll
+    // grant lines compiled out (edge-bane 152 → 138; both closed templates
+    // now fully implemented, count 0 — R-0012..R-0016). A corpus drift,
+    // precedence change, or pattern edit must surface here on purpose.
     const familyCounts = Object.fromEntries(
       inventory.families.map((family) => [family.family, family.lineCount]),
     );
@@ -109,7 +111,7 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
       movement: 355,
       condition: 238,
       damage: 157,
-      'edge-bane': 152,
+      'edge-bane': 138,
       'free-strike': 76,
       'characteristic-test': 25,
       surge: 45,
@@ -128,10 +130,10 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
     expect(closedCounts).toEqual({
       'choice-menu-intro': 40,
       'characteristic-test-exact': 0,
-      'edge-bane-next-roll': 12,
+      'edge-bane-next-roll': 0,
       'spend-recovery-exact': 6,
       'area-difficult-terrain': 3,
-      'next-strike-against-target': 2,
+      'next-strike-against-target': 0,
       'regains-stamina-flat': 2,
       'temporary-stamina-flat': 1,
     });
@@ -149,5 +151,12 @@ describe.skipIf(!existsSync(manifestPath))('effect shape inventory (accepted pin
       (closed) => closed.id === 'characteristic-test-exact',
     );
     expect(test?.lineCount ?? 0).toBe(0);
+
+    // Every next-roll grant line now compiles (R-0012..R-0016); none remain
+    // as table directives.
+    for (const id of ['edge-bane-next-roll', 'next-strike-against-target']) {
+      const closed = inventory.closedTemplates.find((entry) => entry.id === id);
+      expect(closed?.lineCount ?? 0).toBe(0);
+    }
   });
 });

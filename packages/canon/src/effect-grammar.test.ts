@@ -290,3 +290,72 @@ describe('characteristic-test effect form [R-0006, R-0007]', () => {
     }
   });
 });
+
+describe('next-roll grant effect forms [R-0012..R-0016]', () => {
+  it('recognizes the anchored outbound payloads', () => {
+    const bare = parseEffectText('**Effect:** The target takes a bane on their next strike.\n');
+    const bareEffect = bare.clauses.find((clause) => clause.kind === 'effect');
+    expect(bareEffect?.kind === 'effect' && bareEffect.data.resolution).toEqual({
+      kind: 'next-roll-grant',
+      polarity: 'bane',
+      scope: 'strike',
+      direction: 'outbound',
+      subject: 'the-target',
+      window: null,
+    });
+    const windowed = parseEffectText(
+      '**Effect:** The target takes a [bane](scc.v1:mcdm.heroes.v1/rule.dice/bane) on their next [power roll](scc.v1:mcdm.heroes.v1/rule.dice/power-roll) made before the end of their next turn.\n',
+    );
+    const windowedEffect = windowed.clauses.find((clause) => clause.kind === 'effect');
+    expect(windowedEffect?.kind === 'effect' && windowedEffect.data.resolution).toEqual({
+      kind: 'next-roll-grant',
+      polarity: 'bane',
+      scope: 'power-roll',
+      direction: 'outbound',
+      subject: 'the-target',
+      window: 'end-of-targets-next-turn',
+    });
+    const double = parseEffectText(
+      '> **Effect:** Each target has a double edge on their next strike.\n',
+    );
+    const doubleEffect = double.clauses.find((clause) => clause.kind === 'effect');
+    expect(doubleEffect?.kind === 'effect' && doubleEffect.data.resolution).toEqual({
+      kind: 'next-roll-grant',
+      polarity: 'double-edge',
+      scope: 'strike',
+      direction: 'outbound',
+      subject: 'each-target',
+      window: null,
+    });
+  });
+
+  it('recognizes the anchored inbound mark payload', () => {
+    const parse = parseEffectText(
+      '**Effect:** The next strike made against the target gains an edge.\n',
+    );
+    const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+    expect(effect?.kind === 'effect' && effect.data.resolution).toEqual({
+      kind: 'next-roll-grant',
+      polarity: 'edge',
+      scope: 'strike',
+      direction: 'inbound',
+      subject: 'the-target',
+      window: null,
+    });
+  });
+
+  it('keeps verbatim corpus neighbors with different wording as table', () => {
+    // Verbatim family neighbors from the accepted pin — each differs from
+    // the closed templates and must stay a table directive.
+    const outliers = [
+      '**Effect:** The target instead has a double bane on the next ability they use.\n',
+      '**Effect:** Until the end of their next turn, each target gains an edge on their next strike. If any target hasn’t used their own Cackletongue maneuver on this turn, they can use it immediately at no cost.\n',
+      '**Effect:** The next strike made against the target deals an extra 5 damage.\n',
+    ];
+    for (const line of outliers) {
+      const parse = parseEffectText(line);
+      const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+      expect(effect?.kind === 'effect' && effect.data.resolution, line).toEqual({ kind: 'table' });
+    }
+  });
+});

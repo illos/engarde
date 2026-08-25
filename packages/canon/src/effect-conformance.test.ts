@@ -25,15 +25,16 @@ async function ingestText(markdownPath: string): Promise<string> {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
-      fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null },
+      fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
       target: {
         id: 'target',
         conditions: [],
         kind: 'director-creature',
         stats: null,
         stamina: null,
+        grants: [],
       },
     },
   };
@@ -65,9 +66,9 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
     // EXHAUSTIVE delta: the target gains exactly these two instances, in this
     // order, with these endings and provenance — and nothing else changes.
     expect(state).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       participants: {
-        fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null },
+        fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
         target: {
           id: 'target',
           kind: 'director-creature',
@@ -179,6 +180,9 @@ describe('compileAbilities cluster ownership (R-0011 hardening)', () => {
     expect(abilities).toHaveLength(1);
     expect(abilities[0]?.powerRollBonus).toEqual({ kind: 'fixed', value: 3 });
     expect(abilities[0]?.targetsText).toBe('Two creatures or objects');
+    // Header keywords flow into the compiled ability — the Strike keyword
+    // decides strike-scoped grant consumption [rule.combat/strike, R-0013].
+    expect(abilities[0]?.keywords).toEqual(['Magic', 'Ranged', 'Strike']);
   });
 
   it('closes an open cluster at intervening residue prose', () => {

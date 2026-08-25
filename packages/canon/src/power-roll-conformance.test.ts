@@ -125,7 +125,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
 
   function freshState(): EncounterState {
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       participants: {
         warrior: {
           id: 'warrior',
@@ -134,6 +134,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
           kind: 'director-creature',
           stats: null,
           stamina: null,
+          grants: [],
         },
         assassin: {
           id: 'assassin',
@@ -142,6 +143,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
           kind: 'director-creature',
           stats: targetStats,
           stamina: { current: 15, temporary: 0 },
+          grants: [],
         },
       },
     };

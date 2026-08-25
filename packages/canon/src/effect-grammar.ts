@@ -58,6 +58,19 @@ export type EffectLineResolutionData =
       characteristic: 'might' | 'agility' | 'reason' | 'intuition' | 'presence';
       subject: 'the-target' | 'each-target';
     }
+  | {
+      /** "(The|Each) target (takes a bane|takes a double bane|gains an
+       * edge|has a double edge) on their next (strike|power roll)[ made
+       * before the end of their next turn]." and "The next strike made
+       * against the target (gains an edge|takes a bane)." — one-shot
+       * next-roll modifier grants [R-0012..R-0016]. */
+      kind: 'next-roll-grant';
+      polarity: 'edge' | 'double-edge' | 'bane' | 'double-bane';
+      scope: 'strike' | 'power-roll';
+      direction: 'outbound' | 'inbound';
+      subject: 'the-target' | 'each-target';
+      window: 'end-of-targets-next-turn' | null;
+    }
   | { kind: 'table' };
 
 export interface EffectLineData {
@@ -172,6 +185,19 @@ const NEXT_TURN_CONDITION_EFFECT = new RegExp(
  * anchor and the line stays table. */
 const CHARACTERISTIC_TEST_EFFECT =
   /^(The target|Each target) makes an? (?:\*\*)?(Might|Agility|Reason|Intuition|Presence) test(?:\*\*)?\.$/;
+/** The two closed next-roll grant templates (effect-shape inventory ids
+ * `edge-bane-next-roll` + `next-strike-against-target`) — anchored whole
+ * payload; any rider or second sentence stays table [R-0012..R-0016]. */
+const NEXT_ROLL_GRANT_EFFECT =
+  /^(The target|Each target) (takes a bane|takes a double bane|gains an edge|has a double edge) on their next (strike|power roll)( made before the end of their next turn)?\.$/;
+const INBOUND_NEXT_STRIKE_EFFECT =
+  /^The next strike made against the target (gains an edge|takes a bane)\.$/;
+const GRANT_POLARITY: Record<string, 'edge' | 'double-edge' | 'bane' | 'double-bane'> = {
+  'gains an edge': 'edge',
+  'has a double edge': 'double-edge',
+  'takes a bane': 'bane',
+  'takes a double bane': 'double-bane',
+};
 
 function parseEffectPayload(payload: string): EffectLineData {
   const canonRefs = canonRefsIn(payload);
@@ -241,6 +267,43 @@ function parseEffectPayload(payload: string): EffectLineData {
         subject: test[1] === 'The target' ? 'the-target' : 'each-target',
       },
     };
+  }
+
+  const outboundGrant = NEXT_ROLL_GRANT_EFFECT.exec(plain);
+  if (outboundGrant) {
+    const polarity = GRANT_POLARITY[outboundGrant[2] ?? ''];
+    if (polarity) {
+      return {
+        sourceText: payload,
+        canonRefs,
+        resolution: {
+          kind: 'next-roll-grant',
+          polarity,
+          scope: outboundGrant[3] === 'strike' ? 'strike' : 'power-roll',
+          direction: 'outbound',
+          subject: outboundGrant[1] === 'The target' ? 'the-target' : 'each-target',
+          window: outboundGrant[4] !== undefined ? 'end-of-targets-next-turn' : null,
+        },
+      };
+    }
+  }
+  const inboundGrant = INBOUND_NEXT_STRIKE_EFFECT.exec(plain);
+  if (inboundGrant) {
+    const polarity = GRANT_POLARITY[inboundGrant[1] ?? ''];
+    if (polarity) {
+      return {
+        sourceText: payload,
+        canonRefs,
+        resolution: {
+          kind: 'next-roll-grant',
+          polarity,
+          scope: 'strike',
+          direction: 'inbound',
+          subject: 'the-target',
+          window: null,
+        },
+      };
+    }
   }
 
   return { sourceText: payload, canonRefs, resolution: { kind: 'table' } };

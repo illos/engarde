@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTOMATIC_EFFECT_CANON_EXPECTATIONS,
   EFFECT_CANON_PIN,
+  NEXT_ROLL_GRANT_CANON_EXPECTATIONS,
   TEST_EFFECT_CANON_EXPECTATIONS,
 } from './effect-canon-expectations.js';
 import { loadCoreEffectFixtures } from './effect-corpus-fixtures.js';
@@ -37,6 +38,13 @@ const expectationByKey = new Map(
 
 const testExpectationByKey = new Map(
   TEST_EFFECT_CANON_EXPECTATIONS.map((expectation) => [
+    effectKey(expectation.artifactId, expectation.effectOrdinal),
+    expectation,
+  ]),
+);
+
+const grantExpectationByKey = new Map(
+  NEXT_ROLL_GRANT_CANON_EXPECTATIONS.map((expectation) => [
     effectKey(expectation.artifactId, expectation.effectOrdinal),
     expectation,
   ]),
@@ -103,15 +111,18 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     expect(expectationByKey.size).toBe(12);
     expect(testExpectationByKey.size).toBe(TEST_EFFECT_CANON_EXPECTATIONS.length);
     expect(testExpectationByKey.size).toBe(29);
+    expect(grantExpectationByKey.size).toBe(NEXT_ROLL_GRANT_CANON_EXPECTATIONS.length);
+    expect(grantExpectationByKey.size).toBe(14);
 
     const fixtures = await loadCoreEffectFixtures(manifestPath);
     expect(fixtures).toHaveLength(1688);
     expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(1044);
     expect(new Set(fixtures.map((fixture) => fixture.fixtureId)).size).toBe(fixtures.length);
 
-    const counts = { damage: 0, condition: 0, test: 0, table: 0 };
+    const counts = { damage: 0, condition: 0, test: 0, 'next-roll-grant': 0, table: 0 };
     const seenAutomatic = new Set<string>();
     const seenTest = new Set<string>();
+    const seenGrant = new Set<string>();
     for (const fixture of fixtures) {
       expect(fixture.program.sourceText, fixture.fixtureId).toBe(
         rawPayload(fixture.clause.span.text),
@@ -135,6 +146,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
         counts[expectation.resolution.kind] += 1;
       } else {
         const testExpectation = testExpectationByKey.get(key);
+        const grantExpectation = grantExpectationByKey.get(key);
         if (testExpectation) {
           seenTest.add(key);
           expect(fixture.artifact.source.path, fixture.fixtureId).toBe(testExpectation.sourcePath);
@@ -143,6 +155,18 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
           expect(fixture.program.targetsText, fixture.fixtureId).toBe(testExpectation.targetsText);
           expect(fixture.program.resolution, fixture.fixtureId).toEqual(testExpectation.resolution);
           counts.test += 1;
+        } else if (grantExpectation) {
+          seenGrant.add(key);
+          expect(fixture.artifact.source.path, fixture.fixtureId).toBe(grantExpectation.sourcePath);
+          expect(fixture.program.sourceSpan, fixture.fixtureId).toEqual(
+            grantExpectation.sourceSpan,
+          );
+          expect(fixture.program.sourceText, fixture.fixtureId).toBe(grantExpectation.sourceText);
+          expect(fixture.program.targetsText, fixture.fixtureId).toBe(grantExpectation.targetsText);
+          expect(fixture.program.resolution, fixture.fixtureId).toEqual(
+            grantExpectation.resolution,
+          );
+          counts['next-roll-grant'] += 1;
         } else {
           expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
           counts.table += 1;
@@ -151,6 +175,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     }
     expect(seenAutomatic).toEqual(new Set(expectationByKey.keys()));
     expect(seenTest).toEqual(new Set(testExpectationByKey.keys()));
+    expect(seenGrant).toEqual(new Set(grantExpectationByKey.keys()));
     // 87 attached bullets across the 29 tests: 21 automatic / 66 verbatim.
     const bullets = TEST_EFFECT_CANON_EXPECTATIONS.flatMap((expectation) => [
       expectation.resolution.tiers.tier1,
@@ -159,7 +184,16 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     ]);
     expect(bullets).toHaveLength(87);
     expect(bullets.filter((bullet) => bullet.kind === 'automatic')).toHaveLength(21);
-    expect(counts).toEqual({ damage: 5, condition: 7, test: 29, table: 1647 });
+    // Re-frozen 2026-08-25 after the 14 next-roll grant lines compiled out
+    // of the table set (R-0012..R-0016; edge-bane-next-roll 12 → 0,
+    // next-strike-against-target 2 → 0).
+    expect(counts).toEqual({
+      damage: 5,
+      condition: 7,
+      test: 29,
+      'next-roll-grant': 14,
+      table: 1633,
+    });
   });
 
   it('executes every program through the engine with exact deltas or a verbatim directive', async () => {
@@ -271,6 +305,34 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
           );
           expect(directive?.message, fixture.fixtureId).toBe(goldenTiers.tier1.sourceText);
         }
+        continue;
+      }
+      const grantExpectation = grantExpectationByKey.get(key);
+      if (!expectation && grantExpectation) {
+        // A grant program stores exactly one attributed pending modifier on
+        // the target [R-0012..R-0016] — nothing else changes.
+        const golden = grantExpectation.resolution;
+        expect(fixture.program.resolution, fixture.fixtureId).toEqual(golden);
+        const grants = result.state.participants.target?.grants ?? [];
+        expect(grants, fixture.fixtureId).toHaveLength(1);
+        expect(grants[0], fixture.fixtureId).toMatchObject({
+          polarity: golden.polarity,
+          scope: golden.scope,
+          direction: golden.direction,
+          window: golden.window,
+          source: {
+            participantId: 'actor',
+            effectArtifactId: fixture.artifactId,
+          },
+        });
+        expect(
+          result.state.participants.target?.conditions,
+          fixture.fixtureId,
+        ).toEqual([]);
+        expect(
+          result.state.participants.target?.stamina?.current,
+          fixture.fixtureId,
+        ).toBe(STATS.staminaMax);
         continue;
       }
       if (!expectation) {

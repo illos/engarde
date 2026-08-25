@@ -98,7 +98,7 @@ function characteristicStats(): ParticipantStats {
 function state(): EncounterState {
   const stats = characteristicStats();
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
       actor: {
         id: 'actor',
@@ -107,6 +107,7 @@ function state(): EncounterState {
         kind: 'hero',
         stats,
         stamina: { current: 100, temporary: 0 },
+        grants: [],
       },
       target: {
         id: 'target',
@@ -115,6 +116,7 @@ function state(): EncounterState {
         kind: 'director-creature',
         stats: { ...stats, potencies: null },
         stamina: { current: 100, temporary: 0 },
+        grants: [],
       },
     },
   };

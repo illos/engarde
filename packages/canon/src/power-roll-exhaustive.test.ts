@@ -155,7 +155,7 @@ function diceForTier(ability: AbilityEffectData, tier: Tier): [number, number] {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
       actor: {
         id: 'actor',
@@ -164,6 +164,7 @@ function freshState(): EncounterState {
         kind: 'hero',
         stats: ACTOR_STATS,
         stamina: { current: STARTING_STAMINA, temporary: 0 },
+        grants: [],
       },
       target: {
         id: 'target',
@@ -172,6 +173,7 @@ function freshState(): EncounterState {
         kind: 'director-creature',
         stats: TARGET_STATS,
         stamina: { current: STARTING_STAMINA, temporary: 0 },
+        grants: [],
       },
     },
   };

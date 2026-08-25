@@ -70,7 +70,7 @@ describe.skipIf(!existsSync(manifestPath))('narrative triage (accepted pin)', ()
     const report = buildNarrativeTriage(fixtures, EFFECT_CANON_PIN);
 
     expect(report.canonPin).toBe(EFFECT_CANON_PIN);
-    expect(report.tablePrograms).toBe(1647);
+    expect(report.tablePrograms).toBe(1633);
     // Frozen at the accepted pin: a signal-table or corpus change must
     // surface here on purpose.
     expect(report.candidates).toHaveLength(24);
