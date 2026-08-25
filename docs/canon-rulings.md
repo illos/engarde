@@ -404,3 +404,129 @@ always originates from you and lasts only for as long as it takes to affect
 its targets." [Classes §Burst, Heroes p.71]. Carriers: Pillar Toppling
 Pillar [Monsters p.340], Orc Terranova Sinkhole [Monsters p.220], War Dog
 Aerocite Caustic Paste Bomb [Monsters p.311].
+
+## R-0023 — Squads: individual minion participants + encounter-level pool state; printed init formula (approved 2026-08-25)
+
+**Ruling:** Minions remain individual participants (occupy squares, are
+targeted, take conditions per-member). A squad is encounter-level state:
+members (same-named minions, asserted at encounter seeding), the stat
+block's per-minion Stamina, and the shared pool — initialized to per-minion
+Stamina × member count. A squad mixing different stat blocks is **refused**
+(the printed pool formula requires one per-minion Stamina number —
+canon-incoherent over-state, the zipper class); a squad of more than eight
+**warns-and-applies** (printed bound; the arithmetic stays coherent).
+
+**Evidence (verbatim):** "Minions with the same name (for instance, goblin
+sniper) can be organized into squads of up to eight creatures." [Organized
+as Squads, Monsters p.7]. "Each squad of minions shares a Stamina pool,
+with initial Stamina equal to each individual minion's Stamina multiplied
+by the number of minions in the squad. For example, a goblin spinecleaver
+has 5 Stamina, so a squad of eight spinecleavers has a Stamina pool of 40."
+[Shared Low Stamina, Monsters p.7]. "The minions you buy can be arranged
+into squads of any size you need, up to a maximum of eight minions in a
+squad." [Minions Come in Groups of Four, Monsters p.12]
+
+**Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
+d9c216ce verified), 2026-08-25.
+
+## R-0024 — (PENDING) Non-area damage: threshold kills confirmed in principle; overflow semantics under amendment
+
+**Status:** not yet ruled. The user's amendment ("Overflow is never
+discarded", with a worked example) is being reconciled on a revised card;
+this slot is reserved and will be replaced by the accepted ruling.
+
+## R-0025 — Area damage: each in-area minion feeds the pool at most its own Stamina; only in-area minions die (approved 2026-08-25)
+
+**Ruling:** For an area source — an ability with the Area keyword (the
+printed discriminator) or damage dispatch-asserted as an area effect — each
+bound in-area minion contributes min(damage dealt to it, per-minion
+Stamina) to the pool, and only bound in-area minions can die from the
+instance. "In the area" is the dispatch's bound targets (no spatial model).
+This is the arithmetic the printed 15-not-18 example implies; the cap makes
+the kill limit structural (each capped contribution crosses at most one
+threshold).
+
+**Evidence (verbatim):** "…such area effects can kill only those minions
+who are in the area. For example, a tier 3 outcome for the talent's
+Incinerate ability deals 6 fire damage to each target in its area. If three
+goblin spinecleavers with Stamina 5 are caught in the area, the minion pool
+loses 15 Stamina instead of 18, leaving the other minions in the squad
+unscathed." [Minions and Area Effects, Monsters p.8]. Discriminator: "…any
+source except an area effect (including abilities with the Area keyword)…"
+[Dropping Multiple Minions, Monsters p.8]
+
+**Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
+346d7be6 verified), 2026-08-25.
+
+## R-0026 — Squad weakness/immunity applies once, as the last step (approved 2026-08-25)
+
+**Ruling:** When a damage instance touches a squad: compute each minion's
+pool contribution first (including R-0025's area cap), sum, then apply the
+squad's damage weakness/immunity **once** to that sum as the final step
+before kill accounting — using the existing one-home weakness/immunity
+semantics (highest applicable of each). The composition order against the
+area cap is the ruled reading; the books print once-per-squad and
+last-in-order but show no combined example.
+
+**Evidence (verbatim):** "If a minion has either a damage immunity or a
+damage weakness for a source of damage, apply the effects to the minion's
+squad once, even if multiple minions share the same immunity or weakness.
+These effects are the last things applied when calculating damage and can
+drop (or save!) multiple minions from any source of damage, including area
+effects." [Minion Weakness and Immunity, Monsters p.8]
+
+**Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
+fd5bcc27 verified), 2026-08-25.
+
+## R-0027 — Minion exemptions are rule-mandated per-binding refusals; a death counts as 0 Stamina for triggers (approved 2026-08-25)
+
+**Ruling:** Squad members are never winded or dying (pool tracking replaces
+those derived states). A binding that would have a squad member regain
+Stamina, gain temporary Stamina, or spend a Recovery is **refused** with a
+receipt citing the printed rule — per-binding, so sibling targets of the
+same effect still resolve. Refusal, not warn-and-apply: there is no
+individual Stamina number to receive the change (canon-incoherent
+over-state). This upgrades R-0019(c)'s "pool not mechanized" table routing
+to its printed ground once the pool mechanism ships. A minion taken out is
+dead for the encounter and fires its "counts as being reduced to 0 Stamina"
+trigger receipt once; asserting a knockout instead remains the Director's
+existing call (R-0005 family).
+
+**Evidence (verbatim):** "Because minion Stamina is tracked as a pool,
+minions can't be winded, can't regain Stamina, and can't gain temporary
+Stamina during a battle." [Shared Low Stamina, Monsters p.7]. "When a
+minion is taken out of the fight, they count as being reduced to 0 Stamina
+for triggering effects." [Dropping One Minion, Monsters p.7]
+
+**Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
+3148b4e8 verified), 2026-08-25.
+
+## R-0028 — Captains: attachment is tracked state; benefits display verbatim; automation deferred to a named follow-up (approved 2026-08-25)
+
+**Ruling:** The engine tracks captain attachment via Director
+attach/detach: singular captain per squad (attaching over an existing
+captain warns and replaces — the Director exercising the printed
+one-captain rule), one squad per captain, captain Stamina individual and
+never pooled. Eligibility beyond non-Mount/non-minion (shared language) is
+table-asserted. While attached, the squad surface shows the stat block's
+"With Captain" entry verbatim; applying the benefit is table-adjudicated
+this slice (tier-3 surfacing). Benefit automation is a named follow-up
+family: edge-type benefits can ride the grant substrate; the 10
+Stamina-type benefits sit on a book-silent question (recomputing an
+in-progress pool when a captain arrives or is lost mid-fight) that gets its
+own ruling then. Succession ("start of the next round, no action required")
+is the Director re-attaching; no automation.
+
+**Evidence (verbatim):** "A squad of minions can have only one captain, and
+a creature can't be captain to more than one squad of minions." · "A
+captain's Stamina isn't added to a minion squad's Stamina pool, and is
+tracked as for any other creature in combat." · "While a minion squad has a
+captain, each minion in the squad gains the benefits noted at the 'With
+Captain' entry on their stat block." · "If a squad of minions loses their
+captain, a new allied creature can become that squad's captain at the start
+of the next round (no action required)." [Attached Squad Captain /
+Separate Actions and Stamina / Captain Benefits / I Am the Captain Now,
+Monsters p.9]
+
+**Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
+410f6268 verified), 2026-08-25.
