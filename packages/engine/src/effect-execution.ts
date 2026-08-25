@@ -12,7 +12,7 @@ import {
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { GRANT_CANON, addGrant, grantContribution, splitGrants } from './grant-lifecycle.js';
-import { HEALTH_CANON } from './health.js';
+import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type { EncounterState, LogEntry, ParsedIntent, TestTier } from './schemas.js';
@@ -294,6 +294,25 @@ export function executeUseEffect(
         );
         continue;
       }
+      // Book-silent case (design §5): an unconscious (knocked-out) target
+      // accepting a spend applies permissively but is flagged for Director
+      // adjudication — the unconscious rules bar action-economy items only,
+      // and an ability-granted spend is not on that list [rule.health/stamina
+      // §Knocking Creatures Out].
+      if (
+        target.conditions.some((instance) => instance.conditionId === UNCONSCIOUS_CONDITION_ID) &&
+        intent.payload.recoverySpends[targetId] === true
+      ) {
+        log.push(
+          entry(
+            context,
+            'warning',
+            `${targetId} accepts the offered Recovery while unconscious — the book does not address this; Director adjudicates`,
+            refs(effect, [HEALTH_CANON.recoveries]),
+            { unconsciousSpendTarget: { targetId } },
+          ),
+        );
+      }
       // R-0019a: a hero with 0 Recoveries cannot spend — this one binding
       // does not apply while the rest of the dispatch proceeds, so it is a
       // per-binding non-application (the whole-dispatch `refusal` kind would
@@ -385,7 +404,9 @@ export function executeUseEffect(
   }
 
   if (effect.resolution.kind === 'terrain-fact') {
-    const factId = `${effect.effectArtifactId}#${intent.intentId}-terrain`;
+    // Ordinal in the id: a future batched dispatch of one artifact's two
+    // terrain effects must not collide (audit L-4 hardening).
+    const factId = `${effect.effectArtifactId}#${effect.effectOrdinal}#${intent.intentId}-terrain`;
     if (state.terrainFacts.some((fact) => fact.factId === factId)) {
       return {
         state,

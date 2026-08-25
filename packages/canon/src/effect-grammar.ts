@@ -223,14 +223,16 @@ const INBOUND_NEXT_STRIKE_EFFECT =
 /** The four flat-resource closed templates (effect-shape inventory ids
  * `spend-recovery-exact`, `regains-stamina-flat`, `temporary-stamina-flat`,
  * `area-difficult-terrain`) — anchored whole payload; any rider or second
- * sentence stays table [R-0017..R-0022]. Subject alternations are the
- * observed corpus forms only. */
+ * sentence stays table [R-0017..R-0022]. Each subject alternation is exactly
+ * the set observed for THAT template at the pin; only the numerals
+ * generalize (amounts and the squares distance are data, not rule shape).
+ * Any pin bump that widens a match set trips the frozen counts in
+ * effect-exhaustive / effect-shape-inventory on purpose. */
 const SPEND_RECOVERY_EFFECT =
-  /^(You|The target|Each target|You or one ally within distance|One ally adjacent to the target|Each ally in the area) can spend a Recovery\.$/;
+  /^(You|The target|You or one ally within distance|One ally adjacent to the target|Each ally in the area) can spend a Recovery\.$/;
 const REGAIN_STAMINA_FLAT_EFFECT =
-  /^(The target|Each target|One creature within \d+ squares) regains (\d+) Stamina\.$/;
-const TEMPORARY_STAMINA_FLAT_EFFECT =
-  /^(You|The target|Each target) gains? (\d+) temporary Stamina\.$/;
+  /^(Each target|One creature within \d+ squares) regains (\d+) Stamina\.$/;
+const TEMPORARY_STAMINA_FLAT_EFFECT = /^You gain (\d+) temporary Stamina\.$/;
 const AREA_DIFFICULT_TERRAIN_EFFECT = /^The area is difficult terrain\.$/;
 /** Plural subjects among the flat-resource templates; everything else names
  * exactly one recipient. */
@@ -378,15 +380,14 @@ function parseEffectPayload(payload: string): EffectLineData {
   }
   const temporaryFlat = TEMPORARY_STAMINA_FLAT_EFFECT.exec(plain);
   if (temporaryFlat) {
-    const subjectText = temporaryFlat[1] ?? '';
     return {
       sourceText: payload,
       canonRefs,
       resolution: {
         kind: 'temporary-stamina',
-        amount: Number(temporaryFlat[2]),
-        subjectText,
-        singular: !PLURAL_SUBJECTS.has(subjectText),
+        amount: Number(temporaryFlat[1]),
+        subjectText: 'You',
+        singular: true,
       },
     };
   }

@@ -229,6 +229,100 @@ describe('spend-recovery resolution [R-0018, R-0019]', () => {
   });
 });
 
+describe('regain leaving dying: bleeding persistence [R-0017 ∩ R-0004]', () => {
+  it('bleeding survives the regain and becomes removable once no longer dying', () => {
+    // Damage the hero into dying — the mandated bleeding instance auto-applies.
+    const before = encounter();
+    const damage: Intent = {
+      intentId: 'flat-d1',
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: { target: 'ally', amount: 23, reason: 'test damage' },
+    };
+    const dying = dispatch(before, damage);
+    const bleeding = dying.state.participants.ally?.conditions.find((instance) =>
+      instance.conditionId.includes('bleeding'),
+    );
+    expect(bleeding).toBeDefined();
+    if (!bleeding) throw new Error('no bleeding instance');
+
+    // Removal refuses while still dying [R-0004].
+    const removeWhileDying: Intent = {
+      intentId: 'flat-d2',
+      kind: 'remove-condition',
+      actor: { kind: 'director' },
+      payload: { target: 'ally', instanceId: bleeding.instanceId },
+    };
+    const refused = dispatch(dying.state, removeWhileDying);
+    expect(refused.log[0]?.kind).toBe('refusal');
+
+    // Regain above 0: dying ends by definition; bleeding is NOT auto-removed.
+    const regain = program({
+      kind: 'regain-stamina',
+      amount: 5,
+      subjectText: 'The target',
+      singular: true,
+    });
+    const healed = dispatch(dying.state, useEffect(regain, ['ally']));
+    expect(healed.state.participants.ally?.stamina?.current).toBe(3);
+    expect(
+      healed.state.participants.ally?.conditions.some(
+        (instance) => instance.instanceId === bleeding.instanceId,
+      ),
+    ).toBe(true);
+
+    // No longer dying: the same removal now succeeds.
+    const removed = dispatch(healed.state, {
+      ...removeWhileDying,
+      intentId: 'flat-d3',
+    });
+    expect(
+      removed.state.participants.ally?.conditions.some(
+        (instance) => instance.instanceId === bleeding.instanceId,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('unconscious spend target flag (design §5, book-silent)', () => {
+  it('warns and applies when a knocked-out target accepts a spend', () => {
+    const base = encounter();
+    const ally = base.participants.ally;
+    if (!ally?.stamina) throw new Error('ally untracked');
+    const unconscious = {
+      ...base,
+      participants: {
+        ...base.participants,
+        ally: {
+          ...ally,
+          stamina: { ...ally.stamina, current: 0 },
+          conditions: [
+            {
+              instanceId: 'mcdm.heroes.v1/rule.health/stamina#unconscious#seed-ally',
+              conditionId: 'mcdm.heroes.v1/rule.health/stamina#unconscious',
+              ending: { kind: 'external' as const },
+              source: {
+                effectArtifactId: 'mcdm.heroes.v1/rule.health/stamina#knocking-creatures-out',
+              },
+            },
+          ],
+        },
+      },
+    };
+    const offer = program({
+      kind: 'spend-recovery',
+      subjectText: 'The target',
+      singular: true,
+    });
+    const result = dispatch(
+      unconscious,
+      useEffect(offer, ['ally'], { recoverySpends: { ally: true } }),
+    );
+    expect(result.log.some((entry) => entry.data.unconsciousSpendTarget !== undefined)).toBe(true);
+    expect(result.state.participants.ally?.stamina?.recoveries).toBe(7);
+  });
+});
+
 describe('regain-stamina resolution [R-0017, R-0020]', () => {
   const regain = program({
     kind: 'regain-stamina',

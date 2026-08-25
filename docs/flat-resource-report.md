@@ -109,6 +109,31 @@ text, targets header, and compiled resolution for all 12, then executes all
   Stamina, difficult-terrain movement math (spatial arc), retainers: all
   outside the closed templates; see design §5.
 
+## Audit (2026-08-25, fresh read-only): verdict GO
+
+No blockers. Three IMPORTANT findings, all fixed same-day:
+- **I-1** — the design's promised receipt flag for an unconscious target
+  accepting a spend was not emitted; the executor now warns-and-applies
+  with an `unconsciousSpendTarget` receipt (tested).
+- **I-2** — the flat-template subject alternations were a cross-template
+  superset while the comment claimed observed-forms-only; each regex is
+  now tightened to its own observed subjects (numerals still generalize)
+  and the comment states the count-freeze interception precisely.
+- **I-3** — the R-0017 ∩ R-0004 seam (bleeding survives the regain out of
+  dying and becomes removable) had no test; pinned now (refuse-while-dying
+  → regain → persists → removal succeeds).
+Cheap hardening from LATENT L-4 also applied: terrain factIds include the
+effect ordinal.
+
+Latent notes recorded for future implementers (audit L-1..L-3): the
+0-Recoveries predicate has a deliberate two-home split (core refusal vs
+executor per-binding) that must be unified when the user-flagged
+Recovery-donation class ruling lands; minion detection is inlined twice in
+damage.ts — extract `isMinion` before the minion-pool arc; the executor's
+per-target apply loop is duplicated between the spend and regain branches —
+extract a shared applicator before the surge / heroic-resource / malice
+families.
+
 ## Follow-ups / latent notes
 
 - The user's R-0019 note flags a class that gives Recoveries away to
