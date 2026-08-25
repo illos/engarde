@@ -216,7 +216,7 @@ function reduceStamina(
       entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {}),
     );
     const applied = applyConditionInstance(
-      { schemaVersion: 2, participants: { [result.id]: result } },
+      { schemaVersion: 3, participants: { [result.id]: result } },
       {
         target: result,
         instance: {
@@ -240,7 +240,7 @@ function reduceStamina(
   if (!deadBefore && wouldBeDead) {
     if (options.knockOut) {
       const applied = applyConditionInstance(
-        { schemaVersion: 2, participants: { [result.id]: result } },
+        { schemaVersion: 3, participants: { [result.id]: result } },
         {
           target: result,
           instance: {

@@ -52,6 +52,7 @@ function participant(
     id: 'target',
     conditions: [],
     sourceRecordId: null,
+    grants: [],
     kind: 'director-creature',
     stats,
     stamina: { current: stats.staminaMax, temporary: 0 },
@@ -263,6 +264,7 @@ describe('automation blockers', () => {
       kind: 'hero',
       stats: null,
       stamina: null,
+      grants: [],
     };
     expect(damageAutomationBlocker(tableMode)).toMatch(/table/);
   });

@@ -11,15 +11,16 @@ const GRABBED = 'mcdm.heroes.v1/condition/grabbed';
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
-      hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null },
+      hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
       cultist: {
         id: 'cultist',
         conditions: [],
         kind: 'director-creature',
         stats: null,
         stamina: null,
+        grants: [],
       },
     },
   };

@@ -29,6 +29,7 @@ const PRONE = 'mcdm.heroes.v1/condition/prone';
 const JUDGMENTS_HAMMER: AbilityEffectData = {
   abilityArtifactId: 'mcdm.heroes.v1/rule.character/potency#judgments-hammer-example',
   actionType: 'Main action',
+  keywords: [],
   targetsText: 'One creature',
   powerRollBonus: { kind: 'characteristic', options: ['I'] },
   tiers: {
@@ -60,6 +61,7 @@ const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
 const GOBLIN_STRIKE: AbilityEffectData = {
   abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#strike',
   actionType: 'Main action',
+  keywords: [],
   targetsText: 'One creature',
   powerRollBonus: { kind: 'fixed', value: 2 },
   tiers: {
@@ -104,7 +106,7 @@ const BANDIT_STATS: ParticipantStats = {
 
 function state(): EncounterState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
       conduit: {
         id: 'conduit',
@@ -113,6 +115,7 @@ function state(): EncounterState {
         kind: 'hero',
         stats: CONDUIT_STATS,
         stamina: { current: 21, temporary: 0 },
+        grants: [],
       },
       bandit: {
         id: 'bandit',
@@ -121,6 +124,7 @@ function state(): EncounterState {
         kind: 'director-creature',
         stats: BANDIT_STATS,
         stamina: { current: 15, temporary: 0 },
+        grants: [],
       },
       'bandit-2': {
         id: 'bandit-2',
@@ -129,6 +133,7 @@ function state(): EncounterState {
         kind: 'director-creature',
         stats: BANDIT_STATS,
         stamina: { current: 15, temporary: 0 },
+        grants: [],
       },
     },
   };
@@ -219,6 +224,7 @@ describe('the roll [rule.dice/power-roll, rule.dice/ability-roll]', () => {
       kind: 'director-creature',
       stats: null,
       stamina: null,
+      grants: [],
     };
     const result = dispatchChecked(withGoblin, {
       intentId: 'i2',
@@ -281,6 +287,7 @@ describe('refusals leave the world untouched (permissive-engine boundary)', () =
       kind: 'director-creature',
       stats: null,
       stamina: null,
+      grants: [],
     };
     const result = applyIntent(
       withGoblin,

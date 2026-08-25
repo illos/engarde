@@ -16,7 +16,10 @@ import { z } from 'zod';
  *
  * schemaVersion 2 (power-roll cluster, docs/power-roll-design.md): adds
  * participant kind/stats/stamina and the use-ability / apply-damage intents.
- * `upgradeEncounterState` in migrate.ts lifts stored v1 states.
+ * schemaVersion 3 (next-roll grants, docs/next-roll-grant-design.md,
+ * R-0012..R-0016): adds the participant `grants` slot — the first persistent
+ * non-condition modifier state. `upgradeEncounterState` in migrate.ts lifts
+ * stored v1/v2 states.
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -43,6 +46,44 @@ export const ConditionInstanceSchema = z.object({
 });
 
 export type ConditionInstance = z.infer<typeof ConditionInstanceSchema>;
+
+/**
+ * One-shot next-roll edge/bane grants (R-0012..R-0016,
+ * docs/next-roll-grant-design.md). A grant pends on its holder until the
+ * first roll matching its scope/direction consumes it [R-0013]; bare grants
+ * (window null) persist until the encounter-end sweep [R-0012]; windowed
+ * grants expire at the holder's next end-turn event [R-0016].
+ */
+export const GRANT_POLARITIES = ['edge', 'double-edge', 'bane', 'double-bane'] as const;
+export const GrantPolaritySchema = z.enum(GRANT_POLARITIES);
+export type GrantPolarity = z.infer<typeof GrantPolaritySchema>;
+
+export const GrantScopeSchema = z.enum(['strike', 'power-roll']);
+export type GrantScope = z.infer<typeof GrantScopeSchema>;
+
+/** 'outbound' rides the holder's own roll; 'inbound' rides the next
+ * qualifying strike made AGAINST the holder [R-0014]. */
+export const GrantDirectionSchema = z.enum(['outbound', 'inbound']);
+export type GrantDirection = z.infer<typeof GrantDirectionSchema>;
+
+export const GrantWindowSchema = z.enum(['end-of-targets-next-turn']);
+export type GrantWindow = z.infer<typeof GrantWindowSchema>;
+
+export const NextRollGrantSchema = z.object({
+  grantId: z.string().min(1),
+  polarity: GrantPolaritySchema,
+  /** Which roll consumes it [R-0013]: 'strike' = the next Strike-keyword
+   * ability roll; 'power-roll' = the next ability roll or test. */
+  scope: GrantScopeSchema,
+  direction: GrantDirectionSchema,
+  /** Same-ability duplicates on one holder collapse
+   * [classes#stacking-unique-effects, R-0014]. */
+  source: ConditionSourceSchema,
+  /** null = the R-0012 default: until consumed, encounter-end sweep. */
+  window: GrantWindowSchema.nullable(),
+});
+
+export type NextRollGrant = z.infer<typeof NextRollGrantSchema>;
 
 /** The five characteristics, scores −5..+5 [rule.character/characteristic]. */
 export const CHARACTERISTIC_LETTERS = ['M', 'A', 'R', 'I', 'P'] as const;
@@ -137,6 +178,9 @@ const participantShape = {
   /** null = table-mode actor: no stat automation, receipts only. */
   stats: ParticipantStatsSchema.nullable(),
   stamina: StaminaStateSchema.nullable(),
+  /** Pending next-roll edge/bane grants (v3, R-0012..R-0016). The default
+   * keeps v2-shaped literals valid while migration stamps the version. */
+  grants: z.array(NextRollGrantSchema).default([]),
 };
 
 export const ParticipantStateSchema = z
@@ -148,11 +192,21 @@ export const ParticipantStateSchema = z
 export type ParticipantState = z.infer<typeof ParticipantStateSchema>;
 
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(2),
+  schemaVersion: z.literal(3),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The power-roll-cluster stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — `grants` defaults
+ * to [] — so only the version literal distinguishes the wrapper. */
+export const EncounterStateV2Schema = z.object({
+  schemaVersion: z.literal(2),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+});
+
+export type EncounterStateV2 = z.infer<typeof EncounterStateV2Schema>;
 
 /** The pre-cluster stored shape, retained for migration (migrate.ts). */
 export const EncounterStateV1Schema = z.object({
@@ -246,6 +300,10 @@ export const AbilityEffectDataSchema = z.object({
   /** Header action type ("Main action", "Maneuver", …) — critical hits exist
    * only on main-action ability rolls [rule.combat/critical-hit]. */
   actionType: z.string().nullable(),
+  /** Verbatim header keywords ("Melee, Strike, Weapon"). The Strike keyword
+   * decides which rolls consume strike-scoped grants [rule.combat/strike,
+   * R-0013]; the compiler passes the header cell through untouched. */
+  keywords: z.array(z.string().min(1)).default([]),
   /** Verbatim targets line from the header ("One creature or object") —
    * exceeding it is a warn-and-apply rule violation. */
   targetsText: z.string().nullable(),
@@ -319,6 +377,19 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
       tier2: TestTierSchema,
       tier3: TestTierSchema,
     }),
+  }),
+  /** "(The|Each) target (takes a bane|takes a double bane|gains an edge|has
+   * a double edge) on their next (strike|power roll)[ made before the end of
+   * their next turn]." and "The next strike made against the target (gains
+   * an edge|takes a bane)." — a one-shot attributed modifier grant stored on
+   * each target [R-0012..R-0016, docs/next-roll-grant-design.md]. */
+  z.object({
+    kind: z.literal('next-roll-grant'),
+    polarity: GrantPolaritySchema,
+    scope: GrantScopeSchema,
+    direction: GrantDirectionSchema,
+    subject: z.enum(['the-target', 'each-target']),
+    window: GrantWindowSchema.nullable(),
   }),
   z.object({ kind: z.literal('table') }),
 ]);

@@ -1,13 +1,21 @@
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { GRANT_CANON, grantContribution, scopeMatchesRoll, splitGrants } from './grant-lifecycle.js';
 import { CHARACTERISTIC_KEY, POTENCY_CANON, resolvePotency } from './potency.js';
-import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
+import {
+  POWER_ROLL_CANON,
+  POWER_ROLL_DIE,
+  type PowerRollResolution,
+  type Tier,
+  resolvePowerRoll,
+} from './power-roll.js';
 import type {
   CharacteristicLetter,
   DamageType,
   EncounterState,
   LogEntry,
+  NextRollGrant,
   ParsedIntent,
   ParticipantState,
 } from './schemas.js';
@@ -199,23 +207,141 @@ export function executeUseAbility(
     }
   }
 
+  // Damage bindings pre-validate for every tier carrying damage BEFORE any
+  // mutation: grant consumption precedes the roll, and a refusal may never
+  // follow a mutation (refusal-with-change). Binding errors are
+  // target-independent, so this is safe to hoist.
+  const damageBindings = new Map<
+    Tier,
+    { value: number; label: string; defaulted: boolean }
+  >();
+  for (const tierNumber of [1, 2, 3] as const) {
+    const tierDamage = ability.tiers[`tier${tierNumber}`].damage;
+    if (!tierDamage) continue;
+    const binding = bindDamageCharacteristic(intent, actor, tierDamage.characteristicOptions);
+    if ('error' in binding) return refuse(state, context, binding.error);
+    damageBindings.set(tierNumber, binding);
+  }
+
   const log: LogEntry[] = [];
+  let nextState = state;
+
+  // ── grant consumption [R-0013..R-0015] ─────────────────────────────────
+  // The actor's pending outbound grants whose scope matches this roll are
+  // consumed and contribute to the (uniform) base pool; each target's
+  // inbound marks are consumed by a qualifying strike against them and
+  // contribute to THAT target's pool only [R-0014, classes#roll-against-
+  // multiple-creatures]. Consumption happens whether or not cancellation
+  // later zeroes the numeric effect [R-0015].
+  const isStrike = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'strike');
+  const rollShape = { kind: 'ability-roll' as const, isStrike };
+  const consumeGrantsFrom = (
+    holder: ParticipantState,
+    direction: NextRollGrant['direction'],
+  ): { edges: number; banes: number; consumed: NextRollGrant[] } => {
+    const split = splitGrants(
+      holder,
+      (grant) => grant.direction === direction && scopeMatchesRoll(grant.scope, rollShape),
+    );
+    let edges = 0;
+    let banes = 0;
+    for (const grant of split.consumed) {
+      const contribution = grantContribution(grant.polarity);
+      edges += contribution.edges;
+      banes += contribution.banes;
+    }
+    if (split.consumed.length > 0) {
+      nextState = withParticipant(nextState, { ...holder, grants: split.remaining });
+      log.push(
+        entry(
+          context,
+          'mutation',
+          direction === 'outbound'
+            ? `${holder.id}'s pending next-roll modifiers apply to this roll and are spent (${split.consumed.map((grant) => grant.polarity).join(', ')})`
+            : `the mark on ${holder.id} applies to this strike against them and is spent (${split.consumed.map((grant) => grant.polarity).join(', ')})`,
+          [
+            GRANT_CANON.powerRoll,
+            ...(direction === 'inbound' ? [GRANT_CANON.rollAgainstMultipleCreatures] : []),
+          ],
+          {
+            removedGrantIds: split.consumed.map((grant) => grant.grantId),
+            grantsConsumed: split.consumed.map((grant) => ({
+              grantId: grant.grantId,
+              holderId: holder.id,
+              direction: grant.direction,
+              polarity: grant.polarity,
+              contribution: grantContribution(grant.polarity),
+            })),
+          },
+        ),
+      );
+    }
+    return { edges, banes, consumed: split.consumed };
+  };
+
+  const liveActor = nextState.participants[payload.actorParticipantId];
+  const outbound = liveActor
+    ? consumeGrantsFrom(liveActor, 'outbound')
+    : { edges: 0, banes: 0, consumed: [] };
+  const inboundByTarget = new Map<string, { edges: number; banes: number }>();
+  for (const targetId of payload.targets) {
+    const target = nextState.participants[targetId];
+    if (!target) continue; // presence proven by the refusal gates
+    const inbound = consumeGrantsFrom(target, 'inbound');
+    if (inbound.consumed.length > 0) {
+      inboundByTarget.set(targetId, { edges: inbound.edges, banes: inbound.banes });
+    }
+  }
 
   // ── the roll: dice as input; asserted dice draw NOTHING (SE-4) ─────────
   const dice: [number, number] = payload.dice ?? [
     random.roll(POWER_ROLL_DIE),
     random.roll(POWER_ROLL_DIE),
   ];
+  const baseEdges = payload.edges + outbound.edges;
+  const baseBanes = payload.banes + outbound.banes;
   const resolution = resolvePowerRoll({
     dice,
     characteristicValue: rollBinding.value,
     bonuses: payload.bonuses,
     penalties: payload.penalties,
-    edges: payload.edges,
-    banes: payload.banes,
+    edges: baseEdges,
+    banes: baseBanes,
     automaticOutcomes: payload.automaticOutcomes,
     downgradeToTier: payload.downgradeToTier,
   });
+  // Per-target resolutions when any inbound mark applied: one dice draw,
+  // per-target modifier pools, possibly different tier outcomes
+  // [classes#roll-against-multiple-creatures, R-0014].
+  let perTarget: Record<
+    string,
+    { edges: number; banes: number; resolution: PowerRollResolution }
+  > | null = null;
+  if (inboundByTarget.size > 0) {
+    perTarget = {};
+    for (const targetId of payload.targets) {
+      const extra = inboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      const targetEdges = baseEdges + extra.edges;
+      const targetBanes = baseBanes + extra.banes;
+      perTarget[targetId] = {
+        edges: targetEdges,
+        banes: targetBanes,
+        resolution:
+          extra.edges === 0 && extra.banes === 0
+            ? resolution
+            : resolvePowerRoll({
+                dice,
+                characteristicValue: rollBinding.value,
+                bonuses: payload.bonuses,
+                penalties: payload.penalties,
+                edges: targetEdges,
+                banes: targetBanes,
+                automaticOutcomes: payload.automaticOutcomes,
+                downgradeToTier: payload.downgradeToTier,
+              }),
+      };
+    }
+  }
   log.push(
     entry(
       context,
@@ -230,8 +356,23 @@ export function executeUseAbility(
           characteristicLabel: rollBinding.label,
           bonuses: payload.bonuses,
           penalties: payload.penalties,
-          edges: payload.edges,
-          banes: payload.banes,
+          /** Effective counts (asserted + consumed grants) — what the
+           * resolution was computed with; the recompute invariant re-derives
+           * from these. Asserted payload counts ride alongside. */
+          edges: baseEdges,
+          banes: baseBanes,
+          assertedEdges: payload.edges,
+          assertedBanes: payload.banes,
+          grantsConsumed: [
+            ...outbound.consumed.map((grant) => ({
+              grantId: grant.grantId,
+              holderId: payload.actorParticipantId,
+              direction: grant.direction,
+              polarity: grant.polarity,
+              contribution: grantContribution(grant.polarity),
+            })),
+          ],
+          ...(perTarget !== null ? { perTarget } : {}),
           automaticOutcomes: payload.automaticOutcomes,
           downgradeToTier: payload.downgradeToTier ?? null,
           resolution,
@@ -281,24 +422,43 @@ export function executeUseAbility(
     );
   }
 
-  const tierData = ability.tiers[`tier${resolution.tier}` as 'tier1' | 'tier2' | 'tier3'];
-  let nextState = state;
+  // Per-target tier [R-0014]: an inbound mark can shift one target's
+  // outcome while the same roll resolves normally against another.
+  const tierNumberFor = (targetId: string): Tier =>
+    perTarget?.[targetId]?.resolution.tier ?? resolution.tier;
+  if (perTarget !== null) {
+    for (const targetId of payload.targets) {
+      const targetTier = tierNumberFor(targetId);
+      if (targetTier !== resolution.tier) {
+        log.push(
+          entry(
+            context,
+            'informational',
+            `against ${targetId} this roll resolves at tier ${targetTier} (their mark applies to this strike only against them)`,
+            [GRANT_CANON.rollAgainstMultipleCreatures],
+            { perTargetTier: { targetId, tier: targetTier } },
+          ),
+        );
+      }
+    }
+  }
 
   // ── damage phase: all targets first [rule.dice/ability-roll] ───────────
-  if (tierData.damage) {
-    const damageBinding = bindDamageCharacteristic(
-      intent,
-      actor,
-      tierData.damage.characteristicOptions,
-    );
-    if ('error' in damageBinding) return refuse(state, context, damageBinding.error);
+  const defaultedTiersLogged = new Set<Tier>();
+  for (const targetId of payload.targets) {
+    const tierNumber = tierNumberFor(targetId);
+    const tierData = ability.tiers[`tier${tierNumber}` as 'tier1' | 'tier2' | 'tier3'];
+    if (!tierData.damage) continue;
+    const damageBinding = damageBindings.get(tierNumber);
+    if (!damageBinding) continue; // bound above for every tier with damage
     const damageType: DamageType | null =
       tierData.damage.typeOptions.length === 0
         ? null
         : tierData.damage.typeOptions.length === 1
           ? (tierData.damage.typeOptions[0] ?? null)
           : (payload.damageTypeChoice ?? null);
-    if (damageBinding.defaulted) {
+    if (damageBinding.defaulted && !defaultedTiersLogged.has(tierNumber)) {
+      defaultedTiersLogged.add(tierNumber);
       log.push(
         entry(
           context,
@@ -309,7 +469,7 @@ export function executeUseAbility(
         ),
       );
     }
-    for (const targetId of payload.targets) {
+    {
       const target = nextState.participants[targetId];
       if (!target) continue; // presence proven by the refusal gates
       const extra = payload.extraDamage
@@ -334,7 +494,7 @@ export function executeUseAbility(
         { amount, type: damageType },
         {
           knockOut: payload.knockOut,
-          reason: `${damageType ? `${damageType} ` : ''}damage from ${actor.id}'s ability (tier ${resolution.tier})`,
+          reason: `${damageType ? `${damageType} ` : ''}damage from ${actor.id}'s ability (tier ${tierNumber})`,
         },
         context,
       );
@@ -347,6 +507,8 @@ export function executeUseAbility(
   for (const targetId of payload.targets) {
     const target = nextState.participants[targetId];
     if (!target) continue; // presence proven by the refusal gates
+    const tierData =
+      ability.tiers[`tier${tierNumberFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
     if (tierData.conditionIds.length === 0) continue;
 
     if (tierData.potency) {

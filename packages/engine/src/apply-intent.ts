@@ -10,6 +10,7 @@ import {
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { executeUseEffect } from './effect-execution.js';
+import { endEncounterGrantSweep, endOfTurnGrantSweep } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 
@@ -159,13 +160,19 @@ export function applyIntent(
           log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
         };
       }
-      return endOfTurnSweep(
+      const swept = endOfTurnSweep(
         state,
         target,
         intent.payload.rolls ?? {},
         () => context.random.roll(SAVING_THROW.die),
         lifecycleContext,
       );
+      // Windowed next-roll grants expire at the holder's end-turn event
+      // [R-0016]; the same sweep is the current-turn clause.
+      const liveTarget = swept.state.participants[intent.payload.participantId];
+      if (!liveTarget) return swept;
+      const grantSwept = endOfTurnGrantSweep(swept.state, liveTarget, lifecycleContext);
+      return { state: grantSwept.state, log: [...swept.log, ...grantSwept.log] };
     }
     case 'end-encounter': {
       const swept = endEncounterSweep(
@@ -177,10 +184,13 @@ export function applyIntent(
           (instance.source.effectArtifactId !== HEALTH_CANON.dying ||
             (participant.stamina !== null && isDying(participant.stamina.current))),
       );
+      // Every remaining next-roll grant clears with the encounter [R-0012];
+      // out-of-encounter retention stays Director/table state.
+      const grantsSwept = endEncounterGrantSweep(swept.state, lifecycleContext);
       // Temporary Stamina disappears at the end of an encounter
       // [rule.health/temporary-stamina].
-      let nextState = swept.state;
-      const log = [...swept.log];
+      let nextState = grantsSwept.state;
+      const log = [...swept.log, ...grantsSwept.log];
       for (const participant of Object.values(nextState.participants)) {
         if (participant.stamina !== null && participant.stamina.temporary > 0) {
           const cleared = {

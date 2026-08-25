@@ -3,6 +3,7 @@ import {
   EncounterStateSchema,
   type EncounterStateV1,
   EncounterStateV1Schema,
+  EncounterStateV2Schema,
 } from './schemas.js';
 
 /**
@@ -13,13 +14,22 @@ import {
  * corpus monster record played without stat automation, so the lossless
  * upgrade is `kind: 'director-creature'`, `stats: null`, `stamina: null`
  * (the table-mode receipts path). No v1 field is dropped.
+ *
+ * v2 → v3: participants gain the `grants` slot (next-roll edge/bane grants,
+ * R-0012..R-0016). No v2 encounter could hold a pending grant, so the
+ * lossless upgrade is `grants: []` — supplied by the schema default; the
+ * migration re-stamps the version.
  */
 export function upgradeEncounterState(stored: unknown): EncounterState {
-  const v2 = EncounterStateSchema.safeParse(stored);
-  if (v2.success) return v2.data;
+  const v3 = EncounterStateSchema.safeParse(stored);
+  if (v3.success) return v3.data;
+  const v2 = EncounterStateV2Schema.safeParse(stored);
+  if (v2.success) {
+    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 3 });
+  }
   const v1: EncounterStateV1 = EncounterStateV1Schema.parse(stored);
   return EncounterStateSchema.parse({
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: Object.fromEntries(
       Object.entries(v1.participants).map(([id, participant]) => [
         id,

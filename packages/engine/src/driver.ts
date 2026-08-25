@@ -60,7 +60,7 @@ export function initialEncounterState(participants: readonly DriverParticipant[]
     seen.add(participant.id);
   }
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
@@ -73,6 +73,7 @@ export function initialEncounterState(participants: readonly DriverParticipant[]
           stamina: participant.stats
             ? { current: participant.stats.staminaMax, temporary: 0 }
             : null,
+          grants: [],
         },
       ]),
     ),

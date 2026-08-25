@@ -19,15 +19,16 @@ const DYING = 'mcdm.heroes.v1/rule.health/dying';
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participants: {
-      hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null },
+      hero: { id: 'hero', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
       cultist: {
         id: 'cultist',
         conditions: [],
         kind: 'director-creature',
         stats: null,
         stamina: null,
+        grants: [],
       },
     },
   };
@@ -233,6 +234,7 @@ describe('remove-condition', () => {
         organization: null,
       },
       stamina: { current: 0, temporary: 0 },
+      grants: [],
       conditions: [
         {
           instanceId: `${BLEEDING}#dying-i1`,

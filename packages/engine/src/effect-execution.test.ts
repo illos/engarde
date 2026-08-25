@@ -408,6 +408,7 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
           conditions: [],
           stats: null,
           stamina: null,
+          grants: [],
         },
       },
     };

@@ -32,6 +32,10 @@ export interface InvariantViolation {
     | 'refusal-with-change'
     | 'unattributed-stamina-change'
     | 'phantom-stamina-claim'
+    | 'duplicate-grant-id'
+    | 'unattributed-grant-add'
+    | 'unattributed-grant-remove'
+    | 'phantom-grant-claim'
     | 'dice-out-of-range'
     | 'breakdown-mismatch'
     | 'potency-gate-bypassed'
@@ -44,6 +48,16 @@ function instanceIds(state: EncounterState): Map<string, string> {
   for (const participant of Object.values(state.participants)) {
     for (const instance of participant.conditions) {
       ids.set(instance.instanceId, participant.id);
+    }
+  }
+  return ids;
+}
+
+function grantIds(state: EncounterState): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const participant of Object.values(state.participants)) {
+    for (const grant of participant.grants) {
+      ids.set(grant.grantId, participant.id);
     }
   }
   return ids;
@@ -108,6 +122,16 @@ export function checkInvariants(
       }
       seen.add(instance.instanceId);
     }
+    const seenGrants = new Set<string>();
+    for (const grant of participant.grants) {
+      if (seenGrants.has(grant.grantId)) {
+        violations.push({
+          code: 'duplicate-grant-id',
+          detail: `${grant.grantId} on ${participant.id}`,
+        });
+      }
+      seenGrants.add(grant.grantId);
+    }
   }
 
   // State↔log reconciliation over condition instances.
@@ -152,6 +176,55 @@ export function checkInvariants(
         violations.push({
           code: 'phantom-claim',
           detail: `mutation entry claims ${claim.id} but the state shows no such change`,
+        });
+      }
+    }
+  }
+
+  // State↔log reconciliation over next-roll grants (v3): every grant that
+  // appears or vanishes must be claimed by a mutation entry's
+  // addedGrantIds / removedGrantIds, and every claim must be real.
+  const beforeGrantIds = grantIds(before);
+  const afterGrantIds = grantIds(result.state);
+  const grantsAdded = [...afterGrantIds.keys()].filter((id) => !beforeGrantIds.has(id));
+  const grantsRemoved = [...beforeGrantIds.keys()].filter((id) => !afterGrantIds.has(id));
+  const claimedGrantAdds = new Set(
+    mutations.flatMap((entry) => claimed(entry.data, 'addedGrantIds')),
+  );
+  const claimedGrantRemoves = new Set(
+    mutations.flatMap((entry) => claimed(entry.data, 'removedGrantIds')),
+  );
+  for (const id of grantsAdded) {
+    if (!claimedGrantAdds.has(id)) {
+      violations.push({
+        code: 'unattributed-grant-add',
+        detail: `grant ${id} appeared with no claim`,
+      });
+    }
+  }
+  for (const id of grantsRemoved) {
+    if (!claimedGrantRemoves.has(id)) {
+      violations.push({
+        code: 'unattributed-grant-remove',
+        detail: `grant ${id} vanished with no claim`,
+      });
+    }
+  }
+  const grantsAddedSet = new Set(grantsAdded);
+  const grantsRemovedSet = new Set(grantsRemoved);
+  for (const entry of mutations) {
+    const grantClaims = [
+      ...claimed(entry.data, 'addedGrantIds').map((id) => ({ id, real: grantsAddedSet.has(id) })),
+      ...claimed(entry.data, 'removedGrantIds').map((id) => ({
+        id,
+        real: grantsRemovedSet.has(id),
+      })),
+    ];
+    for (const claim of grantClaims) {
+      if (!claim.real) {
+        violations.push({
+          code: 'phantom-grant-claim',
+          detail: `mutation entry claims grant ${claim.id} but the state shows no such change`,
         });
       }
     }
@@ -228,6 +301,10 @@ export function checkInvariants(
           automaticOutcomes: (1 | 2 | 3)[];
           downgradeToTier: 1 | 2 | null;
           resolution: PowerRollResolution;
+          perTarget?: Record<
+            string,
+            { edges: number; banes: number; resolution: PowerRollResolution }
+          >;
         }
       | undefined;
     if (rollData === undefined) continue;
@@ -255,6 +332,29 @@ export function checkInvariants(
           code: 'breakdown-mismatch',
           detail: `logged total ${rollData.resolution.total}/tier ${rollData.resolution.tier}, recomputed ${recomputed.total}/${recomputed.tier}`,
         });
+      }
+      // Per-target pools (inbound marks, R-0014) re-derive the same way:
+      // same dice and additive modifiers, that target's edge/bane counts.
+      for (const [targetId, perTarget] of Object.entries(rollData.perTarget ?? {})) {
+        const recomputedTarget = resolvePowerRoll({
+          dice: rollData.dice,
+          characteristicValue: rollData.characteristicValue,
+          bonuses: rollData.bonuses,
+          penalties: rollData.penalties,
+          edges: perTarget.edges,
+          banes: perTarget.banes,
+          automaticOutcomes: rollData.automaticOutcomes,
+          downgradeToTier: rollData.downgradeToTier ?? undefined,
+        });
+        if (
+          recomputedTarget.total !== perTarget.resolution.total ||
+          recomputedTarget.tier !== perTarget.resolution.tier
+        ) {
+          violations.push({
+            code: 'breakdown-mismatch',
+            detail: `perTarget ${targetId}: logged total ${perTarget.resolution.total}/tier ${perTarget.resolution.tier}, recomputed ${recomputedTarget.total}/${recomputedTarget.tier}`,
+          });
+        }
       }
     }
   }

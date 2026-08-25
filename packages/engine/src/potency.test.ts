@@ -24,6 +24,7 @@ function actor(stats: ParticipantStats | null, id: string): ParticipantState {
     id,
     conditions: [],
     sourceRecordId: null,
+    grants: [],
     kind: 'hero',
     stats,
     stamina: stats ? { current: stats.staminaMax, temporary: 0 } : null,

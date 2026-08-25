@@ -2,6 +2,7 @@ import { targetCountOf } from './ability-execution.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { GRANT_CANON, addGrant, grantContribution, splitGrants } from './grant-lifecycle.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type { EncounterState, LogEntry, ParsedIntent, TestTier } from './schemas.js';
@@ -114,6 +115,27 @@ export function executeUseEffect(
       }
     }
   }
+  if (effect.resolution.kind === 'next-roll-grant') {
+    for (const targetId of targets) {
+      const grantId = `${effect.effectArtifactId}#${intent.intentId}-${targetId}`;
+      if (
+        state.participants[targetId]?.grants.some((grant) => grant.grantId === grantId)
+      ) {
+        return {
+          state,
+          log: [
+            entry(
+              context,
+              'refusal',
+              `grant ${grantId} already exists on ${targetId}`,
+              refs(effect),
+              receipt(intent),
+            ),
+          ],
+        };
+      }
+    }
+  }
   if (effect.resolution.kind === 'condition') {
     for (const targetId of targets) {
       const instanceId = `${effect.resolution.conditionId}#${intent.intentId}-${targetId}`;
@@ -162,6 +184,41 @@ export function executeUseEffect(
 
   if (effect.resolution.kind === 'test') {
     return executeTest(state, intent, effect.resolution, log, context, random);
+  }
+
+  if (effect.resolution.kind === 'next-roll-grant') {
+    const resolution = effect.resolution;
+    let nextState = state;
+    for (const targetId of targets) {
+      const target = nextState.participants[targetId];
+      if (!target) continue; // presence proven by the refusal gates
+      const added = addGrant(
+        nextState,
+        {
+          target,
+          grant: {
+            grantId: `${effect.effectArtifactId}#${intent.intentId}-${targetId}`,
+            polarity: resolution.polarity,
+            scope: resolution.scope,
+            direction: resolution.direction,
+            source: {
+              participantId: intent.payload.actorParticipantId,
+              effectArtifactId: effect.effectArtifactId,
+            },
+            window: resolution.window,
+          },
+        },
+        context,
+      );
+      nextState = added.state;
+      log.push(
+        ...added.log.map((item) => ({
+          ...item,
+          canonRefs: refs(effect, item.canonRefs),
+        })),
+      );
+    }
+    return { state: nextState, log };
   }
 
   if (effect.resolution.kind === 'table') {
@@ -292,13 +349,49 @@ function executeTest(
       random.roll(POWER_ROLL_DIE),
     ];
     const score = target.stats.characteristics[resolution.characteristic];
+    // A test is a power roll: the roller's pending outbound power-roll-scoped
+    // grants are consumed by it and contribute to its modifier pool; strike-
+    // scoped grants sit dormant across tests [R-0013, R-0015].
+    const { remaining, consumed } = splitGrants(
+      target,
+      (grant) => grant.direction === 'outbound' && grant.scope === 'power-roll',
+    );
+    let grantEdges = 0;
+    let grantBanes = 0;
+    for (const grant of consumed) {
+      const contribution = grantContribution(grant.polarity);
+      grantEdges += contribution.edges;
+      grantBanes += contribution.banes;
+    }
+    if (consumed.length > 0) {
+      nextState = withParticipant(nextState, { ...target, grants: remaining });
+      log.push(
+        entry(
+          context,
+          'mutation',
+          `${targetId}'s pending next-roll modifiers apply to this test and are spent (${consumed.map((grant) => grant.polarity).join(', ')})`,
+          refs(effect, [GRANT_CANON.powerRoll]),
+          {
+            removedGrantIds: consumed.map((grant) => grant.grantId),
+            grantsConsumed: consumed.map((grant) => ({
+              grantId: grant.grantId,
+              holderId: targetId,
+              polarity: grant.polarity,
+              contribution: grantContribution(grant.polarity),
+            })),
+          },
+        ),
+      );
+    }
+    const effectiveEdges = (rollInput?.edges ?? 0) + grantEdges;
+    const effectiveBanes = (rollInput?.banes ?? 0) + grantBanes;
     const rolled = resolvePowerRoll({
       dice,
       characteristicValue: score,
       bonuses: rollInput?.bonuses ?? [],
       penalties: rollInput?.penalties ?? [],
-      edges: rollInput?.edges ?? 0,
-      banes: rollInput?.banes ?? 0,
+      edges: effectiveEdges,
+      banes: effectiveBanes,
       automaticOutcomes: [],
     });
     log.push(
@@ -314,6 +407,8 @@ function executeTest(
             dice,
             diceAsserted: rollInput?.dice !== undefined,
             characteristicValue: score,
+            edges: effectiveEdges,
+            banes: effectiveBanes,
             resolution: rolled,
             testCriticalSuccess: rolled.naturalTopEnd,
           },
