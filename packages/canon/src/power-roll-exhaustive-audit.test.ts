@@ -218,8 +218,12 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
     // counterfeits stitched from a later ability's bullets (count-rhodar,
     // vampire-lord, servok-miner, fire-giant-chief) and one silent
     // precondition loss (the-nameless winded gate).
-    expect(fixtures.length).toBe(617);
-    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(521);
+    // Further re-frozen after the strict whole-payload tail check landed in
+    // parseTierPayload (same day): 34 clusters whose bullets silently
+    // swallowed middle clauses (forced movement, resource grants), potency
+    // gates, or endings now correctly fail to residue and stay verbatim.
+    expect(fixtures.length).toBe(583);
+    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(504);
     expect(malformed).toEqual([]);
   });
 
@@ -232,7 +236,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
       );
       return cluster !== undefined && isExactlyOneOfEachBand(cluster) && !duplicateConditions;
     });
-    expect(complete.length).toBe(617);
+    expect(complete.length).toBe(583);
 
     for (const fixture of complete) {
       expect(sourceVersion(fixture.text)).toBe(fixture.artifactVersion);

@@ -71,3 +71,27 @@ Re-certified baseline: **617 clusters / 521 artifacts / 1,851 clean runs**
 The independent audit walk in `power-roll-exhaustive-audit.test.ts` was
 updated to an independent implementation of the same ownership rule (two
 readers preserved). Both channels now agree at 617.
+
+## Addendum 2 — strict whole-payload tier tails (2026-08-25)
+
+Designing the characteristic-test attachment exposed a second, deeper defect:
+`parseTierPayload`'s tail check compared condition-name COUNT, not names. Any
+prose between the damage part and the linked condition names — forced
+movement ("push 3;"), resource grants ("the target gains 1 rage;"), an
+un-anchored potency gate, a mid-payload "(save ends)", a duration tail
+("until the end of the encounter") — was silently swallowed, and the bullet
+certified WITHOUT it. Worst class: `6 damage; push 3; M < 1 slowed (save
+ends)` certified as *unconditional* slowed with the push dropped and the
+M < 1 gate erased.
+
+The tail is now compared word-for-word against the payload's linked
+condition labels; any payload that says more than the grammar reads fails to
+residue whole. Regression fixtures use verbatim dwarf-launcher, Sanguine
+Mist, werewolf, and servok-miner bullets.
+
+Re-certified baseline: **583 clusters / 504 artifacts / 1,749 clean runs**
+(from 617 after the ownership hardening; 34 lossy-bullet clusters correctly
+fell back to verbatim). Every remaining cluster's tier data is whole-payload
+exact. The excluded bullets stay attributed residue until their mechanisms
+(forced movement, resource grants, per-condition endings, durations) land
+with their own closed grammars.

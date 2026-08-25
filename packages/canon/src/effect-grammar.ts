@@ -127,6 +127,16 @@ function conditionIdsIn(value: string): string[] {
   return ids;
 }
 
+/** The display labels of condition links, in source order — the words the
+ * book actually prints for each condition in this payload. */
+function conditionLabelsIn(value: string): string[] {
+  const labels: string[] = [];
+  for (const match of value.matchAll(SCC_LINK)) {
+    if ((match[2] ?? '').includes('/condition/')) labels.push(match[1] ?? '');
+  }
+  return labels;
+}
+
 function canonRefsIn(value: string): string[] {
   const refs: string[] = [];
   for (const match of value.matchAll(SCC_LINK)) {
@@ -274,14 +284,26 @@ function parseTierPayload(payload: string): Omit<TierOutcomeData, 'band'> | null
   // (save ends)", whose branches have different gates and endings.
   if (/\bor\b/.test(conditionText) || conditionText.includes('(EoT)')) return null;
 
-  // Whatever names remain must be exactly the linked conditions joined by
-  // "and" — anything else means this line says more than the grammar reads.
+  // Whatever remains must be EXACTLY the linked condition labels joined by
+  // "," / "and" — compared word-for-word against the link labels, not by
+  // count. The count-only check this replaces silently swallowed middle
+  // clauses ("push 3;", "the target gains 1 rage;"), un-anchored potency
+  // gates, mid-payload "(save ends)" endings, and duration tails ("until the
+  // end of the encounter") — certifying conditions without their gates. A
+  // payload that says more than the grammar reads fails to residue, whole.
   if (conditionText.length > 0) {
+    const labels = conditionLabelsIn(payload);
     const namesOnly = conditionText
       .split(/,| and /)
       .map((part) => part.trim())
       .filter((part) => part.length > 0);
-    if (conditionIds.length === 0 || namesOnly.length !== conditionIds.length) return null;
+    if (
+      conditionIds.length === 0 ||
+      namesOnly.length !== labels.length ||
+      !namesOnly.every((part, index) => part.toLowerCase() === (labels[index] ?? '').toLowerCase())
+    ) {
+      return null;
+    }
   } else if (conditionIds.length > 0) {
     return null;
   }

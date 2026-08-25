@@ -211,3 +211,48 @@ describe.skipIf(!sourceRoot)('effect grammar over the pilot abilities', () => {
     expect(auditGrammarConservation(text, parse)).toEqual([]);
   });
 });
+
+describe('tier payload strict tail (whole-payload exactness)', () => {
+  // Verbatim corpus bullets that the count-based tail check silently
+  // mis-parsed before 2026-08-25 — each must now fail to residue whole.
+  const LOSSY_LINES = [
+    // dwarf-launcher: forced movement AND the M < 1 potency gate swallowed.
+    '- **≤11:** 6 damage; [push](scc.v1:mcdm.heroes.v1/movement/forced-movement) 3; M < 1 [slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (save ends)',
+    // count-rhodar Sanguine Mist: explicit end-of-encounter duration dropped.
+    '- **≤11:** 16 corruption damage; the target is [bleeding](scc.v1:mcdm.heroes.v1/condition/bleeding) until the end of the encounter',
+    // werewolf: "the target gains 1 rage" swallowed.
+    '- **≤11:** 11 damage; the target gains 1 rage; M < 2 [bleeding](scc.v1:mcdm.heroes.v1/condition/bleeding) (save ends)',
+    // servok-miner: mid-payload "(save ends)" applies to restrained only —
+    // mixed per-condition endings are not representable, so the line stays
+    // verbatim rather than compiling with a silently dropped ending.
+    '- **≤11:** 13 damage; M < 2 [restrained](scc.v1:mcdm.heroes.v1/condition/restrained) (save ends) and [prone](scc.v1:mcdm.heroes.v1/condition/prone)',
+  ];
+
+  it('fails payloads that say more than the grammar reads', () => {
+    for (const line of LOSSY_LINES) {
+      const parse = parseEffectText(`${line}\n`);
+      expect(
+        parse.clauses.find((clause) => clause.kind === 'tier-outcome'),
+        line,
+      ).toBeUndefined();
+    }
+  });
+
+  it('still parses exact whole payloads', () => {
+    // Verbatim devil-adjudicator bullet: damage + potency-gated condition
+    // whose tail is exactly the linked label, ending as a whole-payload
+    // suffix.
+    const clean =
+      '- **≤11:** 10 fire damage; I < 1 [frightened](scc.v1:mcdm.heroes.v1/condition/frightened) (save ends)';
+    const parse = parseEffectText(`${clean}\n`);
+    const tier = parse.clauses.find((clause) => clause.kind === 'tier-outcome');
+    expect(tier?.kind).toBe('tier-outcome');
+    if (tier?.kind === 'tier-outcome') {
+      expect(tier.data.damage?.amount).toBe(10);
+      expect(tier.data.damage?.typeOptions).toEqual(['fire']);
+      expect(tier.data.potency).toEqual({ characteristic: 'I', threshold: '1' });
+      expect(tier.data.conditionIds).toEqual(['mcdm.heroes.v1/condition/frightened']);
+      expect(tier.data.ending).toBe('save-ends');
+    }
+  });
+});
