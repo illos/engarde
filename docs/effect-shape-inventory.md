@@ -145,11 +145,14 @@ id + ordinal + payload SHA-256, test-enforced against the pin):
   research (Deathcount, servitor explosion damage).
 
 Resulting corpus accounting at the pin (updated 2026-08-25 after the
-characteristic-test slice shipped — see `characteristic-test-report.md`):
-**41 automated (12 exact + 29 test) · 1,647 table directives, of which 12 are
-ruled permanently-manual and 1,635 mechanism-pending.** The
-`--max-signals 1` widening (335 lines) is available for a future second
-review sitting.
+next-roll grant slice shipped — see `next-roll-grant-report.md`; previous
+step `characteristic-test-report.md`):
+**55 automated (12 exact + 29 test + 14 next-roll grant) · 1,633 table
+directives, of which 12 are ruled permanently-manual and 1,621
+mechanism-pending.** The edge-bane family drops 152 → 138; both of its
+closed templates (`edge-bane-next-roll`, `next-strike-against-target`) are
+fully implemented, count 0. The `--max-signals 1` widening (335 lines) is
+available for a future second review sitting.
 
 ## Definition of done for the selected slice
 

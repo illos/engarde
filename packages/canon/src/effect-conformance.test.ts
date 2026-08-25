@@ -74,6 +74,7 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
           kind: 'director-creature',
           stats: null,
           stamina: null,
+          grants: [],
           conditions: [
             {
               instanceId: 'mcdm.heroes.v1/condition/bleeding#bfb-17-0',
