@@ -1,6 +1,7 @@
 import { targetCountOf } from './ability-execution.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
+  type DamageOutcome,
   applyDamage,
   damageAutomationBlocker,
   gainTemporaryStamina,
@@ -15,7 +16,13 @@ import { GRANT_CANON, addGrant, grantContribution, splitGrants } from './grant-l
 import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
-import type { EncounterState, LogEntry, ParsedIntent, TestTier } from './schemas.js';
+import type {
+  EncounterState,
+  LogEntry,
+  ParsedIntent,
+  ParticipantState,
+  TestTier,
+} from './schemas.js';
 
 /** Canon grounding for recorded terrain facts [R-0022]. */
 export const TERRAIN_CANON = {
@@ -75,6 +82,41 @@ function receipt(intent: UseEffectIntent): Record<string, unknown> {
       targets: intent.payload.targets,
     },
   };
+}
+
+/**
+ * Shared per-target applicator for per-target resource effects (Recovery
+ * spend offers, Stamina regains / temporary-Stamina grants — and the coming
+ * surge / heroic-resource / malice families). Walks the bound targets
+ * against the evolving state; `applyOne` either returns a one-home outcome
+ * to apply or pushes its own per-binding log entries and returns null — a
+ * per-binding non-application, so sibling bindings proceed (cf. the
+ * potency-gate pattern). Applied outcomes are swapped in via
+ * `withParticipant` and their log merged under the effect's canon refs, in
+ * dispatch order.
+ */
+function applyPerTarget(
+  state: EncounterState,
+  targets: readonly string[],
+  effect: UseEffectIntent['payload']['effect'],
+  log: LogEntry[],
+  applyOne: (target: ParticipantState, targetId: string) => DamageOutcome | null,
+): EncounterState {
+  let nextState = state;
+  for (const targetId of targets) {
+    const target = nextState.participants[targetId];
+    if (!target) continue; // presence proven by the refusal gates
+    const outcome = applyOne(target, targetId);
+    if (outcome === null) continue;
+    nextState = withParticipant(nextState, outcome.participant);
+    log.push(
+      ...outcome.log.map((item) => ({
+        ...item,
+        canonRefs: refs(effect, item.canonRefs),
+      })),
+    );
+  }
+  return nextState;
 }
 
 export function executeUseEffect(
@@ -265,10 +307,7 @@ export function executeUseEffect(
         ),
       );
     }
-    let recoveryState = state;
-    for (const targetId of targets) {
-      const target = recoveryState.participants[targetId];
-      if (!target) continue; // presence proven by the refusal gates
+    const recoveryState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
       if (intent.payload.recoverySpends[targetId] !== true) {
         log.push(
           entry(
@@ -279,7 +318,7 @@ export function executeUseEffect(
             { declined: true, targetId },
           ),
         );
-        continue;
+        return null;
       }
       const blocker = recoverySpendBlocker(target);
       if (blocker !== null) {
@@ -292,7 +331,7 @@ export function executeUseEffect(
             { unautomatedRecoverySpend: { targetId, blocker } },
           ),
         );
-        continue;
+        return null;
       }
       // Book-silent case (design §5): an unconscious (knocked-out) target
       // accepting a spend applies permissively but is flagged for Director
@@ -327,21 +366,14 @@ export function executeUseEffect(
             { recoverySpendRefused: { targetId, recoveries: 0, ruling: 'R-0019' } },
           ),
         );
-        continue;
+        return null;
       }
-      const outcome = spendRecovery(
+      return spendRecovery(
         target,
         { reason: `offered by ${effect.effectArtifactId} Effect` },
         context,
       );
-      recoveryState = withParticipant(recoveryState, outcome.participant);
-      log.push(
-        ...outcome.log.map((item) => ({
-          ...item,
-          canonRefs: refs(effect, item.canonRefs),
-        })),
-      );
-    }
+    });
     return { state: recoveryState, log };
   }
 
@@ -361,10 +393,7 @@ export function executeUseEffect(
         ),
       );
     }
-    let regainState = state;
-    for (const targetId of targets) {
-      const target = regainState.participants[targetId];
-      if (!target) continue; // presence proven by the refusal gates
+    const regainState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
       const blocker = regainAutomationBlocker(target);
       if (blocker !== null) {
         log.push(
@@ -376,30 +405,22 @@ export function executeUseEffect(
             { unautomatedRegain: { targetId, kind: resolution.kind, amount: resolution.amount } },
           ),
         );
-        continue;
+        return null;
       }
-      const outcome =
-        resolution.kind === 'regain-stamina'
-          ? regainStamina(
-              target,
-              resolution.amount,
-              { reason: `from ${effect.effectArtifactId} Effect` },
-              context,
-            )
-          : gainTemporaryStamina(
-              target,
-              resolution.amount,
-              { reason: `from ${effect.effectArtifactId} Effect` },
-              context,
-            );
-      regainState = withParticipant(regainState, outcome.participant);
-      log.push(
-        ...outcome.log.map((item) => ({
-          ...item,
-          canonRefs: refs(effect, item.canonRefs),
-        })),
-      );
-    }
+      return resolution.kind === 'regain-stamina'
+        ? regainStamina(
+            target,
+            resolution.amount,
+            { reason: `from ${effect.effectArtifactId} Effect` },
+            context,
+          )
+        : gainTemporaryStamina(
+            target,
+            resolution.amount,
+            { reason: `from ${effect.effectArtifactId} Effect` },
+            context,
+          );
+    });
     return { state: regainState, log };
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyDamage, damageAutomationBlocker, loseStamina } from './damage.js';
+import { applyDamage, damageAutomationBlocker, isMinion, loseStamina } from './damage.js';
 import {
   BLEEDING_CONDITION_ID,
   UNCONSCIOUS_CONDITION_ID,
@@ -244,6 +244,14 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
 });
 
 describe('automation blockers', () => {
+  it('isMinion is the one home for the organization predicate (case-insensitive)', () => {
+    expect(isMinion(participant({ ...GOBLIN_ASSASSIN, organization: 'Minion' }))).toBe(true);
+    expect(isMinion(participant({ ...GOBLIN_ASSASSIN, organization: 'minion' }))).toBe(true);
+    expect(isMinion(participant(GOBLIN_ASSASSIN))).toBe(false); // Horde
+    expect(isMinion(participant({ ...GOBLIN_ASSASSIN, organization: null }))).toBe(false);
+    expect(isMinion(participant(GOBLIN_ASSASSIN, { stats: null }))).toBe(false);
+  });
+
   it('refuses to automate a minion-organization target (shared Stamina pool)', () => {
     /** Goblin Sniper — a real Minion stat block (stamina 3). */
     const sniper: ParticipantStats = {

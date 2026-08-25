@@ -47,12 +47,20 @@ export interface DamageOutcome {
   log: LogEntry[];
 }
 
+/** The ONE home for the Minion stat-block-organization predicate
+ * [monsters chapter/monster-basics §Using Minions]. Case-insensitive over the
+ * stored organization string; a participant without tracked stats is not a
+ * minion. */
+export function isMinion(participant: ParticipantState): boolean {
+  return participant.stats?.organization?.toLowerCase() === 'minion';
+}
+
 /** Why a participant's Stamina cannot be automated, if it can't. */
 export function damageAutomationBlocker(participant: ParticipantState): string | null {
   if (participant.stats === null || participant.stamina === null) {
     return 'no stats tracked for this participant — resolve at the table';
   }
-  if (participant.stats.organization?.toLowerCase() === 'minion') {
+  if (isMinion(participant)) {
     // Minion squads share a Stamina pool with their own drop accounting;
     // treating one as an individual would be a silent canon divergence
     // [monsters chapter/monster-basics §Minions and Stamina].
@@ -334,7 +342,7 @@ export function regainAutomationBlocker(participant: ParticipantState): string |
   if (participant.stats === null || participant.stamina === null) {
     return 'no stats tracked for this participant — resolve at the table';
   }
-  if (participant.stats.organization?.toLowerCase() === 'minion') {
+  if (isMinion(participant)) {
     return 'minions cannot regain Stamina or gain temporary Stamina during a battle, and squad pools are not mechanized — resolve at the table';
   }
   return null;
