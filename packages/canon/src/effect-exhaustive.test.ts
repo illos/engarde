@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTOMATIC_EFFECT_CANON_EXPECTATIONS,
   EFFECT_CANON_PIN,
+  TEST_EFFECT_CANON_EXPECTATIONS,
 } from './effect-canon-expectations.js';
 import { loadCoreEffectFixtures } from './effect-corpus-fixtures.js';
 import { CampaignAuditManifestSchema } from './schemas.js';
@@ -29,6 +30,13 @@ function effectKey(artifactId: string, effectOrdinal: number): string {
 
 const expectationByKey = new Map(
   AUTOMATIC_EFFECT_CANON_EXPECTATIONS.map((expectation) => [
+    effectKey(expectation.artifactId, expectation.effectOrdinal),
+    expectation,
+  ]),
+);
+
+const testExpectationByKey = new Map(
+  TEST_EFFECT_CANON_EXPECTATIONS.map((expectation) => [
     effectKey(expectation.artifactId, expectation.effectOrdinal),
     expectation,
   ]),
@@ -93,14 +101,17 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
     expect(manifest.counts.artifactRecords).toBe(3529);
     expect(expectationByKey.size).toBe(AUTOMATIC_EFFECT_CANON_EXPECTATIONS.length);
     expect(expectationByKey.size).toBe(12);
+    expect(testExpectationByKey.size).toBe(TEST_EFFECT_CANON_EXPECTATIONS.length);
+    expect(testExpectationByKey.size).toBe(29);
 
     const fixtures = await loadCoreEffectFixtures(manifestPath);
     expect(fixtures).toHaveLength(1688);
     expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(1044);
     expect(new Set(fixtures.map((fixture) => fixture.fixtureId)).size).toBe(fixtures.length);
 
-    const counts = { damage: 0, condition: 0, table: 0 };
+    const counts = { damage: 0, condition: 0, test: 0, table: 0 };
     const seenAutomatic = new Set<string>();
+    const seenTest = new Set<string>();
     for (const fixture of fixtures) {
       expect(fixture.program.sourceText, fixture.fixtureId).toBe(
         rawPayload(fixture.clause.span.text),
@@ -123,12 +134,32 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
         expect(fixture.program.resolution, fixture.fixtureId).toEqual(expectation.resolution);
         counts[expectation.resolution.kind] += 1;
       } else {
-        expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
-        counts.table += 1;
+        const testExpectation = testExpectationByKey.get(key);
+        if (testExpectation) {
+          seenTest.add(key);
+          expect(fixture.artifact.source.path, fixture.fixtureId).toBe(testExpectation.sourcePath);
+          expect(fixture.program.sourceSpan, fixture.fixtureId).toEqual(testExpectation.sourceSpan);
+          expect(fixture.program.sourceText, fixture.fixtureId).toBe(testExpectation.sourceText);
+          expect(fixture.program.targetsText, fixture.fixtureId).toBe(testExpectation.targetsText);
+          expect(fixture.program.resolution, fixture.fixtureId).toEqual(testExpectation.resolution);
+          counts.test += 1;
+        } else {
+          expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
+          counts.table += 1;
+        }
       }
     }
     expect(seenAutomatic).toEqual(new Set(expectationByKey.keys()));
-    expect(counts).toEqual({ damage: 5, condition: 7, table: 1676 });
+    expect(seenTest).toEqual(new Set(testExpectationByKey.keys()));
+    // 87 attached bullets across the 29 tests: 21 automatic / 66 verbatim.
+    const bullets = TEST_EFFECT_CANON_EXPECTATIONS.flatMap((expectation) => [
+      expectation.resolution.tiers.tier1,
+      expectation.resolution.tiers.tier2,
+      expectation.resolution.tiers.tier3,
+    ]);
+    expect(bullets).toHaveLength(87);
+    expect(bullets.filter((bullet) => bullet.kind === 'automatic')).toHaveLength(21);
+    expect(counts).toEqual({ damage: 5, condition: 7, test: 29, table: 1647 });
   });
 
   it('executes every program through the engine with exact deltas or a verbatim directive', async () => {
@@ -147,9 +178,101 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
       expect(receipt, fixture.fixtureId).toBeDefined();
       expect(receipt?.canonRefs).toContain(fixture.artifactId);
 
-      const expectation = expectationByKey.get(
-        effectKey(fixture.artifactId, fixture.program.effectOrdinal),
-      );
+      const key = effectKey(fixture.artifactId, fixture.program.effectOrdinal);
+      const expectation = expectationByKey.get(key);
+      const testExpectation = testExpectationByKey.get(key);
+      if (!expectation && testExpectation) {
+        // Per-tier execution against the GOLDEN resolution [R-0006..R-0011]:
+        // deterministic dice force each band (all synthetic characteristics
+        // are 0; sums stay below natural 19 so only the band is under test).
+        const goldenTiers = testExpectation.resolution.tiers;
+        const diceForTier: Record<'tier1' | 'tier2' | 'tier3', [number, number]> = {
+          tier1: [1, 2],
+          tier2: [6, 6],
+          tier3: [9, 9],
+        };
+        for (const slot of ['tier1', 'tier2', 'tier3'] as const) {
+          const tierBefore = state();
+          const tierIntent = {
+            intentId: `effect-test-${fixture.clauseIndex}-${slot}`,
+            kind: 'use-effect' as const,
+            actor: { kind: 'participant' as const, participantId: 'actor' },
+            payload: {
+              actorParticipantId: 'actor',
+              effect: fixture.program,
+              targets: ['target'],
+              testRolls: { target: { dice: diceForTier[slot] } },
+            },
+          };
+          const tierResult = applyIntent(tierBefore, tierIntent, {
+            random: createSeededRandomSource(1),
+          });
+          expect(checkInvariants(tierBefore, tierIntent, tierResult), fixture.fixtureId).toEqual(
+            [],
+          );
+          const golden = goldenTiers[slot];
+          if (golden.kind === 'verbatim') {
+            expect(tierResult.state, `${fixture.fixtureId} ${slot}`).toEqual(tierBefore);
+            const directive = tierResult.log.find(
+              (entry) => entry.data.testTierDirective !== undefined,
+            );
+            expect(directive?.message, `${fixture.fixtureId} ${slot}`).toBe(golden.sourceText);
+          } else {
+            const data = golden.data;
+            const target = tierResult.state.participants.target;
+            if (data.damage) {
+              expect(target?.stamina?.current, `${fixture.fixtureId} ${slot}`).toBe(
+                STATS.staminaMax - data.damage.amount,
+              );
+            } else {
+              expect(target?.stamina?.current, `${fixture.fixtureId} ${slot}`).toBe(
+                STATS.staminaMax,
+              );
+            }
+            // Synthetic target characteristics are all 0, so a numeric
+            // potency gate applies exactly when 0 < value.
+            const gateApplies =
+              data.potency === null ||
+              (data.potency.threshold.kind === 'numeric' && 0 < data.potency.threshold.value);
+            if (data.conditionIds.length > 0 && gateApplies) {
+              expect(
+                target?.conditions.map((instance) => instance.conditionId),
+                `${fixture.fixtureId} ${slot}`,
+              ).toEqual(data.conditionIds);
+            } else {
+              expect(target?.conditions, `${fixture.fixtureId} ${slot}`).toEqual([]);
+            }
+          }
+        }
+        // Object targets never roll: automatic tier 1 [R-0007].
+        if (testExpectation.targetsText?.toLowerCase().includes('object')) {
+          const objectBefore = state();
+          const objectIntent = {
+            intentId: `effect-test-${fixture.clauseIndex}-object`,
+            kind: 'use-effect' as const,
+            actor: { kind: 'participant' as const, participantId: 'actor' },
+            payload: {
+              actorParticipantId: 'actor',
+              effect: fixture.program,
+              targets: [],
+              objectTargets: ['object-1'],
+            },
+          };
+          const objectResult = applyIntent(objectBefore, objectIntent, {
+            random: createSeededRandomSource(1),
+          });
+          expect(
+            checkInvariants(objectBefore, objectIntent, objectResult),
+            fixture.fixtureId,
+          ).toEqual([]);
+          expect(objectResult.state, fixture.fixtureId).toEqual(objectBefore);
+          const directive = objectResult.log.find(
+            (entry) => entry.data.testTierDirective !== undefined,
+          );
+          expect(directive?.message, fixture.fixtureId).toBe(goldenTiers.tier1.sourceText);
+        }
+        continue;
+      }
       if (!expectation) {
         expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
         expect(result.state, fixture.fixtureId).toEqual(before);

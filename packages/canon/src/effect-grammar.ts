@@ -51,6 +51,13 @@ export type EffectLineResolutionData =
       ending: 'external' | 'end-of-targets-next-turn';
       replacesOnNewSource: boolean;
     }
+  | {
+      /** "(The|Each) target makes a[n] X test." [R-0006, R-0007]. Tier
+       * bullets attach at compile time (effect-conformance), not here. */
+      kind: 'test';
+      characteristic: 'might' | 'agility' | 'reason' | 'intuition' | 'presence';
+      subject: 'the-target' | 'each-target';
+    }
   | { kind: 'table' };
 
 export interface EffectLineData {
@@ -160,6 +167,11 @@ const EXTERNAL_GRABBED_EFFECT =
 const NEXT_TURN_CONDITION_EFFECT = new RegExp(
   `^The target is ${LINKED_CONDITION} until the end of their next \\[[^\\]]+\\]\\(scc\\.v1:mcdm\\.heroes\\.v1/rule\\.combat/turn\\)\\.$`,
 );
+/** "(The|Each) target makes a[n] X test." — anchored whole payload,
+ * bold-tolerant [R-0006, R-0007]. Any rider or second sentence fails the
+ * anchor and the line stays table. */
+const CHARACTERISTIC_TEST_EFFECT =
+  /^(The target|Each target) makes an? (?:\*\*)?(Might|Agility|Reason|Intuition|Presence) test(?:\*\*)?\.$/;
 
 function parseEffectPayload(payload: string): EffectLineData {
   const canonRefs = canonRefsIn(payload);
@@ -213,7 +225,39 @@ function parseEffectPayload(payload: string): EffectLineData {
     };
   }
 
+  const test = CHARACTERISTIC_TEST_EFFECT.exec(plain);
+  if (test) {
+    return {
+      sourceText: payload,
+      canonRefs,
+      resolution: {
+        kind: 'test',
+        characteristic: (test[2] ?? '').toLowerCase() as
+          | 'might'
+          | 'agility'
+          | 'reason'
+          | 'intuition'
+          | 'presence',
+        subject: test[1] === 'The target' ? 'the-target' : 'each-target',
+      },
+    };
+  }
+
   return { sourceText: payload, canonRefs, resolution: { kind: 'table' } };
+}
+
+/** Match one physical tier-bullet line ("- **≤11:** …", optional quote
+ * prefix), returning its band and exact payload. Used by the compiler to
+ * attach test tier bullets losslessly [R-0011]; the payload is NOT parsed
+ * here — attachment and (possible) automation are separate concerns. */
+export function matchTierBulletLine(
+  lineText: string,
+): { band: '≤11' | '12-16' | '17+'; payload: string } | null {
+  const withoutNewline = lineText.endsWith('\n') ? lineText.slice(0, -1) : lineText;
+  const exact = withoutNewline.endsWith('\r') ? withoutNewline.slice(0, -1) : withoutNewline;
+  const match = TIER_LINE.exec(exact.trim());
+  if (!match) return null;
+  return { band: match[1] as '≤11' | '12-16' | '17+', payload: match[2] ?? '' };
 }
 
 /** `- **≤11:** 4 + M damage; M < WEAK, bleeding and weakened (save ends)` */

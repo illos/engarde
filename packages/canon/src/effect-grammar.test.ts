@@ -256,3 +256,37 @@ describe('tier payload strict tail (whole-payload exactness)', () => {
     }
   });
 });
+
+describe('characteristic-test effect form [R-0006, R-0007]', () => {
+  it('recognizes the anchored test payload', () => {
+    const parse = parseEffectText('**Effect:** The target makes a Presence test.\n');
+    const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+    expect(effect?.kind === 'effect' && effect.data.resolution).toEqual({
+      kind: 'test',
+      characteristic: 'presence',
+      subject: 'the-target',
+    });
+    const bold = parseEffectText('> **Effect:** Each target makes a **Might test**.\n');
+    const boldEffect = bold.clauses.find((clause) => clause.kind === 'effect');
+    expect(boldEffect?.kind === 'effect' && boldEffect.data.resolution).toEqual({
+      kind: 'test',
+      characteristic: 'might',
+      subject: 'each-target',
+    });
+  });
+
+  it('keeps verbatim corpus outliers with riders or extra sentences as table', () => {
+    // Verbatim family outliers from the accepted pin — each says more than
+    // the anchored form and must stay a table directive.
+    const outliers = [
+      '**Effect:** Dorzinuuth lets loose a powerful roar. Each target makes a **Reason test**.\n',
+      '**Effect:** The target makes a **Might test**. A target with fire immunity automatically obtains a tier 3 outcome.\n',
+      '**Effect:** Each target makes a test using their highest characteristic.\n',
+    ];
+    for (const line of outliers) {
+      const parse = parseEffectText(line);
+      const effect = parse.clauses.find((clause) => clause.kind === 'effect');
+      expect(effect?.kind === 'effect' && effect.data.resolution, line).toEqual({ kind: 'table' });
+    }
+  });
+});

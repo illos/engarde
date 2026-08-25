@@ -8,7 +8,12 @@ import {
   applyIntent,
 } from '@engarde/engine';
 import type { RandomSource } from '@engarde/engine';
-import type { EffectClause, GrammarParse, TierOutcomeData } from './effect-grammar.js';
+import {
+  type EffectClause,
+  type GrammarParse,
+  type TierOutcomeData,
+  matchTierBulletLine,
+} from './effect-grammar.js';
 
 /**
  * Channel 1 of the dual-reader verification stack (engine-plan 4.2, pilot
@@ -230,20 +235,146 @@ export function compileAbility(
  * forms carry automatic operations; all other prose carries `table` and is
  * emitted verbatim by the engine. The nearest preceding header supplies the
  * target/action receipt metadata, but never changes the instruction text. */
+type CompileEvent =
+  | { kind: 'clause'; clause: EffectClause; byteStart: number }
+  | { kind: 'residue'; text: string; byteStart: number };
+
+interface AttachedTierBullet {
+  band: '≤11' | '12-16' | '17+';
+  /** Exact physical line, trailing newline removed. */
+  sourceText: string;
+  /** Present only when the certified tier grammar read the whole payload. */
+  data: TierOutcomeData | null;
+}
+
+function exactLineOf(text: string): string {
+  const withoutNewline = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return withoutNewline.endsWith('\r') ? withoutNewline.slice(0, -1) : withoutNewline;
+}
+
+/**
+ * Attach the tier bullets that follow a test Effect line (R-0011: all of
+ * them, losslessly). Ownership mirrors groupPowerRollClusters: whitespace
+ * passes; a parsed tier-outcome clause attaches as an automatic candidate; a
+ * residue chunk contributes its LEADING tier-bullet lines verbatim and any
+ * non-bullet line in it closes the attachment; any other clause closes it.
+ * Returns null unless exactly one bullet per band attached.
+ */
+function attachTestTiers(
+  events: CompileEvent[],
+  startIndex: number,
+): Record<'tier1' | 'tier2' | 'tier3', AttachedTierBullet> | null {
+  const bullets: AttachedTierBullet[] = [];
+  for (let index = startIndex; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event) break;
+    if (event.kind === 'residue') {
+      let sawNonBullet = false;
+      for (const line of event.text.split(/(?<=\n)/)) {
+        if (exactLineOf(line).length === 0) continue;
+        const bullet = matchTierBulletLine(line);
+        if (bullet === null) {
+          sawNonBullet = true;
+          break;
+        }
+        bullets.push({ band: bullet.band, sourceText: exactLineOf(line), data: null });
+      }
+      if (sawNonBullet) break;
+      continue;
+    }
+    const clause = event.clause;
+    if (clause.kind === 'whitespace') continue;
+    if (clause.kind === 'tier-outcome') {
+      bullets.push({
+        band: clause.data.band,
+        sourceText: exactLineOf(clause.span.text),
+        data: clause.data,
+      });
+      continue;
+    }
+    break; // header, Effect line, power-roll, flavor — attachment closes
+  }
+  const byBand = new Map(bullets.map((bullet) => [bullet.band, bullet]));
+  const tier1 = byBand.get('≤11');
+  const tier2 = byBand.get('12-16');
+  const tier3 = byBand.get('17+');
+  if (!tier1 || !tier2 || !tier3 || bullets.length !== 3) return null;
+  return { tier1, tier2, tier3 };
+}
+
+/** A test tier bullet automates only when the certified tier grammar read
+ * the whole payload AND the data needs no binding a test cannot express
+ * (flat damage, at most one type option). Everything else stays verbatim. */
+function testTierOf(bullet: AttachedTierBullet): unknown {
+  const automatable =
+    bullet.data !== null &&
+    (bullet.data.damage === null ||
+      (bullet.data.damage.characteristicOptions.length === 0 &&
+        bullet.data.damage.typeOptions.length <= 1));
+  if (automatable && bullet.data) {
+    return { kind: 'automatic', data: tierEffectOf(bullet.data), sourceText: bullet.sourceText };
+  }
+  return { kind: 'verbatim', sourceText: bullet.sourceText };
+}
+
 export function compileEffectPrograms(
   parse: GrammarParse,
   effectArtifactId: string,
 ): EffectProgramData[] {
+  const events: CompileEvent[] = [
+    ...parse.clauses.map(
+      (clause): CompileEvent => ({ kind: 'clause', clause, byteStart: clause.span.byteStart }),
+    ),
+    ...parse.residue.map(
+      (item): CompileEvent => ({
+        kind: 'residue',
+        text: item.span.text,
+        byteStart: item.span.byteStart,
+      }),
+    ),
+  ].sort((left, right) => left.byteStart - right.byteStart);
+
   const programs: EffectProgramData[] = [];
   let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
   let effectOrdinal = 0;
-  for (const clause of parse.clauses) {
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event || event.kind !== 'clause') continue;
+    const clause = event.clause;
     if (clause.kind === 'ability-header') {
       lastHeader = clause;
       continue;
     }
     if (clause.kind !== 'effect') continue;
     effectOrdinal += 1;
+
+    let resolution: unknown;
+    if (clause.data.resolution.kind === 'condition') {
+      resolution = {
+        ...clause.data.resolution,
+        ending: { kind: clause.data.resolution.ending },
+      };
+    } else if (clause.data.resolution.kind === 'test') {
+      // R-0011: a test compiles only with all three bullets attached
+      // losslessly; otherwise the whole line stays a verbatim table
+      // directive — never a partial program.
+      const tiers = attachTestTiers(events, index + 1);
+      resolution = tiers
+        ? {
+            kind: 'test',
+            characteristic: clause.data.resolution.characteristic,
+            subject: clause.data.resolution.subject,
+            tiers: {
+              tier1: testTierOf(tiers.tier1),
+              tier2: testTierOf(tiers.tier2),
+              tier3: testTierOf(tiers.tier3),
+            },
+          }
+        : { kind: 'table' };
+    } else {
+      resolution = clause.data.resolution;
+    }
+
     programs.push(
       EffectProgramDataSchema.parse({
         effectArtifactId,
@@ -256,13 +387,7 @@ export function compileEffectPrograms(
         canonRefs: clause.data.canonRefs,
         actionType: lastHeader?.actionType ?? null,
         targetsText: lastHeader?.targets ?? null,
-        resolution:
-          clause.data.resolution.kind === 'condition'
-            ? {
-                ...clause.data.resolution,
-                ending: { kind: clause.data.resolution.ending },
-              }
-            : clause.data.resolution,
+        resolution,
       }),
     );
   }
