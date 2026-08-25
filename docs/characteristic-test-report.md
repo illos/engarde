@@ -8,8 +8,8 @@ All 29 execute canonically through the certified power-roll core; every
 unsupported variation (25 family outliers and all other table directives)
 remains verbatim; the full 1,688-program corpus re-executes with **zero
 conservation or invariant violations**. Corpus accounting is now
-**41 automated (12 exact + 29 test) · 12 permanently-manual by user ruling ·
-1,647 mechanism-pending table directives**.
+**41 automated (12 exact + 29 test) · 1,647 table directives, of which 12 are
+permanently-manual by user ruling and 1,635 mechanism-pending**.
 
 ## Rulings implemented (canon-rulings.md, approved 2026-08-25)
 

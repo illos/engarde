@@ -418,3 +418,43 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
     expect(checkInvariants(before, dispatched, result)).toEqual([]);
   });
 });
+
+describe('test rolls bind the TARGET’s characteristic, never the actor’s (R-0007)', () => {
+  it('bands by the target’s score when actor and target scores differ', () => {
+    // Actor presence +4, target presence -2: dice 7+7 = 14; with the
+    // TARGET's score the total is 12 (tier 2); with the actor's it would be
+    // 18 (tier 3). The receipt and the outcome must reflect the target.
+    const seeded = initialEncounterState([
+      {
+        id: 'actor',
+        kind: 'hero',
+        stats: {
+          ...STATS,
+          characteristics: { might: 0, agility: 0, reason: 0, intuition: 0, presence: 4 },
+        },
+      },
+      {
+        id: 'target',
+        kind: 'director-creature',
+        stats: {
+          ...STATS,
+          characteristics: { might: 0, agility: 0, reason: 0, intuition: 0, presence: -2 },
+        },
+      },
+    ]);
+    const dispatched = testIntent(testEffect(), {
+      testRolls: { target: { dice: [7, 7] } },
+    });
+    const result = applyIntent(seeded, dispatched, { random: createSeededRandomSource(1) });
+    const roll = result.log.find((entry) => entry.data.testRoll !== undefined)?.data.testRoll as {
+      characteristicValue: number;
+      resolution: { total: number; tier: number };
+    };
+    expect(roll.characteristicValue).toBe(-2);
+    expect(roll.resolution.total).toBe(12);
+    expect(roll.resolution.tier).toBe(2);
+    // Tier 2 is a verbatim bullet — no state change, exact directive.
+    expect(result.state).toEqual(seeded);
+    expect(checkInvariants(seeded, dispatched, result)).toEqual([]);
+  });
+});
