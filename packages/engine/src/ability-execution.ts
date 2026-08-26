@@ -702,6 +702,26 @@ export function executeUseAbility(
 
   // ── action-economy debit (v6, R-0029/R-0030; combat only) ──────────────
   const cost = abilityCostOf(ability);
+  // R-0029 honest residue: a header cell the closed vocabulary refused
+  // carries no debit — never a guessed one. Surface the raw unnormalized
+  // value as a table directive instead of skipping silently.
+  if (state.turnState !== null && cost === null && ability.actionCostResidue !== null) {
+    log.push(
+      entry(
+        context,
+        'table-directive',
+        `${ability.abilityArtifactId} carries an unresolved action cost (raw header value ${JSON.stringify(ability.actionType)}) — no debit is guessed; the cost is table-adjudicated. Residue: ${ability.actionCostResidue}`,
+        [ECONOMY_CANON.turn, ability.abilityArtifactId],
+        {
+          actionCostResidue: {
+            abilityArtifactId: ability.abilityArtifactId,
+            raw: ability.actionType,
+            residue: ability.actionCostResidue,
+          },
+        },
+      ),
+    );
+  }
   if (state.turnState !== null && cost !== null) {
     if (ability.operatorPays && payload.operatorId === undefined) {
       // R-0029: the fixture takes no turns — the debit belongs to the

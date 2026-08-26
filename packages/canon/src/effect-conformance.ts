@@ -1,6 +1,7 @@
 import {
   type AbilityEffectData,
   AbilityEffectDataSchema,
+  type AssertedAbilityUse,
   type EffectProgramData,
   EffectProgramDataSchema,
   type EncounterState,
@@ -41,6 +42,16 @@ export function tierOutcomeToIntents(
     actorParticipantId: string;
     targetParticipantId: string;
     effectArtifactId: string;
+    /**
+     * Asserted-band economy parity seam [R-0029/R-0030]: the caller
+     * supplies the dispatch's ability-use assertion (actor, ability,
+     * actionCost, usesPerRound, partOf — threaded from the tier clause's
+     * owning compiled header) PER DISPATCH; this adapter never derives it.
+     * The FIRST generated intent carries the debit; subsequent intents
+     * from the same tier share it via `partOf` (the squad-attack family's
+     * asserted paths reuse this same binding-shaped seam).
+     */
+    assertedAbilityUse?: AssertedAbilityUse | null;
   },
 ): TierOutcomeExecution {
   const unexecuted: TierOutcomeExecution['unexecuted'] = [];
@@ -60,6 +71,14 @@ export function tierOutcomeToIntents(
       detail: `${data.potency.characteristic} < ${data.potency.threshold} — no potency-resolution mechanism yet; conformance assumes the gate is met`,
     });
   }
+  const asserted = binding.assertedAbilityUse ?? null;
+  // First generated intent carries the debit; the rest share it via partOf
+  // (the same composition semantics as the rolled path).
+  const assertedFor = (index: number): AssertedAbilityUse | null => {
+    if (asserted === null) return null;
+    if (index === 0) return asserted;
+    return { ...asserted, partOf: asserted.partOf ?? `${binding.intentIdPrefix}-0` };
+  };
   const intents: Intent[] = data.conditionIds.map((conditionId, index) => ({
     intentId: `${binding.intentIdPrefix}-${index}`,
     kind: 'apply-condition',
@@ -72,6 +91,7 @@ export function tierOutcomeToIntents(
         participantId: binding.actorParticipantId,
         effectArtifactId: binding.effectArtifactId,
       },
+      assertedAbilityUse: assertedFor(index),
     },
   }));
   return { intents, unexecuted };
@@ -200,7 +220,7 @@ export function compileAbilities(
   abilityArtifactId: string,
 ): { abilities: AbilityEffectData[]; incomplete: CompileMiss[] } {
   const clusters = groupPowerRollClusters(parse);
-  const annotations = annotateHeaderCosts(parse);
+  const annotations = annotateHeaderCosts(parse, abilityArtifactId);
   const abilities: AbilityEffectData[] = [];
   const incomplete: CompileMiss[] = [];
   for (const cluster of clusters) {
@@ -351,7 +371,7 @@ export function compileEffectPrograms(
     ),
   ].sort((left, right) => left.byteStart - right.byteStart);
 
-  const annotations = annotateHeaderCosts(parse);
+  const annotations = annotateHeaderCosts(parse, effectArtifactId);
   const programs: EffectProgramData[] = [];
   let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
   let effectOrdinal = 0;

@@ -4,11 +4,12 @@ import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import { hashPayload, sha256Hex } from './payload-hash.js';
-import type {
-  EncounterState,
-  Intent,
-  ParticipantStats,
-  UseAbilityPayloadInput,
+import {
+  ActionGrantSchema,
+  type EncounterState,
+  type Intent,
+  type ParticipantStats,
+  type UseAbilityPayloadInput,
 } from './schemas.js';
 
 /**
@@ -146,6 +147,24 @@ const CHARGE_EFFECT = {
   canonRefs: [],
   actionType: null,
   actionCost: 'main-action' as const,
+  targetsText: null,
+  distanceText: null,
+  keywords: [],
+  resolution: { kind: 'table' as const },
+};
+
+/** Advance (heroes/md/feature/common/move-actions/advance.md) — a PROSE
+ * common-action feature quoted verbatim: the move-action cost is its
+ * printed grouping (feature.common.move-actions). */
+const ADVANCE_EFFECT = {
+  effectArtifactId: 'mcdm.heroes.v1/feature.common.move-actions/advance',
+  effectOrdinal: 1,
+  sourceSpan: { byteStart: 0, byteEnd: 289 },
+  sourceText:
+    'When a creature takes the [Advance](scc.v1:mcdm.heroes.v1/feature.common.move-actions/advance) move action, they move a number of squares up to their [speed](scc.v1:mcdm.heroes.v1/rule.character/speed). They can break up this movement with their maneuver and main action however they wish.',
+  canonRefs: [],
+  actionType: null,
+  actionCost: 'move-action' as const,
   targetsText: null,
   distanceText: null,
   keywords: [],
@@ -692,6 +711,84 @@ describe('add-grant (Director grant intent, R-0030)', () => {
     expect(grant).toMatchObject({ kind: 'action', cost: 'main-action' });
     expect(grant?.grantId).toContain('grant#');
   });
+
+  it('a dead action grant (non-budget cost) is unrepresentable in the schema', () => {
+    // The consumption filter matches only the three per-turn budget
+    // counters; a grant of any other cost could never be consumed. The
+    // schema makes that dead state unrepresentable (the malice family
+    // widens it with semantics when it needs to).
+    const dead = ActionGrantSchema.safeParse({
+      kind: 'action',
+      grantId: 'dead-grant',
+      cost: 'triggered-action',
+      source: { participantId: 'warrior' },
+    });
+    expect(dead.success).toBe(false);
+    const live = ActionGrantSchema.safeParse({
+      kind: 'action',
+      grantId: 'live-grant',
+      cost: 'move-action',
+      source: { participantId: 'warrior' },
+    });
+    expect(live.success).toBe(true);
+  });
+});
+
+describe('turn-grant insertion consumption honors magnitude', () => {
+  it('decrements a magnitude-2 insertion grant and removes it only at zero', () => {
+    let state = beginCombat(baseEncounter(), 'heroes');
+    // warrior (director side) holds an insertion grant of magnitude 2;
+    // the side to choose is heroes, so each warrior start-turn is
+    // out-of-order and consumes one insertion.
+    state = dispatchChecked(
+      state,
+      director('add-grant', {
+        target: 'warrior',
+        grant: {
+          kind: 'turn',
+          mode: 'insertion',
+          magnitude: 2,
+          constraint: null,
+          expiry: null,
+          source: { participantId: 'warrior' },
+        },
+      }),
+    ).state;
+    const grantId = state.participants.warrior?.grants[0]?.grantId;
+    expect(grantId).toBeDefined();
+
+    const first = dispatchChecked(state, director('start-turn', { turnId: 'warrior' }));
+    // Consumed by DECREMENT: the grant survives at magnitude 1.
+    expect(first.state.participants.warrior?.grants).toEqual([
+      expect.objectContaining({ kind: 'turn', mode: 'insertion', magnitude: 1 }),
+    ]);
+    expect(first.log.some((entry) => entry.data.grantMagnitudeConsumed === grantId)).toBe(true);
+    expect(
+      first.log.some(
+        (entry) => (entry.data.ruleViolation as { kind?: string })?.kind === 'out-of-alternation',
+      ),
+    ).toBe(false);
+
+    let next = dispatchChecked(
+      first.state,
+      director('end-turn', { participantId: 'warrior' }),
+    ).state;
+    const second = dispatchChecked(next, director('start-turn', { turnId: 'warrior' }));
+    next = second.state;
+    // Second consumption reaches zero: the grant is removed.
+    expect(next.participants.warrior?.grants).toEqual([]);
+    expect(
+      second.log.some(
+        (entry) =>
+          Array.isArray(entry.data.removedGrantIds) && entry.data.removedGrantIds.includes(grantId),
+      ),
+    ).toBe(true);
+    expect(
+      second.log.some(
+        (entry) => (entry.data.ruleViolation as { kind?: string })?.kind === 'out-of-alternation',
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('end-turn force-commit (design §3: printed damage is never discarded)', () => {
@@ -907,6 +1004,141 @@ describe('minion per-member budget (R-0033, PDF-recovered Acting Together)', () 
       "can't participate in their squad's main action or maneuver during the turn",
     );
     expect(grab.state.participants['sk-1']?.actionBudget.maneuver?.used).toBe(1);
+  });
+
+  function squadState(): EncounterState {
+    let state = initialEncounterState(
+      [
+        { id: 'hero', kind: 'hero', stats: GOBLIN_WARRIOR_STATS },
+        {
+          id: 'sk-1',
+          kind: 'director-creature',
+          stats: SKITTERLING_STATS,
+          sourceRecordId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling',
+        },
+        {
+          id: 'sk-2',
+          kind: 'director-creature',
+          stats: SKITTERLING_STATS,
+          sourceRecordId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling',
+        },
+      ],
+      [{ squadId: 'sq-1', name: 'skitterlings', memberIds: ['sk-1', 'sk-2'] }],
+    );
+    state = beginCombat(state, 'director');
+    return dispatchChecked(state, director('start-turn', { turnId: 'sq-1' })).state;
+  }
+
+  function advanceBy(memberId: string): Intent {
+    return {
+      intentId: nextId('advance'),
+      kind: 'use-effect',
+      actor: { kind: 'director' },
+      payload: { actorParticipantId: memberId, effect: ADVANCE_EFFECT, targets: [] },
+    };
+  }
+
+  it('two move actions on the squad turn are within the printed menu — no over-budget warn ("… or two move actions", Acting Together, Monsters p.8–9, R-0033)', () => {
+    const state = squadState();
+    // First move action (Advance, verbatim prose feature): clean.
+    const first = dispatchChecked(state, advanceBy('sk-1'));
+    expect(first.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    expect(first.state.participants['sk-1']?.actionBudget['move-action']?.used).toBe(1);
+
+    // Second move action: printed-legal per the R-0033 menu — NO warning
+    // (neither generic over-budget nor minion-budget), and no grant needed.
+    const second = dispatchChecked(first.state, advanceBy('sk-1'));
+    expect(second.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    expect(second.state.participants['sk-1']?.actionBudget['move-action']?.used).toBe(2);
+    expect(second.state.participants['sk-1']?.actionBudget['move-action']?.granted).toBe(0);
+
+    // Third move action is OFF the menu ("each minion can take only …"):
+    // both the generic over-budget warn and the minion-budget warn fire.
+    const third = dispatchChecked(second.state, advanceBy('sk-1'));
+    const kinds = third.log
+      .filter((entry) => entry.kind === 'warning')
+      .map((entry) => (entry.data.ruleViolation as { kind?: string })?.kind);
+    expect(kinds).toContain('over-budget');
+    expect(kinds).toContain('minion-budget');
+    expect(third.state.participants['sk-1']?.actionBudget['move-action']?.used).toBe(3);
+  });
+
+  it('a second MAIN action on the squad turn stays off-menu — the over-budget warn is not suppressed (R-0033)', () => {
+    const state = squadState();
+    const clawsBy = (): Intent => ({
+      intentId: nextId('claws'),
+      kind: 'use-ability',
+      actor: { kind: 'director' },
+      payload: {
+        actorParticipantId: 'sk-1',
+        ability: SKITTERLING_CLAWS,
+        targets: ['hero'],
+        dice: [5, 5],
+      },
+    });
+    const first = dispatchChecked(state, clawsBy());
+    expect(first.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    const second = dispatchChecked(first.state, clawsBy());
+    const overBudget = second.log.find(
+      (entry) =>
+        entry.kind === 'warning' &&
+        (entry.data.ruleViolation as { kind?: string })?.kind === 'over-budget',
+    );
+    expect(overBudget).toBeDefined();
+    expect(second.state.participants['sk-1']?.actionBudget['main-action']?.used).toBe(2);
+  });
+
+  it('the two-move menu is squad-turn-scoped: a non-member second move still warns over-budget', () => {
+    // The same double move OUTSIDE a squad's shared turn (an ordinary
+    // participant on their own turn) keeps the generic over-budget warn —
+    // the suppression is exactly the R-0033 squad-turn combo.
+    let state = beginCombat(baseEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
+    const advanceByHero = (): Intent => ({
+      intentId: nextId('advance'),
+      kind: 'use-effect',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload: { actorParticipantId: 'hero', effect: ADVANCE_EFFECT, targets: [] },
+    });
+    const first = dispatchChecked(state, advanceByHero());
+    expect(first.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    const second = dispatchChecked(first.state, advanceByHero());
+    const overBudget = second.log.find(
+      (entry) =>
+        entry.kind === 'warning' &&
+        (entry.data.ruleViolation as { kind?: string })?.kind === 'over-budget',
+    );
+    expect(overBudget).toBeDefined();
+  });
+});
+
+describe('R-0029 residue surfacing: an unresolved cost never debits silently', () => {
+  it('a compiled shape carrying actionCostResidue surfaces a table directive naming the raw value and skips the debit', () => {
+    let state = beginCombat(baseEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
+    // Synthetic residue shape for the surfacing path: the prose is the
+    // verbatim Advance feature; the raw value mirrors the real corpus
+    // residue case (the vampire-lord stat-table "EV 36" cell, which the
+    // closed vocabulary correctly refuses). No debit is ever guessed.
+    const residueEffect = {
+      ...ADVANCE_EFFECT,
+      actionCost: null,
+      actionType: 'EV 36',
+      actionCostResidue: 'unrecognized action-cost value "EV 36"',
+    };
+    const result = dispatchChecked(state, {
+      intentId: nextId('residue'),
+      kind: 'use-effect',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload: { actorParticipantId: 'hero', effect: residueEffect, targets: [] },
+    });
+    const directive = result.log.find((entry) => entry.data.actionCostResidue !== undefined);
+    expect(directive?.kind).toBe('table-directive');
+    expect(directive?.message).toContain('"EV 36"');
+    // No budget counter moved — the cost stays table-adjudicated.
+    expect(result.state.participants.hero?.actionBudget).toEqual(
+      state.participants.hero?.actionBudget,
+    );
   });
 });
 

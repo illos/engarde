@@ -705,15 +705,25 @@ export function applyIntent(
         const insertion = insertionHolder?.grants.find(
           (candidate) => candidate.kind === 'turn' && candidate.mode === 'insertion',
         );
-        if (insertionHolder && insertion) {
+        if (insertionHolder && insertion && insertion.kind === 'turn') {
           consumedInsertion = true;
+          // Magnitude-aware consumption — decrement, remove at 0 (the same
+          // shape as the allowance grant's consumption above).
+          const remainingInsertionGrants =
+            insertion.magnitude > 1
+              ? insertionHolder.grants.map((candidate) =>
+                  candidate === insertion
+                    ? { ...candidate, magnitude: candidate.magnitude - 1 }
+                    : candidate,
+                )
+              : insertionHolder.grants.filter((candidate) => candidate !== insertion);
           nextState = {
             ...nextState,
             participants: {
               ...nextState.participants,
               [turnId]: {
                 ...insertionHolder,
-                grants: insertionHolder.grants.filter((candidate) => candidate !== insertion),
+                grants: remainingInsertionGrants,
               },
             },
           };
@@ -723,7 +733,10 @@ export function applyIntent(
             actor: intent.actor,
             canonRefs: [ECONOMY_CANON.combatRound],
             message: `${turnId} takes an inserted out-of-order turn through a grant (printed-scheduling escape — no warning) [R-0030]`,
-            data: { removedGrantIds: [insertion.grantId] },
+            data:
+              insertion.magnitude > 1
+                ? { grantMagnitudeConsumed: insertion.grantId }
+                : { removedGrantIds: [insertion.grantId] },
           });
         }
         if (!consumedInsertion) {

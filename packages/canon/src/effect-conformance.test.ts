@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   type EncounterState,
+  type Intent,
   createSeededRandomSource,
   upgradeEncounterState,
 } from '@engarde/engine';
@@ -151,6 +152,82 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
       createSeededRandomSource(1),
     );
     expect(withRolls.state.participants.target?.conditions).toEqual([]);
+  });
+
+  it('threads assertedAbilityUse through the binding seam (B-2): the first intent carries the debit, the rest share via partOf', async () => {
+    // Binding-shaped seam [R-0029/R-0030]: the host supplies the ability-use
+    // assertion per dispatch from the tier clause's owning compiled header;
+    // the adapter threads it so asserted-band condition application debits
+    // the economy exactly once (the squad-attack family's asserted paths
+    // reuse this same seam).
+    const abilityArtifactId = 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood';
+    const text = await ingestText(
+      'en/books/heroes/md/feature/ability/fury/level-1/blood-for-blood.md',
+    );
+    const parse = parseEffectText(text);
+    const { abilities } = compileAbilities(parse, abilityArtifactId);
+    const compiled = abilities[0];
+    expect(compiled?.actionCost).toBe('main-action');
+    if (!compiled || compiled.actionCost === null) return;
+
+    const tier17 = parse.clauses
+      .filter((clause) => clause.kind === 'tier-outcome')
+      .find((clause) => clause.data.band === '17+');
+    if (!tier17) throw new Error('missing tier');
+    const { intents } = tierOutcomeToIntents(tier17.data, {
+      intentIdPrefix: 'bfb-asserted',
+      actorParticipantId: 'fury',
+      targetParticipantId: 'target',
+      effectArtifactId: abilityArtifactId,
+      assertedAbilityUse: {
+        actorParticipantId: 'fury',
+        abilityArtifactId: compiled.abilityArtifactId,
+        actionCost: compiled.actionCost,
+        usesPerRound: compiled.usesPerRound,
+      },
+    });
+    // blood-for-blood 17+ applies two conditions → two intents.
+    expect(intents).toHaveLength(2);
+    type ApplyCondition = Extract<Intent, { kind: 'apply-condition' }>;
+    const first = intents[0] as ApplyCondition;
+    const second = intents[1] as ApplyCondition;
+    expect(first.payload.assertedAbilityUse).toEqual({
+      actorParticipantId: 'fury',
+      abilityArtifactId,
+      actionCost: 'main-action',
+      usesPerRound: null,
+    });
+    expect(second.payload.assertedAbilityUse).toEqual({
+      actorParticipantId: 'fury',
+      abilityArtifactId,
+      actionCost: 'main-action',
+      usesPerRound: null,
+      partOf: 'bfb-asserted-0',
+    });
+
+    // Fires in anger: in combat the seam produces exactly ONE main-action
+    // debit for the whole tier, and both conditions still land.
+    const combatIntents: Intent[] = [
+      {
+        intentId: 'bfb-bc',
+        kind: 'begin-combat',
+        actor: { kind: 'director' },
+        payload: { firstSide: 'heroes', roll: 7 },
+      },
+      {
+        intentId: 'bfb-st',
+        kind: 'start-turn',
+        actor: { kind: 'director' },
+        payload: { turnId: 'fury' },
+      },
+    ];
+    const combat = executeIntents(freshState(), combatIntents, createSeededRandomSource(1));
+    const { state } = executeIntents(combat.state, intents, createSeededRandomSource(1));
+    expect(state.participants.fury?.actionBudget['main-action']?.used).toBe(1);
+    expect(state.participants.target?.conditions.map((instance) => instance.conditionId)).toEqual([
+      'mcdm.heroes.v1/condition/bleeding',
+      'mcdm.heroes.v1/condition/weakened',
+    ]);
   });
 });
 

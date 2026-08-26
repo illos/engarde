@@ -1,4 +1,4 @@
-import { BASE_TURN_BUDGET } from './action-economy.js';
+import { BASE_TURN_BUDGET, withinMinionMoveMenu } from './action-economy.js';
 import type { ApplyResult } from './apply-intent.js';
 import { POWER_ROLL_DIE, type PowerRollResolution, resolvePowerRoll } from './power-roll.js';
 import {
@@ -774,7 +774,7 @@ export function checkInvariants(
       grantedTo: number;
     }
     const budgetClaims = collectClaimRows<BudgetClaim>(mutations, 'actionBudgetDeltas', (claim) =>
-      claim ? `${claim.participantId} ${claim.cost}` : undefined,
+      claim ? `${claim.participantId}\u0000${claim.cost}` : undefined,
     );
     for (const participant of Object.values(result.state.participants)) {
       const beforeParticipant = before.participants[participant.id];
@@ -783,13 +783,13 @@ export function checkInvariants(
         ...Object.keys(participant.actionBudget),
       ]);
       for (const [key, rows] of budgetClaims) {
-        const [pid, cost] = key.split(' ');
+        const [pid, cost] = key.split('\u0000');
         if (pid === participant.id && cost !== undefined && rows.length > 0) costs.add(cost);
       }
       for (const cost of costs) {
         const beforeCell = beforeParticipant?.actionBudget[cost] ?? { used: 0, granted: 0 };
         const afterCell = participant.actionBudget[cost] ?? { used: 0, granted: 0 };
-        const claims = budgetClaims.get(`${participant.id} ${cost}`) ?? [];
+        const claims = budgetClaims.get(`${participant.id}\u0000${cost}`) ?? [];
         violations.push(
           ...walkClaims(
             { used: beforeCell.used, granted: beforeCell.granted },
@@ -825,7 +825,23 @@ export function checkInvariants(
           0,
           afterCell.used - (BASE_TURN_BUDGET + afterCell.granted),
         );
-        if (budgetOverageAfter > budgetOverageBefore && !hasReceiptFor(participant.id)) {
+        // R-0033: a squad member's second move action on the squad's shared
+        // turn is within the printed minion menu — legal overage, no receipt
+        // required [one home: withinMinionMoveMenu].
+        const menuMove =
+          cost === 'move-action' &&
+          withinMinionMoveMenu(
+            result.state,
+            result.state.turnState?.activeTurnId ?? null,
+            participant.id,
+            'move-action',
+            afterCell.used,
+          );
+        if (
+          budgetOverageAfter > budgetOverageBefore &&
+          !menuMove &&
+          !hasReceiptFor(participant.id)
+        ) {
           violations.push({
             code: 'budget-over-capacity-unreceipted',
             detail: `${participant.id}/${cost}: used ${afterCell.used} of ${BASE_TURN_BUDGET + afterCell.granted} adds overage with no rule-violation receipt [R-0030]`,
@@ -890,14 +906,14 @@ export function checkInvariants(
       const abilityUseClaims = collectClaimRows<AbilityUseClaim>(
         mutations,
         'abilityUseDeltas',
-        (claim) => (claim ? `${claim.participantId} ${claim.abilityKey}` : undefined),
+        (claim) => (claim ? `${claim.participantId}\u0000${claim.abilityKey}` : undefined),
       );
       const abilityKeys = new Set<string>([
         ...Object.keys(beforeParticipant?.abilityUses ?? {}),
         ...Object.keys(participant.abilityUses),
       ]);
       for (const [key, rows] of abilityUseClaims) {
-        const [pid, abilityKey] = key.split(' ');
+        const [pid, abilityKey] = key.split('\u0000');
         if (pid === participant.id && abilityKey !== undefined && rows.length > 0)
           abilityKeys.add(abilityKey);
       }
@@ -909,7 +925,7 @@ export function checkInvariants(
           ...walkClaims(
             beforeUses,
             afterUses,
-            abilityUseClaims.get(`${participant.id} ${abilityKey}`) ?? [],
+            abilityUseClaims.get(`${participant.id}\u0000${abilityKey}`) ?? [],
             {
               from: (claim) => claim.from,
               to: (claim) => claim.to,

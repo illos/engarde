@@ -1202,7 +1202,7 @@ export function createPlaySession(options: {
     // Compiled header annotation [R-0029/R-0031]: the printed cost decides
     // free-triggered on its own; the once-per-round cap and the interception
     // point ride along. No annotation = table-asserted dispatch.
-    const annotations = [...annotateHeaderCosts(parsedRecord(record.id)).values()];
+    const annotations = [...annotateHeaderCosts(parsedRecord(record.id), record.id).values()];
     const annotation = annotations.find(
       (candidate) =>
         candidate.actionCost === 'triggered-action' ||
@@ -1292,6 +1292,12 @@ export function createPlaySession(options: {
     } else {
       const cost = COST_ALIASES[lower];
       if (cost === undefined) return `unknown grant cost "${kindToken}" — ${usage}`;
+      // Action grants extend only the per-turn budget counters — a grant of
+      // any other cost would be dead (the consumption filter matches only
+      // main/maneuver/move), so the schema makes it unrepresentable.
+      if (cost !== 'main-action' && cost !== 'maneuver' && cost !== 'move-action') {
+        return `action grants extend only the per-turn budget counters (main/maneuver/move) — "${kindToken}" has no consumable counter`;
+      }
       grant = { kind: 'action', cost, magnitude, escapes, expiry: null, source: {} };
     }
     return dispatchAll([

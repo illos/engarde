@@ -121,6 +121,17 @@ export const ActionCostSchema = z.enum(ACTION_COSTS);
 export type ActionCost = z.infer<typeof ActionCostSchema>;
 
 /**
+ * The three per-turn budget counters [rule.combat/turn] — the only costs an
+ * `action` grant can extend, because grant consumption matches exactly the
+ * personal-budget debits. Constraining the grant schema here makes a dead
+ * grant (a cost the consumption filter could never match) unrepresentable;
+ * the malice family widens this with semantics when it needs to.
+ */
+export const BUDGET_ACTION_COSTS = ['main-action', 'maneuver', 'move-action'] as const;
+export const BudgetActionCostSchema = z.enum(BUDGET_ACTION_COSTS);
+export type BudgetActionCost = z.infer<typeof BudgetActionCostSchema>;
+
+/**
  * Printed escapes ride grants, never warnings [R-0030]: critical hit's
  * "additional main action … whether or not it's your turn and even if you
  * are dazed" [rule.combat/critical-hit], the Solo Action malice sheets
@@ -149,7 +160,12 @@ export const GrantExpirySchema = z.enum(['end-of-round']).nullable();
 export const ActionGrantSchema = z.object({
   kind: z.literal('action'),
   grantId: z.string().min(1),
-  cost: ActionCostSchema,
+  /** Budget costs only — a dead grant (a cost the consumption filter could
+   * never match) is unrepresentable in parsed state. The pipe keeps the
+   * INPUT type at the wide ActionCost vocabulary so existing host
+   * validators keep compiling until the host batch narrows them; parse
+   * rejects any non-budget cost at the engine boundary either way. */
+  cost: ActionCostSchema.pipe(BudgetActionCostSchema),
   magnitude: z.number().int().positive().default(1),
   escapes: GrantEscapesSchema.default({
     ignoresDazed: false,

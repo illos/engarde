@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { annotateHeaderCosts, classifyReactionInterception } from './action-cost.js';
 import { compileAbilities, compileEffectPrograms } from './effect-conformance.js';
 import { parseEffectText } from './effect-grammar.js';
+import { CampaignAuditManifestSchema, ExtractionBundleSchema } from './schemas.js';
 
 /**
  * R-0029 action-cost normalization + byte-defect repair, and the R-0031
@@ -92,26 +93,70 @@ describe('dash-cell context resolution (R-0029)', () => {
     const text =
       '> ☠️ **Sacrifice ([Villain Action](scc.v1:mcdm.monsters.v1/rule.monster/villain-action) 3)**\n>\n> | **Magic, Ranged** |                   **-** |\n> |-------------------|------------------------:|\n> | **📏 Ranged 20**  | **🎯 Each chosen ally** |\n';
     const parse = parseEffectText(text);
-    const annotations = [...annotateHeaderCosts(parse).values()];
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
+      ).values(),
+    ];
     expect(annotations).toHaveLength(1);
     expect(annotations[0]?.actionCost).toBe('villain-action');
     expect(annotations[0]?.actionCostResidue).toBeNull();
   });
 
-  it('normalizes Wave of Blood (sub-ability name line) to no-action, never villain-action', () => {
+  it('normalizes Wave of Blood (exact name line on the vampire lord) to no-action, never villain-action', () => {
     const text =
       '> **Wave of Blood:**\n>\n> | **Area, Magic** |                         **-** |\n> |-----------------|------------------------------:|\n> | **📏 20 burst** | **🎯 Each enemy in the area** |\n';
     const parse = parseEffectText(text);
-    const annotations = [...annotateHeaderCosts(parse).values()];
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
+      ).values(),
+    ];
     expect(annotations).toHaveLength(1);
     expect(annotations[0]?.actionCost).toBe('no-action');
+  });
+
+  it('refuses the Wave of Blood shape on any OTHER artifact — residue, never a generalized ruling', () => {
+    // R-0029 names Wave of Blood specifically (one artifact, one dash cell);
+    // the same bold-colon shape elsewhere is a FUTURE dash that must refuse.
+    const text =
+      '> **Wave of Blood:**\n>\n> | **Area, Magic** |                         **-** |\n> |-----------------|------------------------------:|\n> | **📏 20 burst** | **🎯 Each enemy in the area** |\n';
+    const parse = parseEffectText(text);
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'synthetic.test/monster.statblock/not-the-vampire-lord',
+      ).values(),
+    ];
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0]?.actionCost).toBeNull();
+    expect(annotations[0]?.actionCostResidue).toContain('dash action cell');
+  });
+
+  it('refuses a different bold-colon name line even on the vampire lord — exact match only', () => {
+    // Synthetic name (not rulebook content): the exact-match resolver must
+    // not treat "any bold-colon line on the vampire lord" as Wave of Blood.
+    const text =
+      '> **Synthetic Test Name:**\n>\n> | **Area, Magic** |                         **-** |\n> |-----------------|------------------------------:|\n> | **📏 20 burst** | **🎯 Each enemy in the area** |\n';
+    const parse = parseEffectText(text);
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
+      ).values(),
+    ];
+    expect(annotations).toHaveLength(1);
+    expect(annotations[0]?.actionCost).toBeNull();
+    expect(annotations[0]?.actionCostResidue).toContain('dash action cell');
   });
 
   it('leaves an uncontextualized dash as residue', () => {
     const text =
       'Some unrelated line.\n\n| **Magic** | **-** |\n|-----------|------:|\n| **📏 Ranged 5** | **🎯 One creature** |\n';
     const parse = parseEffectText(text);
-    const annotations = [...annotateHeaderCosts(parse).values()];
+    const annotations = [...annotateHeaderCosts(parse, 'synthetic.test/fixture').values()];
     expect(annotations).toHaveLength(1);
     expect(annotations[0]?.actionCost).toBeNull();
     expect(annotations[0]?.actionCostResidue).toContain('dash action cell');
@@ -161,7 +206,12 @@ describe.skipIf(!existsSync(BUNDLE_ROOT))('byte-defect repair against the pinned
       'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
     );
     const parse = parseEffectText(text);
-    const annotations = [...annotateHeaderCosts(parse).values()];
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
+      ).values(),
+    ];
     const villainCosts = annotations.filter(
       (annotation) => annotation.actionCost === 'villain-action',
     );
@@ -216,13 +266,65 @@ describe.skipIf(!existsSync(BUNDLE_ROOT))('byte-defect repair against the pinned
     expect(capped.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('freezes compiled action-cost residue at ZERO across the whole accepted pin (I-4 sweep)', () => {
+    // R-0029: every printed header cell at the accepted pin resolves onto
+    // the closed vocabulary (156 villain-action dashes + the Wave of Blood
+    // exact match). Residue on a COMPILED shape means the runtime path
+    // would surface a table directive instead of a debit — legal, but at
+    // this pin there must be exactly none. A pin bump that introduces a new
+    // surface value breaks this loudly instead of silently skipping debits.
+    const manifestPath = resolve(
+      import.meta.dirname,
+      '../../../.artifacts/canon/campaign/accepted/final-campaign-manifest.json',
+    );
+    const manifest = CampaignAuditManifestSchema.parse(
+      JSON.parse(readFileSync(manifestPath, 'utf8')),
+    );
+    let abilityCount = 0;
+    let programCount = 0;
+    const residues: string[] = [];
+    for (const entry of manifest.bundles) {
+      const bundle = ExtractionBundleSchema.parse(
+        JSON.parse(readFileSync(resolve(entry.bundlePath), 'utf8')),
+      );
+      for (const record of bundle.records) {
+        if (record.recordKind !== 'artifact') continue;
+        const parse = parseEffectText(record.text);
+        const compiled = compileAbilities(parse, record.id);
+        abilityCount += compiled.abilities.length;
+        for (const ability of compiled.abilities) {
+          if (ability.actionCostResidue !== null) {
+            residues.push(`${record.id}: ${ability.actionCostResidue}`);
+          }
+        }
+        const programs = compileEffectPrograms(parse, record.id);
+        programCount += programs.length;
+        for (const program of programs) {
+          if (program.actionCostResidue !== null) {
+            residues.push(`${record.id}#${program.effectOrdinal}: ${program.actionCostResidue}`);
+          }
+        }
+      }
+    }
+    // Frozen at the accepted pin: the honest baseline counts, then zero
+    // residue on every compiled shape.
+    expect(abilityCount).toBe(583);
+    expect(programCount).toBe(1688);
+    expect(residues).toEqual([]);
+  });
+
   it('classifies the real Tongue Slap onto the rolled point', () => {
     const text = artifactText(
       'books/monsters/md/monster/angulotl/statblock/angulotl-daybringer.bundle.json',
       'mcdm.monsters.v1/monster.angulotl.statblock/angulotl-daybringer',
     );
     const parse = parseEffectText(text);
-    const annotations = [...annotateHeaderCosts(parse).values()];
+    const annotations = [
+      ...annotateHeaderCosts(
+        parse,
+        'mcdm.monsters.v1/monster.angulotl.statblock/angulotl-daybringer',
+      ).values(),
+    ];
     const rolled = annotations.filter(
       (annotation) => annotation.reactionInterception?.point === 'rolled',
     );

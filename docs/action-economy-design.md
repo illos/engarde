@@ -416,3 +416,11 @@ action, a crit grant, and a squad turn.
   (statblockStats parses no roles; minion-pool cut); mounts act as
   ordinary participants meanwhile. Ride's mount-side once-per-round
   counter still warns via `abilityUses`.
+- **Common-actions stitched-model deferral** — Defend/Catch Breath prose
+  execution is deferred and their costs stay dispatch-asserted pending a
+  path-derivation ruling; the 17 `feature.common.*` prose features + 5
+  `feature.ability.common` companions are count-frozen as accounted
+  directives/compiled abilities (`packages/canon/src/common-actions.test.ts`).
+- **Known flag (b)** — target-side reactive test rolls open no resolution
+  entry (R-0032 read as: the ACTOR's ability rolls open entries); this is
+  the reaction family's extension point.

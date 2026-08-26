@@ -3,6 +3,7 @@ import { withParticipant } from './damage.js';
 import type {
   ActionCost,
   ActionGrant,
+  BudgetActionCost,
   EncounterState,
   LogEntry,
   ParticipantState,
@@ -58,7 +59,7 @@ export const ECONOMY_CANON = {
  */
 export interface ActionCostDebit {
   /** Personal budget counter consumed, if any. */
-  budget: 'main-action' | 'maneuver' | 'move-action' | null;
+  budget: BudgetActionCost | null;
   /** Counts against "one triggered action per round". */
   triggeredCounter: boolean;
   /** Debits the encounter-level villain economy. */
@@ -224,6 +225,28 @@ export interface DebitRequest {
   /** Composition parent reference — the parent's debit covers this
    * dispatch [design §3]. */
   partOf: string | null;
+}
+
+/**
+ * R-0033 printed minion menu — the ONE home for the two-move-actions combo
+ * (shared by the debit path and the receipt-aware budget invariant): "On
+ * their shared turn, each minion can take only a move action and a main
+ * action, a move action and a maneuver, or two move actions" (Acting
+ * Together, Monsters p.8–9, R-0033). A member's second move action on the
+ * squad's shared turn is within the printed menu — no over-budget warn and
+ * no receipt required. Off-menu combos (a second main, a third action) stay
+ * violations.
+ */
+export function withinMinionMoveMenu(
+  state: EncounterState,
+  activeTurnId: string | null,
+  payerId: string,
+  budget: BudgetActionCost,
+  usedAfter: number,
+): boolean {
+  if (budget !== 'move-action' || usedAfter > 2) return false;
+  const squad = state.squads.find((candidate) => candidate.memberIds.includes(payerId));
+  return squad !== undefined && activeTurnId === squad.squadId;
 }
 
 /** Total own-turn actions already used this turn (the dazed one-thing
@@ -397,7 +420,17 @@ export function debitActionCost(
   let consumedGrant: ActionGrant | null = null;
   if (debit.budget !== null) {
     const cell = payer.actionBudget[debit.budget] ?? { used: 0, granted: 0 };
-    const overBudget = cell.used + 1 > BASE_TURN_BUDGET + cell.granted;
+    // R-0033: the printed two-move combo on the squad's shared turn is
+    // within the minion menu — not over budget, no grant needed [one home:
+    // withinMinionMoveMenu].
+    const menuMove = withinMinionMoveMenu(
+      state,
+      turnState.activeTurnId,
+      payer.id,
+      debit.budget,
+      cell.used + 1,
+    );
+    const overBudget = !menuMove && cell.used + 1 > BASE_TURN_BUDGET + cell.granted;
     // A grant is consumed when the printed budget alone cannot cover this
     // use — over budget, off-turn, or through a dazed restriction. Silent,
     // and its escapes suppress the matching warnings [R-0030].

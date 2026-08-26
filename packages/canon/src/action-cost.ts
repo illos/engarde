@@ -46,9 +46,16 @@ interface AnnotationEvent {
 }
 
 const VILLAIN_ACTION_NAME_LINE = /villain action\s*\d/i;
-/** The Wave of Blood sub-ability name-line shape: `**<Name>:**` (a bold
- * name with a trailing colon, resolved by a parent ability's Effect text). */
-const SUB_ABILITY_NAME_LINE = /^\*\*[^*]+:\*\*\s*$/;
+/**
+ * Wave of Blood exact-match [R-0029]: the ruling names Wave of Blood
+ * SPECIFICALLY — the one dash cell at the accepted pin whose name line is
+ * the bold-name-with-colon sub-ability form, on the vampire lord. Any OTHER
+ * future dash under a bold-colon name line refuses as residue (never
+ * generalized from one ruling).
+ */
+const WAVE_OF_BLOOD_ARTIFACT_ID =
+  'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord';
+const WAVE_OF_BLOOD_NAME_LINE = '**Wave of Blood:**';
 const ONCE_PER_ROUND = /once per round/i;
 
 /** Last non-empty content line of a text block, quote markers and scc links
@@ -115,9 +122,13 @@ export function classifyReactionInterception(sectionText: string): ReactionInter
  * Annotate every ability-header clause in a parse with its normalized
  * action cost + section-derived economy data. Keyed by clause object
  * identity (the same objects `groupPowerRollClusters` and
- * `compileEffectPrograms` hold).
+ * `compileEffectPrograms` hold). `artifactId` scopes the Wave-of-Blood
+ * exact-match [R-0029] — the ruling names one artifact, not a shape.
  */
-export function annotateHeaderCosts(parse: GrammarParse): Map<HeaderClause, HeaderCostAnnotation> {
+export function annotateHeaderCosts(
+  parse: GrammarParse,
+  artifactId: string,
+): Map<HeaderClause, HeaderCostAnnotation> {
   const events: AnnotationEvent[] = [
     ...parse.clauses.map((clause) => ({
       byteStart: clause.span.byteStart,
@@ -165,12 +176,13 @@ export function annotateHeaderCosts(parse: GrammarParse): Map<HeaderClause, Head
     if (raw === '-') {
       if (nameLine !== null && VILLAIN_ACTION_NAME_LINE.test(nameLine)) {
         actionCost = 'villain-action';
-      } else if (nameLine !== null && SUB_ABILITY_NAME_LINE.test(nameLine)) {
+      } else if (nameLine === WAVE_OF_BLOOD_NAME_LINE && artifactId === WAVE_OF_BLOOD_ARTIFACT_ID) {
         // Wave of Blood [R-0029]: a no-cost sub-ability resolved by its
-        // parent ability's delayed effect — NOT a villain action.
+        // parent ability's delayed effect — NOT a villain action. Exact
+        // match only; any other bold-colon dash refuses as residue below.
         actionCost = 'no-action';
       } else {
-        actionCostResidue = `dash action cell with no Villain Action or sub-ability name line (preceding line: ${nameLine === null ? 'none' : JSON.stringify(nameLine)})`;
+        actionCostResidue = `dash action cell with no Villain Action name line and not the R-0029 Wave of Blood exact match (preceding line: ${nameLine === null ? 'none' : JSON.stringify(nameLine)})`;
       }
     } else {
       const normalized = normalizeActionCostValue(raw);

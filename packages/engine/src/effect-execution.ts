@@ -309,6 +309,26 @@ export function executeUseEffect(
   // one-home helper use-ability routes through [design §3].
   let economyState = state;
   const cost = abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType });
+  // R-0029 honest residue: a header cell the closed vocabulary refused
+  // carries no debit — never a guessed one. Surface the raw unnormalized
+  // value as a table directive instead of skipping silently.
+  if (state.turnState !== null && cost === null && effect.actionCostResidue !== null) {
+    log.push(
+      entry(
+        context,
+        'table-directive',
+        `${effect.effectArtifactId} carries an unresolved action cost (raw header value ${JSON.stringify(effect.actionType)}) — no debit is guessed; the cost is table-adjudicated. Residue: ${effect.actionCostResidue}`,
+        refs(effect, [ECONOMY_CANON.turn]),
+        {
+          actionCostResidue: {
+            effectArtifactId: effect.effectArtifactId,
+            raw: effect.actionType,
+            residue: effect.actionCostResidue,
+          },
+        },
+      ),
+    );
+  }
   if (state.turnState !== null && cost !== null) {
     if (effect.operatorPays && intent.payload.operatorId === undefined) {
       log.push(
