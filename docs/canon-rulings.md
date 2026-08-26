@@ -561,3 +561,196 @@ Monsters p.9]
 
 **Gate 3:** accepted via the minion-pool-gate3 card surface (cardHash
 410f6268 verified), 2026-08-25.
+
+## R-0029 — Action-cost vocabulary normalization + byte-defect repair (approved 2026-08-26)
+
+**Question:** how does the compiler normalize the 1,878 ability header
+action-cost values, and what happens to the `-` cells and the two
+byte-malformed printed tables?
+
+**Ruling:** normalize to the closed enum {main-action, maneuver,
+move-action, triggered-action, free-triggered-action, free-maneuver,
+no-action, villain-action}. Case/spelling surface variants fold
+(`Triggered` = `Triggered Action` = `Triggered action`, etc.). A bare `-`
+under a `Villain Action N` name line is villain-action (156 of 157 corpus
+cells). **Wave of Blood is NOT a villain action** — it is the delayed
+end-of-round tail of the vampire lord's Sacrifice ("Each target is marked
+for sacrifice. At the end of the round, each target who isn't dead or
+destroyed takes 50 corruption damage. The vampire then uses the following
+ability. **Wave of Blood:** …") and normalizes to a no-cost sub-ability;
+treating it as an independent villain action would violate the printed
+timing ("A creature can use a villain action at the end of any other
+creature's turn during combat" — Monsters p.4) and the once-per-round /
+three-per-encounter constraints. `Main action (Adjacent creature)` (22
+headers, 6 siege-engine dynamic-terrain fixtures) is a main action whose
+budget debit lands on the DISPATCHING ADJACENT OPERATOR — the fixture
+takes no turns. The two byte-malformed printed tables (gloom-dragon
+Absence of All Light: separator row missing its trailing pipe; lizardfolk
+Net Trap: header row missing its leading pipe) get permissive-regex
+repair so their printed costs compile — the alternative is silently
+costless abilities, one of them a villain action invisible to the
+villain-action economy. Unknown FUTURE values refuse to normalize and
+surface as residue, never guessed.
+
+**Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
+0ee3a937 verified), 2026-08-26.
+
+## R-0030 — Permissive posture for economy violations, receipt-aware (approved 2026-08-26)
+
+**Question:** what does the engine do when a dispatch violates the printed
+action economy?
+
+**Ruling:** WARN-AND-APPLY, extending R-0001's engine consequence to the
+whole economy. Covered violation classes: over-budget action use, off-turn
+action use, acting again after taking a turn ("Unless an ability or
+special rule allows them to do so, any creature who has taken a turn
+during a combat round can't act again until a new round begins" — Heroes
+p.266), out-of-alternation order, consecutive solo turns, per-ability
+once-per-round cap breaches, and dazed/surprised-restricted use (Heroes
+p.77, p.266). The engine emits a rule-violation receipt naming the printed
+rule and applies the dispatch; the Director adjudicates. Printed escapes
+never warn: grants are spent silently and carry escape flags
+(ignoresDazed / ignoresSurprised / offTurn) — critical hit's "additional
+main action … whether or not it's your turn and even if you are dazed"
+(Heroes p.75), the 22 solo malice-sheet Solo Actions ("They can use this
+feature even if they are dazed"), tactician Out of Position ("even if you
+are surprised"). Until the malice family lands, the Director grants Solo
+Actions manually via the grant intent with escape flags. The invariant
+oracle models the RECEIPTS: a counter above capacity WITH a matching
+violation receipt is legal state; without one it is corruption. Refusals
+remain structural only (unknown participant/ability, malformed payload,
+hash-mismatched commit); the list does not grow.
+
+**Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
+226a6c49 verified), 2026-08-26.
+
+## R-0031 — Reaction interception points + classification residue (approved 2026-08-26)
+
+**Question:** when does a triggered/free triggered action resolve relative
+to its trigger? The books are silent (bundle + PDF confirmed): they state
+WHEN one may be used ("You can use one triggered action per round, either
+on your turn or another creature's turn, but only when the action's
+trigger occurs" — Heroes p.267) and give only two ordering rules (the
+simultaneous-trigger rule, Heroes p.267; the death-effects/forced-movement
+rule, Heroes p.272) — never the general sequencing.
+
+**Ruling:** ability resolution exposes five named interception points —
+**targeting** (declared, pre-roll), **rolled** (tier known, pre-commit),
+**pre-application** (damage/effect computed, not yet applied), **applied**
+(post-application), **replacement** (would-die / would-be-reduced
+interception inside application). Reaction texts classify onto points by
+DETERMINISTIC closed phrase templates only: "halves the damage" / "takes
+half the damage" → pre-application; "is the target … instead" / "chooses
+a new target" → targeting or pre-application per trigger; "the outcome …
+is reduced by one tier" → rolled; "before X is resolved" / "after X
+resolves" → as written; "would die … instead" → replacement. An
+UNCLASSIFIED reaction defaults to **applied** and carries its verbatim
+printed text on the receipt for table adjudication — honest residue,
+never silent misresolution. The two printed ordering rules stay exactly
+as printed. This arc ships the points and the economy (counters, warn
+posture); reaction-EFFECT automation is a named follow-up family.
+
+**Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
+e5ef4fce verified), 2026-08-26.
+
+## R-0032 — The resolution stack + explicit commit (approved 2026-08-26)
+
+**Question:** how does two-phase roll→commit work, and what may change
+between the roll and its application?
+
+**Ruling:** a rolling ability opens an entry on a keyed resolution STACK
+(entries nest: a reaction that itself rolls; War Dog Breaker's Breaking
+Point inserts a full turn mid-damage-application — printed play the
+engine must tolerate). The entry stores the payload HASH and the complete
+roll receipt (all recompute inputs including per-target edge/bane pools
+per R-0014). While open, the roller may downgrade ("Whenever you make a
+power roll, you can downgrade it to select the outcome of a lower tier"
+— Heroes p.4) and reactions may cut in at their R-0031 points; future
+families (surges, hero tokens, heroic-resource timing) spend here.
+Commit is an EXPLICIT dispatch that re-supplies the payload; the engine
+verifies the hash and executes against COMMIT-TIME state (target drift
+since the roll produces standard degradation receipts, never
+interleaving-dependent silence). Commit order: damage to all targets →
+tier effects in presented order — "Unless otherwise indicated, any
+effects that are determined by a power roll's tier outcome occur after
+the power roll's damage has been dealt to all targets. […] If an ability
+creates multiple effects, those effects resolve in the order in which
+they are presented" (Heroes p.74), the ability's own text can reorder —
+→ bleeding's once-per-action loss at commit-close ("This Stamina loss
+can't be prevented in any way, and only happens once per action"), keyed
+by resolution entry so a composed Charge strike bleeds once. Hosts
+pipeline commit for one-tap UX; the engine never auto-commits.
+Modifications apply in dispatch order; a downgrade dispatched after a
+reaction already consumed the higher tier applies with a warning and the
+full history on the receipt (Director adjudicates the paradox). Anything
+arriving after commit is a warned table correction, not a reopen.
+
+**Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
+a79d375a verified), 2026-08-26.
+
+## R-0033 — Minion action economy adopted from PDF-recovered "Acting Together" (approved 2026-08-26)
+
+**Question:** the bundle's `rule/monster/squad` forward-references "Acting
+Together," which is ABSENT from the markdown bundle at the accepted pin
+(GOTCHA-0008). The Gate-2 lane recovered it verbatim from the Monsters
+PDF p.8–9. May the engine rely on PDF-confirmed text outside the pinned
+markdown (the R-0001 precedent)?
+
+**Ruling: yes — user note: "Yes, the books are right."** The minion
+per-member turn budget automates from the recovered text: a minion squad
+takes one shared turn (the squad already occupies one turn slot; "All
+members of a minion squad act together on the same initiative" — Monsters
+p.7), and on it each member takes only move+main, move+maneuver, or two
+moves; an individual maneuver forfeits squad participation that turn;
+minions make opportunity attacks; bespoke triggered actions are unusual
+but not prohibited. Recovered prose, verbatim (Monsters p.8–9, PDF
+confirmed):
+
+- §Acting Together: "When minions act, each minion in the squad uses
+  their main action in concert. This is because minions have squad
+  actions (see below) that require participation from all minions,
+  requiring all attacks by a squad to happen at the same time. Individual
+  minions can choose to waste their main action doing nothing when the
+  rest of their squad uses their main action in concert, or can use a
+  maneuver only to alleviate their own circumstances (see Minion
+  Maneuvers)."
+- §Minion Action Economy: "Minion turns are meant to be short. On their
+  shared turn, each minion can take only a move action and a main action,
+  a move action and a maneuver, or two move actions. Individual minions
+  can also make opportunity attacks. That said, minions usually don't
+  have bespoke triggered actions, keeping them easy to run."
+- §Squad Action: "Each minion has a signature ability that is typically a
+  strike targeting one creature or object. When multiple minions in a
+  squad use their signature ability on a turn, you make one roll for the
+  whole squad. Each target of a minion's signature ability is affected by
+  only one instance of the ability. But when two or three (at maximum) of
+  a squad's minions attack the same creature or object simultaneously,
+  each additional minion causes the signature ability to deal extra
+  damage to the target equal to the minion's free strike value. Because a
+  minion's free strike value is typically lower than the average damage
+  of their signature ability, it's usually more effective to have each
+  minion target a different hero." (+ the demon pitling worked example
+  and: "If a minion squad scores a critical hit with their signature
+  ability, all the minions who participated in using the ability can take
+  another main action.")
+- §Minion Maneuvers: "Minions in a squad use the Grab, Hide, Knockback,
+  and Search for Hidden Creatures maneuvers together. For Grab,
+  Knockback, and Search in particular, you make one roll for the whole
+  squad, and each target of a minion's maneuver is only affected by one
+  instance of the ability. A minion can take any other maneuver
+  individually, usually to alleviate their own circumstances like
+  standing up from prone or escaping a grab. If they do, they can't
+  participate in their squad's main action or maneuver during the turn."
+- §Free Strike Together: "If several minions in a squad make a free
+  strike at the same target at the same time, such as from a hero
+  provoking an opportunity attack by moving away from several minions
+  surrounding them, the damage from each minion's free strike is added
+  together and treated as one strike."
+
+**Scope:** only the per-member BUDGET automates in the action-economy
+arc. The squad ATTACK math (§Squad Action one-roll + free-strike-value
+stacking + squad crit, §Minion Maneuvers together, §Free Strike Together)
+is recorded here for the squad-attack follow-up family.
+
+**Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
+fd7e05db verified; user note "Yes, the books are right"), 2026-08-26.
