@@ -370,6 +370,61 @@ export const SpatialFactSchema = z.object({
 });
 
 /**
+ * The closed action-cost vocabulary [R-0029]: every surveyed ability header
+ * action cell normalizes onto exactly these members (1,878 headers at the
+ * accepted pin; case/spelling surface variants fold; `-` cells resolve by
+ * context — Villain Action name lines vs the Wave of Blood no-cost
+ * sub-ability form). A future cost category is a new enum member, not a
+ * schema migration; unknown FUTURE surface values refuse to normalize and
+ * surface as residue, never guessed.
+ */
+export const ACTION_COSTS = [
+  'main-action',
+  'maneuver',
+  'move-action',
+  'triggered-action',
+  'free-triggered-action',
+  'free-maneuver',
+  'no-action',
+  'villain-action',
+] as const;
+export const ActionCostSchema = z.enum(ACTION_COSTS);
+export type ActionCost = z.infer<typeof ActionCostSchema>;
+
+/**
+ * The five named reaction interception points [R-0031]. The books define
+ * WHEN a triggered action may be used, never how it sequences against its
+ * trigger (bundle + PDF confirmed silence), so these points are ruled
+ * engine structure, not printed rule text. This arc ships the points and
+ * the classification residue accounting; reaction-EFFECT automation is a
+ * named follow-up family.
+ */
+export const INTERCEPTION_POINTS = [
+  'targeting',
+  'rolled',
+  'pre-application',
+  'applied',
+  'replacement',
+] as const;
+export const InterceptionPointSchema = z.enum(INTERCEPTION_POINTS);
+export type InterceptionPoint = z.infer<typeof InterceptionPointSchema>;
+
+/**
+ * A triggered/free-triggered ability's classification onto an interception
+ * point [R-0031]. `classified: false` = no deterministic closed template
+ * matched — the honest residue default: the point is `applied` and the
+ * verbatim printed text rides along for table adjudication, never a silent
+ * misresolution.
+ */
+export const ReactionInterceptionSchema = z.object({
+  point: InterceptionPointSchema,
+  classified: z.boolean(),
+  /** Verbatim section text, carried exactly when unclassified. */
+  sourceText: z.string().nullable(),
+});
+export type ReactionInterception = z.infer<typeof ReactionInterceptionSchema>;
+
+/**
  * Compiled ability effect data — the OUTPUT of the canon package's
  * deterministic channel-1 compiler over verbatim ability text. The engine is
  * an interpreter over this data (engine-plan: data over code); it never
@@ -421,11 +476,37 @@ export const TierEffectDataSchema = z.object({
 
 export type TierEffectData = z.infer<typeof TierEffectDataSchema>;
 
+/**
+ * Compiled action-economy fields shared by the ability and Effect-program
+ * shapes [R-0029, R-0031]. Defaults keep pre-v6 compiled literals valid.
+ */
+const compiledEconomyShape = {
+  /** R-0029 normalization of the raw header cell. Null = headerless, or a
+   * value the closed vocabulary refuses (see `actionCostResidue`) — never a
+   * guess. */
+  actionCost: ActionCostSchema.nullable().default(null),
+  /** Why normalization refused, when it did (honest residue accounting). */
+  actionCostResidue: z.string().nullable().default(null),
+  /** `Main action (Adjacent creature)` [R-0029]: the budget debit lands on
+   * the DISPATCHING ADJACENT OPERATOR — the fixture takes no turns. The
+   * parenthetical stays verbatim on the raw actionType string. */
+  operatorPays: z.boolean().default(false),
+  /** Per-ability once-per-round cap compiled from the closed printed
+   * phrases "only once per round" / "once per round" where present
+   * (Ride's counters, siege-engine actions, Keeper of Order's capped free
+   * trigger). Null = no printed cap read. */
+  usesPerRound: z.number().int().positive().nullable().default(null),
+  /** R-0031 interception-point classification, present exactly on compiled
+   * triggered/free-triggered abilities. */
+  reactionInterception: ReactionInterceptionSchema.nullable().default(null),
+};
+
 export const AbilityEffectDataSchema = z.object({
   abilityArtifactId: z.string().min(1),
   /** Header action type ("Main action", "Maneuver", …) — critical hits exist
    * only on main-action ability rolls [rule.combat/critical-hit]. */
   actionType: z.string().nullable(),
+  ...compiledEconomyShape,
   /** Verbatim header keywords ("Melee, Strike, Weapon"). The Strike keyword
    * decides which rolls consume strike-scoped grants [rule.combat/strike,
    * R-0013]; the compiler passes the header cell through untouched. */
@@ -442,6 +523,9 @@ export const AbilityEffectDataSchema = z.object({
 });
 
 export type AbilityEffectData = z.infer<typeof AbilityEffectDataSchema>;
+/** What callers construct (economy fields optional — pre-v6 literals stay
+ * valid); the reducer parses to the full output shape. */
+export type AbilityEffectDataInput = z.input<typeof AbilityEffectDataSchema>;
 
 /**
  * A compiled `**Effect:**` instruction. The canon package owns prose parsing;
@@ -571,6 +655,7 @@ export const EffectProgramDataSchema = z.object({
   /** Every explicit scc.v1 reference in source order, de-duplicated. */
   canonRefs: z.array(z.string().min(1)),
   actionType: z.string().nullable(),
+  ...compiledEconomyShape,
   targetsText: z.string().nullable(),
   /** Verbatim area/distance header cell ("3 burst") — terrain facts record
    * it as the area's only available description [R-0022]. Default keeps
@@ -586,6 +671,9 @@ export const EffectProgramDataSchema = z.object({
 });
 
 export type EffectProgramData = z.infer<typeof EffectProgramDataSchema>;
+/** What callers construct (economy fields optional — pre-v6 literals stay
+ * valid); the reducer parses to the full output shape. */
+export type EffectProgramDataInput = z.input<typeof EffectProgramDataSchema>;
 
 const attributedValue = z.object({
   value: z.number().int().positive(),

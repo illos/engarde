@@ -6,7 +6,12 @@ import { initialEncounterState } from './driver.js';
 import { recoveryValue } from './health.js';
 import { checkInvariants } from './invariants.js';
 import { upgradeEncounterState } from './migrate.js';
-import type { EffectProgramData, EncounterState, Intent, ParticipantStats } from './schemas.js';
+import type {
+  EffectProgramDataInput,
+  EncounterState,
+  Intent,
+  ParticipantStats,
+} from './schemas.js';
 
 /**
  * Flat-resource family (docs/flat-resource-design.md, R-0017..R-0022):
@@ -49,9 +54,9 @@ function encounter(): EncounterState {
 }
 
 function program(
-  resolution: EffectProgramData['resolution'],
-  overrides: Partial<EffectProgramData> = {},
-): EffectProgramData {
+  resolution: EffectProgramDataInput['resolution'],
+  overrides: Partial<EffectProgramDataInput> = {},
+): EffectProgramDataInput {
   return {
     effectArtifactId: 'canon/effect/flat-resource-example',
     effectOrdinal: 1,
@@ -68,7 +73,7 @@ function program(
 }
 
 function useEffect(
-  effect: EffectProgramData,
+  effect: EffectProgramDataInput,
   targets: string[],
   extras: Partial<Extract<Intent, { kind: 'use-effect' }>['payload']> = {},
 ): Intent {

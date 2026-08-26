@@ -4,8 +4,8 @@ import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import type {
-  AbilityEffectData,
-  EffectProgramData,
+  AbilityEffectDataInput,
+  EffectProgramDataInput,
   EncounterState,
   Intent,
   NextRollGrant,
@@ -34,7 +34,7 @@ const STATS: ParticipantStats = {
  * keywords "Melee, Strike, Weapon"; Main action; "One creature per minion";
  * Power Roll + 2; ≤11: 1 poison damage; 12–16: 2 poison damage; 17+: 3
  * poison damage. */
-const SKITTERLING_CLAWS: AbilityEffectData = {
+const SKITTERLING_CLAWS: AbilityEffectDataInput = {
   abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling#claws',
   actionType: 'Main action',
   keywords: ['Melee', 'Strike', 'Weapon'],
@@ -64,7 +64,7 @@ const SKITTERLING_CLAWS: AbilityEffectData = {
 
 /** "The target takes a bane on their next strike." — Skitterling Claws
  * Effect line (bare outbound strike-scoped bane). */
-const CLAWS_GRANT_EFFECT: EffectProgramData = {
+const CLAWS_GRANT_EFFECT: EffectProgramDataInput = {
   effectArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling',
   effectOrdinal: 1,
   sourceSpan: { byteStart: 10, byteEnd: 56 },
@@ -86,7 +86,7 @@ const CLAWS_GRANT_EFFECT: EffectProgramData = {
 
 /** "The next strike made against the target gains an edge." — Ghost, Heat
  * Death Effect line (inbound mark). */
-const GHOST_MARK_EFFECT: EffectProgramData = {
+const GHOST_MARK_EFFECT: EffectProgramDataInput = {
   effectArtifactId: 'mcdm.monsters.v1/monster.undead.1st-echelon.statblock/ghost',
   effectOrdinal: 1,
   sourceSpan: { byteStart: 10, byteEnd: 64 },
@@ -108,7 +108,7 @@ const GHOST_MARK_EFFECT: EffectProgramData = {
 
 /** Same sentence from a DIFFERENT ability — Shadow Elf Sniper, Lumina Arrow
  * (different-ability marks combine; same-ability marks collapse). */
-const SNIPER_MARK_EFFECT: EffectProgramData = {
+const SNIPER_MARK_EFFECT: EffectProgramDataInput = {
   ...GHOST_MARK_EFFECT,
   effectArtifactId: 'mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-sniper',
   targetsText: 'One creature or object per minion',
@@ -117,7 +117,7 @@ const SNIPER_MARK_EFFECT: EffectProgramData = {
 /** "The target takes a bane on their next power roll made before the end of
  * their next turn." — Raider's Awe Effect line (windowed, power-roll
  * scoped). */
-const RAIDERS_AWE_EFFECT: EffectProgramData = {
+const RAIDERS_AWE_EFFECT: EffectProgramDataInput = {
   effectArtifactId: 'mcdm.heroes.v1/feature.ability.raider/raiders-awe',
   effectOrdinal: 1,
   sourceSpan: { byteStart: 10, byteEnd: 100 },
@@ -140,7 +140,7 @@ const RAIDERS_AWE_EFFECT: EffectProgramData = {
 
 /** Devil Adjudicator #2-style forced test (the characteristic-test family's
  * engine fixture shape) — used here to prove R-0013 consumption scope. */
-function testEffect(): EffectProgramData {
+function testEffect(): EffectProgramDataInput {
   return {
     effectArtifactId: 'mcdm.monsters.v1/monster.devil.statblock/devil-adjudicator',
     effectOrdinal: 2,
@@ -195,7 +195,7 @@ function dispatchChecked(state: EncounterState, intent: Intent) {
 }
 
 function grantEffectIntent(
-  effect: EffectProgramData,
+  effect: EffectProgramDataInput,
   targets: string[],
   intentId = 'grant-i1',
 ): Intent {
@@ -460,7 +460,7 @@ describe('inbound marks are target-local (R-0014)', () => {
       },
       window: null,
     };
-    const nonStrike: AbilityEffectData = {
+    const nonStrike: AbilityEffectDataInput = {
       ...SKITTERLING_CLAWS,
       abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling#claws-area-proxy',
       keywords: ['Area', 'Magic'],

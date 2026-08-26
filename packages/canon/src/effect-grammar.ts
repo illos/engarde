@@ -162,7 +162,7 @@ function splitLines(text: string): Line[] {
 
 const SCC_LINK = /\[([^\]]+)\]\(scc\.v1:([^)]+)\)/g;
 
-function stripSccLinks(value: string): string {
+export function stripSccLinks(value: string): string {
   return value.replace(SCC_LINK, '$1');
 }
 
@@ -517,7 +517,10 @@ function parseHeaderTable(
 ): Omit<Extract<EffectClause, { kind: 'ability-header' }>, 'kind' | 'span'> | null {
   const rows = lines
     .map((line) => stripSccLinks(line.text).trim().replace(/^> /, ''))
-    .filter((row) => row.length > 0 && !/^\|[-| :]+\|$/.test(row));
+    // The separator filter tolerates the R-0029 byte-defect class of a
+    // separator row missing its trailing pipe (gloom-dragon Absence of All
+    // Light) — the optional final `\|?`.
+    .filter((row) => row.length > 0 && !/^\|[-| :]+\|?$/.test(row));
   const cells = rows.map((row) =>
     row
       .split('|')
@@ -569,6 +572,37 @@ function parsePowerRollBonus(bonusText: string): PowerRollBonusData | null {
 const FLAVOR_LINE = /^\*[^*].*\*\s*$/;
 const TABLE_LINE = /^(?:> )?\|.*\|\s*$/;
 
+/**
+ * R-0029 byte-defect repair — permissive-regex hardening for the two
+ * byte-malformed printed table classes (docs/canon-rulings.md R-0029):
+ * a separator row missing its trailing pipe (gloom-dragon Absence of All
+ * Light) and a header row missing its leading pipe (lizardfolk Net Trap).
+ * Repair widens table-row RECOGNITION only — a repaired chunk that then
+ * fails parseHeaderTable lands in residue exactly as before; no cell is
+ * ever invented. Without repair the two printed costs compile silently
+ * costless, one of them a villain action invisible to the villain-action
+ * economy — a canon divergence.
+ */
+const TABLE_SEPARATOR_NO_TRAILING_PIPE = /^(?:> )?\|[-| :]+$/;
+const TABLE_ROW_NO_LEADING_PIPE = /^(?:>\s+)?[^|>][^|]*\|(?:[^|]*\|)+\s*$/;
+
+/** A defect-repaired no-leading-pipe row counts as a table row ONLY when
+ * the next line is itself a (possibly defect-repaired) table row — the
+ * printed Net Trap shape is a header row directly above its separator.
+ * Without the lookahead, prose that happens to end in a pipe (the
+ * ashen-hoarder Effect line ends "…at a time. |  |") would be swallowed. */
+function isTableLineAt(lines: Line[], index: number): boolean {
+  const line = lines[index];
+  if (!line) return false;
+  const trimmed = line.text.trim();
+  if (TABLE_LINE.test(trimmed) || TABLE_SEPARATOR_NO_TRAILING_PIPE.test(trimmed)) return true;
+  if (!TABLE_ROW_NO_LEADING_PIPE.test(trimmed)) return false;
+  const next = lines[index + 1];
+  if (!next) return false;
+  const nextTrimmed = next.text.trim();
+  return TABLE_LINE.test(nextTrimmed) || TABLE_SEPARATOR_NO_TRAILING_PIPE.test(nextTrimmed);
+}
+
 function span(lines: Line[]): TextSpan {
   const first = lines[0];
   const last = lines[lines.length - 1];
@@ -615,11 +649,12 @@ export function parseEffectText(text: string): GrammarParse {
       index += 1;
       continue;
     }
-    if (TABLE_LINE.test(trimmed)) {
+    if (isTableLineAt(lines, index)) {
       const tableLines: Line[] = [];
       while (index < lines.length) {
+        if (!isTableLineAt(lines, index)) break;
         const candidate = lines[index];
-        if (!candidate || !TABLE_LINE.test(candidate.text.trim())) break;
+        if (!candidate) break;
         tableLines.push(candidate);
         index += 1;
       }

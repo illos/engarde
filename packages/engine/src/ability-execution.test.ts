@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { checkInvariants } from './invariants.js';
-import type { AbilityEffectData, EncounterState, Intent, ParticipantStats } from './schemas.js';
+import type {
+  AbilityEffectDataInput,
+  EncounterState,
+  Intent,
+  ParticipantStats,
+} from './schemas.js';
 
 /**
  * use-ability executor TDD (docs/power-roll-design.md §4.1).
@@ -26,7 +31,7 @@ function must<T>(value: T | undefined | null): T {
 
 const PRONE = 'mcdm.heroes.v1/condition/prone';
 
-const JUDGMENTS_HAMMER: AbilityEffectData = {
+const JUDGMENTS_HAMMER: AbilityEffectDataInput = {
   abilityArtifactId: 'mcdm.heroes.v1/rule.character/potency#judgments-hammer-example',
   actionType: 'Main action',
   keywords: [],
@@ -58,7 +63,7 @@ const JUDGMENTS_HAMMER: AbilityEffectData = {
  * goblin-warrior.md): Power Roll + 2; ≤11: 5 damage; M < 0 bleeding (save
  * ends); 12–16: 6 damage; M < 1 …; 17+: 7 damage; M < 2 …. */
 const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
-const GOBLIN_STRIKE: AbilityEffectData = {
+const GOBLIN_STRIKE: AbilityEffectDataInput = {
   abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#strike',
   actionType: 'Main action',
   keywords: [],
@@ -268,7 +273,7 @@ describe('refusals leave the world untouched (permissive-engine boundary)', () =
   });
 
   it('a roll-characteristic choice must be named and offered', () => {
-    const choiceAbility: AbilityEffectData = {
+    const choiceAbility: AbilityEffectDataInput = {
       ...JUDGMENTS_HAMMER,
       powerRollBonus: { kind: 'characteristic', options: ['M', 'A'] },
     };

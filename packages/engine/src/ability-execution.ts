@@ -1,3 +1,4 @@
+import { normalizeActionCostValue } from './action-cost.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type PendingSquadContribution,
@@ -401,9 +402,12 @@ export function executeUseAbility(
     );
   }
 
-  // Critical hit: natural 19–20 on a MAIN-ACTION ability roll — the extra
-  // main action is a table directive until action economy is a mechanism.
-  const isMainAction = ability.actionType?.toLowerCase().includes('main action') ?? false;
+  // Critical hit: natural 19–20 on a MAIN-ACTION ability roll. The
+  // discriminator is the compiled actionCost enum [R-0029]; pre-v6 compiled
+  // data (actionCost null) falls back through the one normalization home.
+  const isMainAction =
+    (ability.actionCost ?? normalizeActionCostValue(ability.actionType)?.cost ?? null) ===
+    'main-action';
   if (resolution.naturalTopEnd && isMainAction) {
     log.push(
       entry(

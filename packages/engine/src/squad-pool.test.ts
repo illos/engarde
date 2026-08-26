@@ -5,8 +5,8 @@ import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState, squadSeedWarnings } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import type {
-  AbilityEffectData,
-  EffectProgramData,
+  AbilityEffectDataInput,
+  EffectProgramDataInput,
   EncounterState,
   Intent,
   LogEntry,
@@ -72,7 +72,7 @@ const HERO_STATS: ParticipantStats = {
  * fire damage; 17+: 6 fire damage. The printed area worked example's
  * ability [§Minions and Area Effects].
  */
-const INCINERATE: AbilityEffectData = {
+const INCINERATE: AbilityEffectDataInput = {
   abilityArtifactId: 'mcdm.heroes.v1/feature.ability.talent.level-1/incinerate',
   actionType: 'Main action',
   keywords: ['Area', 'Fire', 'Psionic', 'Pyrokinesis', 'Ranged'],
@@ -103,7 +103,7 @@ const INCINERATE: AbilityEffectData = {
 /** Skitterling, Claws (monsters/md/monster/goblin/statblock/skitterling.md):
  * keywords "Melee, Strike, Weapon"; "One creature per minion"; Power Roll
  * + 2; 17+: 3 poison damage — a real NON-area multi-target damage source. */
-const SKITTERLING_CLAWS: AbilityEffectData = {
+const SKITTERLING_CLAWS: AbilityEffectDataInput = {
   abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/skitterling#claws',
   actionType: 'Main action',
   keywords: ['Melee', 'Strike', 'Weapon'],
@@ -565,7 +565,7 @@ describe('Effect-program and test-tier damage route to the pool', () => {
     // header keywords "Area, Magic, Ranged". The second Effect line "The
     // lich deals an additional 10 corruption damage to each creature
     // restrained this way." compiles to a damage program under that header.
-    const effect: EffectProgramData = {
+    const effect: EffectProgramDataInput = {
       effectArtifactId: 'mcdm.monsters.v1/monster.lich.statblock/lich',
       effectOrdinal: 2,
       sourceSpan: { byteStart: 10, byteEnd: 100 },
@@ -595,7 +595,7 @@ describe('Effect-program and test-tier damage route to the pool', () => {
     // Lich, Cages of Wasting tier-3 bullet: "20 corruption damage" — each
     // target's independent test roll is its own damage instance [R-0026],
     // area-capped per contribution [R-0025].
-    const effect: EffectProgramData = {
+    const effect: EffectProgramDataInput = {
       effectArtifactId: 'mcdm.monsters.v1/monster.lich.statblock/lich',
       effectOrdinal: 1,
       sourceSpan: { byteStart: 10, byteEnd: 60 },
@@ -667,7 +667,7 @@ describe('Effect-program and test-tier damage route to the pool', () => {
 });
 
 describe('rule-mandated minion exemptions [R-0027]', () => {
-  function program(resolution: EffectProgramData['resolution']): EffectProgramData {
+  function program(resolution: EffectProgramDataInput['resolution']): EffectProgramDataInput {
     return {
       effectArtifactId: 'canon/effect/squad-exemption-example',
       effectOrdinal: 1,
@@ -683,7 +683,7 @@ describe('rule-mandated minion exemptions [R-0027]', () => {
   }
 
   function useEffect(
-    effect: EffectProgramData,
+    effect: EffectProgramDataInput,
     targets: string[],
     overrides: Partial<Extract<Intent, { kind: 'use-effect' }>['payload']> = {},
   ): Intent {

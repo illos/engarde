@@ -8,6 +8,7 @@ import {
   applyIntent,
 } from '@engarde/engine';
 import type { RandomSource } from '@engarde/engine';
+import { type HeaderCostAnnotation, annotateHeaderCosts } from './action-cost.js';
 import {
   type EffectClause,
   type GrammarParse,
@@ -181,11 +182,25 @@ export function groupPowerRollClusters(parse: GrammarParse): PowerRollClusterGro
   return clusters;
 }
 
+/** Economy fields for one compiled shape from its header's annotation
+ * [R-0029, R-0031]; a headerless shape carries the schema defaults. */
+function economyFieldsOf(annotation: HeaderCostAnnotation | undefined): Record<string, unknown> {
+  if (!annotation) return {};
+  return {
+    actionCost: annotation.actionCost,
+    actionCostResidue: annotation.actionCostResidue,
+    operatorPays: annotation.operatorPays,
+    usesPerRound: annotation.usesPerRound,
+    reactionInterception: annotation.reactionInterception,
+  };
+}
+
 export function compileAbilities(
   parse: GrammarParse,
   abilityArtifactId: string,
 ): { abilities: AbilityEffectData[]; incomplete: CompileMiss[] } {
   const clusters = groupPowerRollClusters(parse);
+  const annotations = annotateHeaderCosts(parse);
   const abilities: AbilityEffectData[] = [];
   const incomplete: CompileMiss[] = [];
   for (const cluster of clusters) {
@@ -207,6 +222,7 @@ export function compileAbilities(
       AbilityEffectDataSchema.parse({
         abilityArtifactId,
         actionType: cluster.header?.actionType ?? null,
+        ...economyFieldsOf(cluster.header ? annotations.get(cluster.header) : undefined),
         keywords: cluster.header?.keywords ?? [],
         targetsText: cluster.header?.targets ?? null,
         powerRollBonus: cluster.powerRoll.bonusData,
@@ -335,6 +351,7 @@ export function compileEffectPrograms(
     ),
   ].sort((left, right) => left.byteStart - right.byteStart);
 
+  const annotations = annotateHeaderCosts(parse);
   const programs: EffectProgramData[] = [];
   let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
   let effectOrdinal = 0;
@@ -387,6 +404,7 @@ export function compileEffectPrograms(
         sourceText: clause.data.sourceText,
         canonRefs: clause.data.canonRefs,
         actionType: lastHeader?.actionType ?? null,
+        ...economyFieldsOf(lastHeader ? annotations.get(lastHeader) : undefined),
         targetsText: lastHeader?.targets ?? null,
         distanceText: lastHeader?.distance ?? null,
         // Header keywords pass through like the ability form's — the Area

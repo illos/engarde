@@ -3,7 +3,7 @@ import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
-import type { EffectProgramData, Intent, ParticipantStats } from './schemas.js';
+import type { EffectProgramDataInput, Intent, ParticipantStats } from './schemas.js';
 
 const STATS: ParticipantStats = {
   staminaMax: 20,
@@ -24,7 +24,7 @@ function state() {
   ]);
 }
 
-function intent(effect: EffectProgramData): Intent {
+function intent(effect: EffectProgramDataInput): Intent {
   return {
     intentId: 'effect-i1',
     kind: 'use-effect',
@@ -33,7 +33,7 @@ function intent(effect: EffectProgramData): Intent {
   };
 }
 
-function baseEffect(resolution: EffectProgramData['resolution']): EffectProgramData {
+function baseEffect(resolution: EffectProgramDataInput['resolution']): EffectProgramDataInput {
   return {
     effectArtifactId: 'canon/effect/example',
     effectOrdinal: 1,
@@ -244,7 +244,7 @@ const INTERDICTION_TIER2 =
 const INTERDICTION_TIER3 =
   '- **17+:** [Slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (save ends)';
 
-function testEffect(): EffectProgramData {
+function testEffect(): EffectProgramDataInput {
   return {
     effectArtifactId: 'mcdm.monsters.v1/monster.devil.statblock/devil-adjudicator',
     effectOrdinal: 2,
@@ -278,7 +278,7 @@ function testEffect(): EffectProgramData {
 }
 
 function testIntent(
-  effect: EffectProgramData,
+  effect: EffectProgramDataInput,
   overrides: Partial<Extract<Intent, { kind: 'use-effect' }>['payload']> = {},
 ): Intent {
   return {
