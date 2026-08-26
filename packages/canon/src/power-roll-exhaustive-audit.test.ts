@@ -93,6 +93,7 @@ function characteristicStats(): ParticipantStats {
     potencies: { weak: 1, average: 2, strong: 3 },
     organization: null,
     recoveriesMax: null,
+    withCaptain: null,
   };
 }
 

@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { ParticipantStats } from '@engarde/engine';
+import { type ParticipantStats, ParticipantStatsSchema } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { ingestStructuredRecord } from './extract.js';
+import { GOBLIN_SPINECLEAVER } from './fixtures/goblin-spinecleaver.verbatim.js';
+import { GOBLIN_WARRIOR } from './fixtures/goblin-warrior.verbatim.js';
 import { createPlaySession } from './play.js';
 
 /**
@@ -76,6 +78,7 @@ describe('play session shell mechanics', () => {
       potencies: null,
       organization: null,
       recoveriesMax: 8,
+      withCaptain: null,
     };
     const session = createPlaySession({
       actors: [
@@ -97,6 +100,89 @@ describe('play session shell mechanics', () => {
     const help = session.execute('help').output;
     expect(help).toContain('decline:<id>');
     expect(help).toContain('clearterrain <factId>');
+    expect(help).toContain('damage <target> <amount>');
+    expect(help).toContain('resolvekills <squad>');
+    expect(help).toContain('attach <squad> <captain>');
+    expect(help).toContain('detach <squad>');
+  });
+
+  it('squad play: seeded pool vitals, damage routing, pending-kill naming, captain attach/detach', () => {
+    // Stats come from the drift-guarded verbatim fixtures (models point,
+    // code cuts) — never hand-typed rule content.
+    const spinecleaverStats = ParticipantStatsSchema.parse(
+      JSON.parse(GOBLIN_SPINECLEAVER.statsJson),
+    );
+    const warriorStats = ParticipantStatsSchema.parse(JSON.parse(GOBLIN_WARRIOR.statsJson));
+    expect(spinecleaverStats.staminaMax).toBe(5);
+    const session = createPlaySession({
+      actors: [
+        ...['sc1', 'sc2', 'sc3', 'sc4'].map((id) => ({
+          id,
+          recordId: GOBLIN_SPINECLEAVER.artifactId,
+          stats: spinecleaverStats,
+        })),
+        { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId, stats: warriorStats },
+      ],
+      records: new Map([
+        [GOBLIN_SPINECLEAVER.artifactId, GOBLIN_SPINECLEAVER.text],
+        [GOBLIN_WARRIOR.artifactId, GOBLIN_WARRIOR.text],
+      ]),
+      squads: [
+        { squadId: 'squad-sc', name: 'spinecleavers', memberIds: ['sc1', 'sc2', 'sc3', 'sc4'] },
+      ],
+    });
+
+    // Seeded pool vitals in status: per-minion 5 × 4 members = 20.
+    const seeded = session.execute('status').output;
+    expect(seeded).toContain('spinecleavers  pool 20/20 (per minion 5)  living 4  dead 0');
+
+    // Non-area damage routes to the pool [R-0024]: 7 → pool 13, sc1 dies.
+    session.execute('damage sc1 7');
+    const afterFirst = session.execute('status').output;
+    expect(afterFirst).toContain('pool 13/20');
+    expect(afterFirst).toContain('dead: sc1');
+
+    // Outkill without named victims leaves a pending identity [R-0024].
+    session.execute('damage sc2 12');
+    const pending = session.execute('status').output;
+    expect(pending).toContain('pool 1/20');
+    expect(pending).toContain('dead: sc1, sc2');
+    expect(pending).toContain('pending kills: 1');
+    const resolved = session.execute('resolvekills squad-sc sc3 because nearest to sc2').output;
+    expect(resolved).toContain('sc3 identified');
+    expect(session.execute('status').output).not.toContain('pending kills');
+
+    // Captain attach surfaces the fixture's verbatim With-Captain entry
+    // only while attached [R-0028].
+    if (spinecleaverStats.withCaptain === null) throw new Error('fixture lost its entry');
+    session.execute('attach squad-sc warrior');
+    const attached = session.execute('status').output;
+    expect(attached).toContain('captain: warrior');
+    expect(attached).toContain(`with captain: ${spinecleaverStats.withCaptain}`);
+    session.execute('detach squad-sc because the warrior falls back');
+    const detached = session.execute('status').output;
+    expect(detached).not.toContain('captain: warrior');
+    expect(detached).not.toContain('with captain:');
+
+    // Area damage feeds the pool at most the per-minion Stamina [R-0025].
+    const area = session.execute('damage sc4 9 area').output;
+    expect(area).toContain('pool damage');
+    const final = session.execute('status').output;
+    expect(final).toContain('pool 0/20');
+    expect(final).toContain('dead: sc1, sc2, sc3, sc4');
+
+    expect(session.transcript().violationCount).toBe(0);
+  });
+
+  it('damage command validates its tokens before any intent is built', () => {
+    const session = neutralSession();
+    expect(session.execute('damage').output).toContain('usage: damage');
+    expect(session.execute('damage fury x').output).toContain('usage: damage');
+    expect(session.execute('damage fury 3 firestorm').output).toContain('unknown damage token');
+    expect(session.execute('resolvekills').output).toContain('usage: resolvekills');
+    expect(session.execute('resolvekills zzz sk1').output).toContain('no squad matches');
+    expect(session.execute('attach').output).toContain('usage: attach');
+    expect(session.execute('detach zzz').output).toContain('no squad matches');
   });
 
   it('clearterrain reports usage and unknown fact ids', () => {

@@ -122,6 +122,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     potencies: null,
     organization: 'Horde',
     recoveriesMax: null,
+    withCaptain: null,
   };
 
   function freshState(): EncounterState {
@@ -250,6 +251,7 @@ describe.skipIf(!sourceRoot)(
         potencies: null,
         organization: 'Horde',
         recoveriesMax: null,
+        withCaptain: null,
       };
 
       const runFight = () => {

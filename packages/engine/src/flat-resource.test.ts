@@ -23,6 +23,7 @@ const HERO_STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: 8,
+  withCaptain: null,
 };
 
 const MONSTER_STATS: ParticipantStats = {
@@ -33,6 +34,7 @@ const MONSTER_STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 const MINION_STATS: ParticipantStats = { ...MONSTER_STATS, organization: 'Minion' };

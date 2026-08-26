@@ -170,6 +170,12 @@ export const ParticipantStatsSchema = z.object({
    * creatures don't have Recoveries or a recovery value" [Combat §No
    * Recoveries]; heroes without character data). */
   recoveriesMax: z.number().int().min(0).nullable().default(null),
+  /** The stat block's VERBATIM "With Captain" entry, carried through so
+   * hosts can display it while a captain is attached — display only, never
+   * automated (benefit automation is a named follow-up family) [R-0028].
+   * Null = the stat block carries none. Default keeps pre-v5 stats literals
+   * valid. */
+  withCaptain: z.string().nullable().default(null),
 });
 
 export type ParticipantStats = z.infer<typeof ParticipantStatsSchema>;

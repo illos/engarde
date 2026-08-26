@@ -94,6 +94,7 @@ const CONDUIT_STATS: ParticipantStats = {
   potencies: { weak: 0, average: 1, strong: 2 },
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 const BANDIT_STATS: ParticipantStats = {
@@ -104,6 +105,7 @@ const BANDIT_STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 function state(): EncounterState {

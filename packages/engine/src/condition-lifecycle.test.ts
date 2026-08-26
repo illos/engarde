@@ -235,6 +235,7 @@ describe('remove-condition', () => {
         potencies: null,
         organization: null,
         recoveriesMax: null,
+        withCaptain: null,
       },
       stamina: { current: 0, temporary: 0, recoveries: null },
       grants: [],

@@ -24,6 +24,7 @@ describe.skipIf(!sourceRoot)('statblockStats over real stat blocks', () => {
       potencies: null,
       organization: 'Horde',
       recoveriesMax: null,
+      withCaptain: null,
       unparsedRows: [],
     });
   });

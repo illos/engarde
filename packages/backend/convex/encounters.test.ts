@@ -2,6 +2,7 @@
 import { register as registerRateLimiter } from '@convex-dev/rate-limiter/test';
 import { BLOOD_FOR_BLOOD } from '@engarde/canon/fixtures/blood-for-blood';
 import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
+import { GOBLIN_SPINECLEAVER } from '@engarde/canon/fixtures/goblin-spinecleaver';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { SKITTERLING } from '@engarde/canon/fixtures/skitterling';
 import { convexTest } from 'convex-test';
@@ -66,6 +67,13 @@ async function seedRecords(t: Harness) {
         text: SKITTERLING.text,
         textSha256: SKITTERLING.textSha256,
         statsJson: SKITTERLING.statsJson,
+      },
+      {
+        artifactId: GOBLIN_SPINECLEAVER.artifactId,
+        slug: GOBLIN_SPINECLEAVER.slug,
+        text: GOBLIN_SPINECLEAVER.text,
+        textSha256: GOBLIN_SPINECLEAVER.textSha256,
+        statsJson: GOBLIN_SPINECLEAVER.statsJson,
       },
       {
         artifactId: KOBOLD_SIGNIFER.artifactId,
@@ -811,6 +819,284 @@ test('spend-recovery: recoverySpends passes through — every bound target must 
     ),
   ).toBe(true);
   expect(log.some((entry) => entry.message.includes('declines the offered Recovery'))).toBe(true);
+});
+
+/** Handles for a four-skitterling squad (per-minion Stamina 3 — asserted
+ * from the drift-guarded fixture, never hand-typed). */
+const SK_IDS = ['sk1', 'sk2', 'sk3', 'sk4'];
+const SK_PARTICIPANTS = SK_IDS.map((id) => ({ id, recordId: SKITTERLING.artifactId }));
+const SK_SQUAD = { squadId: 'squad-sk', name: 'skitterlings', memberIds: SK_IDS };
+
+test('squad pool E2E: seed → view card; non-area damage decrements, kills, pending-kill flow', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  expect(JSON.parse(SKITTERLING.statsJson).staminaMax).toBe(3);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: SK_PARTICIPANTS,
+    squads: [SK_SQUAD],
+  });
+  const seeded = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!seeded) throw new Error('no active encounter');
+  expect(seeded.squads).toEqual([
+    {
+      squadId: 'squad-sk',
+      name: 'skitterlings',
+      poolCurrent: 12,
+      poolMax: 12,
+      perMinionStamina: 3,
+      livingMemberIds: SK_IDS,
+      deadMemberIds: [],
+      pendingKills: 0,
+      captainId: null,
+      withCaptain: null, // R-0028: display only while a captain is attached
+    },
+  ]);
+  // The pool is the ONE home for squad vitality [R-0023]: member vitals are
+  // null in the view — the squad card is the vitals surface.
+  for (const id of SK_IDS) {
+    expect(seeded.participants.find((participant) => participant.id === id)?.vitals).toBeNull();
+  }
+
+  // Manual damage is Director adjudication.
+  await expect(
+    table.member.client.mutation(api.encounters.applyDamage, {
+      campaignId: table.campaignId,
+      targetParticipantId: 'sk1',
+      amount: 4,
+      reason: 'test vector',
+    }),
+  ).rejects.toThrow('Director');
+
+  // Non-area 4 damage on sk1 [R-0024]: full decrement 12 → 8, one threshold
+  // kill — the damaged minion dies; the extra point carries in the pool.
+  await table.owner.client.mutation(api.encounters.applyDamage, {
+    campaignId: table.campaignId,
+    targetParticipantId: 'sk1',
+    amount: 4,
+    reason: 'test vector',
+  });
+  const afterFirst = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(afterFirst?.squads[0]).toMatchObject({
+    poolCurrent: 8,
+    deadMemberIds: ['sk1'],
+    livingMemberIds: ['sk2', 'sk3', 'sk4'],
+    pendingKills: 0,
+  });
+
+  // Non-area 7 damage on sk2 outkills the bound target: 8 → 1, two more
+  // threshold kills — sk2 dies, one kill awaits its victim's identity.
+  await table.owner.client.mutation(api.encounters.applyDamage, {
+    campaignId: table.campaignId,
+    targetParticipantId: 'sk2',
+    amount: 7,
+    reason: 'test vector',
+  });
+  const outkilled = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(outkilled?.squads[0]).toMatchObject({
+    poolCurrent: 1,
+    deadMemberIds: ['sk1', 'sk2'],
+    livingMemberIds: ['sk3', 'sk4'],
+    pendingKills: 1,
+  });
+
+  // Naming the victim is Director adjudication; the view updates.
+  await expect(
+    table.member.client.mutation(api.encounters.resolvePendingKills, {
+      campaignId: table.campaignId,
+      squadId: 'squad-sk',
+      victimMemberIds: ['sk3'],
+    }),
+  ).rejects.toThrow('Director');
+  await table.owner.client.mutation(api.encounters.resolvePendingKills, {
+    campaignId: table.campaignId,
+    squadId: 'squad-sk',
+    victimMemberIds: ['sk3'],
+    reason: 'nearest to sk2',
+  });
+  const resolved = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(resolved?.squads[0]).toMatchObject({
+    poolCurrent: 1,
+    deadMemberIds: ['sk1', 'sk2', 'sk3'],
+    livingMemberIds: ['sk4'],
+    pendingKills: 0,
+  });
+
+  if (!resolved) throw new Error('no active encounter');
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: resolved.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  // Every death fired the 0-Stamina trigger receipt when counted [R-0027].
+  const deaths = log.flatMap(
+    (entry) => (entry.data as { squadDeaths?: { memberId: string }[] } | null)?.squadDeaths ?? [],
+  );
+  expect(deaths.map((death) => death.memberId)).toEqual(['sk1', 'sk2', 'sk3']);
+  expect(
+    log.some((entry) => entry.kind === 'table-directive' && entry.message.includes('nearest')),
+  ).toBe(true);
+});
+
+test('squad pool E2E: dispatch-asserted area damage caps each contribution at per-minion Stamina [R-0025]', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: SK_PARTICIPANTS,
+    squads: [SK_SQUAD],
+  });
+  // 7 damage as an area source feeds the pool at most the per-minion 3 —
+  // one bound target, one kill, no pending remainder.
+  await table.owner.client.mutation(api.encounters.applyDamage, {
+    campaignId: table.campaignId,
+    targetParticipantId: 'sk1',
+    amount: 7,
+    area: true,
+    reason: 'test vector',
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(view?.squads[0]).toMatchObject({
+    poolCurrent: 9,
+    deadMemberIds: ['sk1'],
+    livingMemberIds: ['sk2', 'sk3', 'sk4'],
+    pendingKills: 0,
+  });
+});
+
+test('captain attach/detach: verbatim With-Captain surfaces only while attached [R-0028]', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [...SK_PARTICIPANTS, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
+    squads: [SK_SQUAD],
+  });
+  await expect(
+    table.member.client.mutation(api.encounters.attachCaptain, {
+      campaignId: table.campaignId,
+      squadId: 'squad-sk',
+      captainId: 'warrior',
+    }),
+  ).rejects.toThrow('Director');
+  await table.owner.client.mutation(api.encounters.attachCaptain, {
+    campaignId: table.campaignId,
+    squadId: 'squad-sk',
+    captainId: 'warrior',
+  });
+  const attached = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  // The With-Captain string comes from the drift-guarded fixture's
+  // statsJson — asserted against the same cut, never hand-typed here.
+  const fixtureWithCaptain = (JSON.parse(SKITTERLING.statsJson) as { withCaptain: string })
+    .withCaptain;
+  expect(fixtureWithCaptain.length).toBeGreaterThan(0);
+  expect(attached?.squads[0]).toMatchObject({
+    captainId: 'warrior',
+    withCaptain: fixtureWithCaptain,
+  });
+  // The captain's Stamina stays individual — never pooled [R-0028].
+  expect(
+    attached?.participants.find((participant) => participant.id === 'warrior')?.vitals,
+  ).toMatchObject({ staminaCurrent: 15, staminaMax: 15 });
+
+  await table.owner.client.mutation(api.encounters.detachCaptain, {
+    campaignId: table.campaignId,
+    squadId: 'squad-sk',
+    reason: 'the warrior falls back',
+  });
+  const detached = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(detached?.squads[0]).toMatchObject({ captainId: null, withCaptain: null });
+});
+
+test('minion regain refusal [R-0027] is a per-binding refusal receipt in the log', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [{ id: 'signifer', recordId: KOBOLD_SIGNIFER.artifactId }, ...SK_PARTICIPANTS],
+    squads: [SK_SQUAD],
+  });
+  // Glory to the Legion Effect #2 ("Each target regains 5 Stamina") bound
+  // to a squad member: rule-mandated refusal — no individual Stamina exists
+  // to receive it; the pool is untouched.
+  await table.owner.client.mutation(api.encounters.useEffect, {
+    campaignId: table.campaignId,
+    artifactId: KOBOLD_SIGNIFER.artifactId,
+    effectOrdinal: 2,
+    actorParticipantId: 'signifer',
+    targetParticipantIds: ['sk1'],
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!view) throw new Error('no active encounter');
+  expect(view.squads[0]).toMatchObject({ poolCurrent: 12, poolMax: 12 });
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  const refusal = log.find(
+    (entry) => entry.kind === 'refusal' && entry.message.includes("can't regain Stamina"),
+  );
+  expect(refusal).toBeDefined();
+  expect(refusal?.data).toMatchObject({
+    minionRegainRefused: { targetId: 'sk1', ruling: 'R-0027' },
+  });
+});
+
+test('squad seeding: mixed-statblock seed rejected server-side; over-eight warns and applies', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  // Mixed statblock (skitterling + spinecleaver) is canon-incoherent — the
+  // engine refuses and the mutation rejects atomically [R-0023].
+  await expect(
+    table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [
+        { id: 'sk1', recordId: SKITTERLING.artifactId },
+        { id: 'sc1', recordId: GOBLIN_SPINECLEAVER.artifactId },
+      ],
+      squads: [{ squadId: 'squad-mixed', name: 'mixed', memberIds: ['sk1', 'sc1'] }],
+    }),
+  ).rejects.toThrow('mixes stat blocks');
+  expect(
+    await table.owner.client.query(api.encounters.getActive, { campaignId: table.campaignId }),
+  ).toBeNull();
+
+  // Nine minions exceed the printed up-to-eight bound: warn-and-apply.
+  const nineIds = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9'];
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: nineIds.map((id) => ({ id, recordId: SKITTERLING.artifactId })),
+    squads: [{ squadId: 'squad-nine', name: 'nine skitterlings', memberIds: nineIds }],
+  });
+  const view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  if (!view) throw new Error('no active encounter');
+  expect(view.squads[0]).toMatchObject({ poolCurrent: 27, poolMax: 27, perMinionStamina: 3 });
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(
+    log.some((entry) => entry.kind === 'warning' && entry.message.includes('up to eight')),
+  ).toBe(true);
 });
 
 test('terrain facts surface in the view; clearing is Director adjudication', async () => {

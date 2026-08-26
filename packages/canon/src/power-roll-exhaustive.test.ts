@@ -73,6 +73,7 @@ const ACTOR_STATS: ParticipantStats = {
   potencies: { weak: 1, average: 2, strong: 3 },
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 const TARGET_STATS: ParticipantStats = {
@@ -83,6 +84,7 @@ const TARGET_STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 const STARTING_STAMINA = 100_000;

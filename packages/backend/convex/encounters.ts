@@ -6,6 +6,8 @@ import {
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
 import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
+  type DamageType,
+  type DriverSquadSeed,
   type EncounterState,
   type Intent,
   type InvariantViolation,
@@ -19,6 +21,8 @@ import {
   isDead,
   isDying,
   isWinded,
+  squadMemberStats,
+  squadSeedWarnings,
   upgradeEncounterState,
 } from '@engarde/engine';
 import { ConvexError, v } from 'convex/values';
@@ -121,6 +125,25 @@ const encounterView = v.union(
         areaText: v.union(v.string(), v.null()),
         sourceRecordSlug: v.union(v.string(), v.null()),
         createdBy: v.union(v.string(), v.null()),
+      }),
+    ),
+    /** Minion squad Stamina pools [R-0023..R-0028]: the squad card is the
+     * ONE vitals surface for its members (member `vitals` stay null — the
+     * pool is the one home for squad vitality). `withCaptain` is the stat
+     * block's VERBATIM "With Captain" entry, present only while a captain
+     * is attached (display only, never automated) [R-0028]. */
+    squads: v.array(
+      v.object({
+        squadId: v.string(),
+        name: v.string(),
+        poolCurrent: v.number(),
+        poolMax: v.number(),
+        perMinionStamina: v.number(),
+        livingMemberIds: v.array(v.string()),
+        deadMemberIds: v.array(v.string()),
+        pendingKills: v.number(),
+        captainId: v.union(v.string(), v.null()),
+        withCaptain: v.union(v.string(), v.null()),
       }),
     ),
   }),
@@ -338,6 +361,22 @@ export const getActive = query({
         sourceRecordSlug: slugOf(fact.effectArtifactId),
         createdBy: fact.createdBy,
       })),
+      squads: state.squads.map((squad) => ({
+        squadId: squad.squadId,
+        name: squad.name,
+        poolCurrent: squad.pool.current,
+        poolMax: squad.pool.max,
+        perMinionStamina: squad.perMinionStamina,
+        livingMemberIds: squad.memberIds,
+        deadMemberIds: squad.deadMemberIds,
+        pendingKills: squad.pendingKills,
+        captainId: squad.captainId,
+        // R-0028: the verbatim "With Captain" entry surfaces only while a
+        // captain is attached; the squad's statblock (any member's stats)
+        // carries it.
+        withCaptain:
+          squad.captainId !== null ? (squadMemberStats(state, squad)?.withCaptain ?? null) : null,
+      })),
     };
   },
 });
@@ -455,6 +494,15 @@ export const start = mutation({
   args: {
     campaignId: v.id('campaigns'),
     participants: v.array(v.object({ id: v.string(), recordId: v.string() })),
+    /** Minion squad seeds [R-0023]: members are participant handles from
+     * `participants`. Seeding is the automation boundary — the engine's
+     * `initialEncounterState` refuses a canon-incoherent seed (mixed
+     * statblock, non-minion, statless or unknown member) and the mutation
+     * rejects atomically with its reason; the printed up-to-eight bound
+     * warns-and-applies (permissive engine). */
+    squads: v.optional(
+      v.array(v.object({ squadId: v.string(), name: v.string(), memberIds: v.array(v.string()) })),
+    ),
   },
   returns: v.id('encounters'),
   handler: async (ctx, args) => {
@@ -496,6 +544,9 @@ export const start = mutation({
           weaknesses: parsed.weaknesses,
           potencies: parsed.potencies,
           organization: parsed.organization,
+          // Verbatim "With Captain" entry [R-0028]; `?? null` lifts rows
+          // whose statsJson predates the field.
+          withCaptain: parsed.withCaptain ?? null,
         });
         for (const row of parsed.unparsedRows) {
           statsReceipts.push(
@@ -512,7 +563,26 @@ export const start = mutation({
         stats,
       });
     }
-    const state = initialEncounterState(seeded);
+    const squadSeeds: DriverSquadSeed[] = (args.squads ?? []).map((squad) => {
+      if (!PARTICIPANT_ID.test(squad.squadId))
+        throw new ConvexError(`Squad id "${squad.squadId}" must be short kebab-case`);
+      return squad;
+    });
+    // The engine is the one seed validator [R-0023]: a canon-incoherent
+    // squad (mixed statblock, non-minion or statless member, duplicate or
+    // unknown handle) throws, and the whole start rejects atomically —
+    // no encounter row, no partial state.
+    let state: EncounterState;
+    try {
+      state = initialEncounterState(seeded, squadSeeds);
+    } catch (error) {
+      throw new ConvexError(
+        `Encounter seed rejected: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    // The printed "up to eight creatures" bound warns-and-applies
+    // (permissive engine, R-0023) — surfaced via the log like every warning.
+    const seedWarnings = squadSeedWarnings(squadSeeds);
     const now = Date.now();
     const encounterId = await ctx.db.insert('encounters', {
       campaignId: args.campaignId,
@@ -538,6 +608,16 @@ export const start = mutation({
             message: `Encounter started with ${args.participants.map((entry) => entry.id).join(', ')}`,
             canonRefs: [],
           },
+          ...state.squads.map(
+            (squad): LogRowInput => ({
+              kind: 'informational',
+              message: `squad ${squad.name} seeded with ${squad.memberIds.join(', ')} — Stamina pool ${squad.pool.current}/${squad.pool.max}`,
+              canonRefs: [],
+            }),
+          ),
+          ...seedWarnings.map(
+            (message): LogRowInput => ({ kind: 'warning', message, canonRefs: [] }),
+          ),
           ...statsReceipts.map(
             (message): LogRowInput => ({ kind: 'not-automated', message, canonRefs: [] }),
           ),
@@ -827,6 +907,157 @@ export const clearTerrainFact = mutation({
         kind: 'clear-terrain-fact',
         actor: { kind: 'director' },
         payload: { factId: args.factId, reason: args.reason },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Manual damage assertion — the host surface for the apply-damage intent.
+ * Director adjudication (the clearTerrainFact authority pattern): raw damage
+ * entry is table adjudication, not a player ability dispatch. Passes the
+ * R-0025 `area` discriminator and the R-0024 `minionKillVictims` naming
+ * through to the engine untouched; a living squad member's damage decrements
+ * the shared pool (the engine routes it — one home). */
+export const applyDamage = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    targetParticipantId: v.string(),
+    amount: v.number(),
+    damageType: v.optional(v.string()),
+    reason: v.string(),
+    knockOut: v.optional(v.boolean()),
+    /** Dispatch-asserted area source [R-0025] — hazards and other
+     * non-ability area damage carry no Area keyword. */
+    area: v.optional(v.boolean()),
+    /** Damager-named extra victims when one instance kills beyond the
+     * damaged target [R-0024]. */
+    minionKillVictims: v.optional(v.array(v.string())),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Manual damage entry is the Director’s adjudication');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const intent: Intent = {
+      intentId: `d${encounter.dispatchCount + 1}-apply-damage`,
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: args.targetParticipantId,
+        amount: args.amount,
+        damageType: args.damageType as DamageType | undefined,
+        reason: args.reason,
+        knockOut: args.knockOut ?? false,
+        area: args.area ?? false,
+        minionKillVictims: args.minionKillVictims ?? [],
+      },
+    };
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        intent,
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid damage dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** Name the victims of pool-counted kills [R-0024]: "the minions nearest to
+ * those taken out suffer the same fate" is spatial, so the table names them.
+ * Director adjudication (the clearTerrainFact authority pattern); the engine
+ * refuses non-living or over-counted victims with receipts. */
+export const resolvePendingKills = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    squadId: v.string(),
+    victimMemberIds: v.array(v.string()),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Naming pending-kill victims is the Director’s adjudication');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-resolve-pending-kills`,
+          kind: 'resolve-pending-kills',
+          actor: { kind: 'director' },
+          payload: {
+            squadId: args.squadId,
+            victimMemberIds: args.victimMemberIds,
+            reason: args.reason,
+          },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid pending-kill dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** Attach a captain to a squad [R-0028]. Director adjudication (the
+ * clearTerrainFact authority pattern); the engine warns-and-replaces over an
+ * existing captain and warns-and-moves a captain attached elsewhere — the
+ * Director exercising the printed one-captain rule — and refuses a minion
+ * captain. Captain Stamina stays individual, never pooled. */
+export const attachCaptain = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    squadId: v.string(),
+    captainId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Captain attachment is the Director’s adjudication');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-attach-captain`,
+        kind: 'attach-captain',
+        actor: { kind: 'director' },
+        payload: { squadId: args.squadId, captainId: args.captainId },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Detach a squad's captain [R-0028] — on death or the Director's call;
+ * succession is the Director re-attaching. Director adjudication (the
+ * clearTerrainFact authority pattern). */
+export const detachCaptain = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    squadId: v.string(),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Captain detachment is the Director’s adjudication');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-detach-captain`,
+        kind: 'detach-captain',
+        actor: { kind: 'director' },
+        payload: { squadId: args.squadId, reason: args.reason },
       },
     ]);
     return null;

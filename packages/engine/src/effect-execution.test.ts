@@ -13,6 +13,7 @@ const STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 function state() {

@@ -1,10 +1,14 @@
 import {
+  DAMAGE_TYPES,
+  type DamageType,
+  type DriverSquadSeed,
   type Intent,
   type LogEntry,
   type ParticipantStats,
   type Transcript,
   createDriver,
   createSeededRandomSource,
+  squadMemberStats,
 } from '@engarde/engine';
 import { compileEffectPrograms, tierOutcomeToIntents } from './effect-conformance.js';
 import { type GrammarParse, auditGrammarConservation, parseEffectText } from './effect-grammar.js';
@@ -63,6 +67,13 @@ const HELP = `commands:
   endturn <actor> [<condition>=<roll>..]  end of turn; roll omitted = auto-roll
   remove <target> <condition> [as <actor>] [because <reason..>]
   clearterrain <factId> [because <reason..>] clear a recorded terrain fact (director)
+  damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>] [because <reason..>]
+                                          manual damage (director); a squad member's
+                                          damage routes to its squad's Stamina pool
+  resolvekills <squad> <victim,victim..> [because <reason..>]
+                                          name the victims of pool-counted kills (director)
+  attach <squad> <captain>                attach a captain to a squad (director)
+  detach <squad> [because <reason..>]     detach a squad's captain (director)
   end [keep <condition>..]                end the encounter (keeps are opt-in)
   log [n]                                 last n log entries (default 10)
   quit`;
@@ -81,6 +92,11 @@ export function createPlaySession(options: {
   actors: readonly PlayActor[];
   /** artifact id → verbatim text, from the loaded bundle store. */
   records: ReadonlyMap<string, string>;
+  /** Minion squad seeds [R-0023] — members are actor ids. The engine's
+   * `initialEncounterState` refuses a canon-incoherent seed (thrown here);
+   * the printed up-to-eight bound warns-and-applies (the host prints
+   * `squadSeedWarnings`). */
+  squads?: readonly DriverSquadSeed[];
   seed?: number;
 }): PlaySession {
   const { actors, records } = options;
@@ -100,6 +116,7 @@ export function createPlaySession(options: {
       ...(actor.stats ? { stats: actor.stats } : {}),
     })),
     { random: createSeededRandomSource(options.seed ?? 1) },
+    options.squads ?? [],
   );
   let intentCounter = 0;
   const nextIntentId = (): string => {
@@ -236,6 +253,32 @@ export function createPlaySession(options: {
           ? ` via ${shortName(grant.source.effectArtifactId)}`
           : '';
         lines.push(`  pending: ${shape}${until}${via}  [${grant.grantId}]`);
+      }
+    }
+    // Minion squad Stamina pools [R-0023..R-0028]: the squad line is the ONE
+    // vitals surface for its members (their individual stamina is null — the
+    // pool is the one home for squad vitality). The With-Captain entry is
+    // the stat block's VERBATIM text, shown only while a captain is
+    // attached; it is never automated [R-0028].
+    if (state.squads.length > 0) {
+      lines.push('squads:');
+      for (const squad of state.squads) {
+        lines.push(
+          `  ${squad.name}  pool ${squad.pool.current}/${squad.pool.max} (per minion ${squad.perMinionStamina})  living ${squad.memberIds.length}  dead ${squad.deadMemberIds.length}  [${squad.squadId}]`,
+        );
+        if (squad.memberIds.length > 0) lines.push(`    living: ${squad.memberIds.join(', ')}`);
+        if (squad.deadMemberIds.length > 0)
+          lines.push(`    dead: ${squad.deadMemberIds.join(', ')}`);
+        if (squad.pendingKills > 0) {
+          lines.push(
+            `    pending kills: ${squad.pendingKills} — name victims via resolvekills [R-0024]`,
+          );
+        }
+        if (squad.captainId !== null) {
+          lines.push(`    captain: ${squad.captainId}`);
+          const withCaptain = squadMemberStats(state, squad)?.withCaptain ?? null;
+          if (withCaptain !== null) lines.push(`    with captain: ${withCaptain}`);
+        }
       }
     }
     // Recorded terrain facts [R-0022]: shown so the Director can reference a
@@ -536,6 +579,164 @@ export function createPlaySession(options: {
     return lines.join('\n');
   }
 
+  function resolveSquad(query: string): { squadId: string } | { error: string } {
+    const squads = driver.state().squads;
+    const lower = query.toLowerCase();
+    const matches = squads.filter(
+      (squad) =>
+        squad.squadId.toLowerCase().includes(lower) || squad.name.toLowerCase().includes(lower),
+    );
+    if (matches.length === 1 && matches[0] !== undefined) return { squadId: matches[0].squadId };
+    if (matches.length === 0) {
+      return {
+        error:
+          squads.length === 0
+            ? `no squad matches "${query}" (none seeded)`
+            : `no squad matches "${query}" (have: ${squads.map((squad) => squad.squadId).join(', ')})`,
+      };
+    }
+    return {
+      error: `"${query}" is ambiguous: ${matches.map((squad) => squad.squadId).join(', ')}`,
+    };
+  }
+
+  function commandDamage(args: string[]): string {
+    const usage =
+      'usage: damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>] [because <reason ...>]';
+    const becauseAt = args.indexOf('because');
+    const tokens = args.slice(0, becauseAt === -1 ? args.length : becauseAt);
+    const [targetQuery, amountText, ...rest] = tokens;
+    if (!targetQuery || amountText === undefined) return usage;
+    const target = resolveParticipant(targetQuery);
+    if ('error' in target) return target.error;
+    const amount = Number(amountText);
+    if (!Number.isInteger(amount) || amount < 0) return usage;
+    let damageType: DamageType | undefined;
+    let area = false;
+    let knockOut = false;
+    const victims: string[] = [];
+    for (let index = 0; index < rest.length; index += 1) {
+      const token = (rest[index] ?? '').toLowerCase();
+      if (token === 'area') {
+        area = true;
+      } else if (token === 'knockout') {
+        knockOut = true;
+      } else if (token === 'victims') {
+        const list = rest[index + 1];
+        if (!list) return usage;
+        for (const victimQuery of list.split(',')) {
+          if (victimQuery.length === 0) return usage;
+          const victim = resolveParticipant(victimQuery);
+          if ('error' in victim) return victim.error;
+          victims.push(victim.id);
+        }
+        index += 1;
+      } else if ((DAMAGE_TYPES as readonly string[]).includes(token)) {
+        damageType = token as DamageType;
+      } else {
+        return `unknown damage token "${token}" — ${usage}`;
+      }
+    }
+    const reason =
+      becauseAt !== -1 && args.length > becauseAt + 1
+        ? args.slice(becauseAt + 1).join(' ')
+        : 'manual damage entry';
+    // Director adjudication: `area` is the dispatch half of the R-0025
+    // discriminator; `victims` names extra kills [R-0024]; a living squad
+    // member's damage routes to the pool inside the engine.
+    const lines = dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'apply-damage',
+        actor: { kind: 'director' },
+        payload: {
+          target: target.id,
+          amount,
+          damageType,
+          reason,
+          knockOut,
+          area,
+          minionKillVictims: victims,
+        },
+      },
+    ]);
+    return lines.join('\n');
+  }
+
+  function commandResolveKills(args: string[]): string {
+    const usage = 'usage: resolvekills <squad> <victim,victim ...> [because <reason ...>]';
+    const becauseAt = args.indexOf('because');
+    const positional = args.slice(0, becauseAt === -1 ? args.length : becauseAt);
+    const [squadQuery, victimsText] = positional;
+    if (!squadQuery || !victimsText || positional.length > 2) return usage;
+    const squad = resolveSquad(squadQuery);
+    if ('error' in squad) return squad.error;
+    const victims: string[] = [];
+    for (const victimQuery of victimsText.split(',')) {
+      if (victimQuery.length === 0) return usage;
+      const victim = resolveParticipant(victimQuery);
+      if ('error' in victim) return victim.error;
+      victims.push(victim.id);
+    }
+    const reason =
+      becauseAt !== -1 && args.length > becauseAt + 1
+        ? args.slice(becauseAt + 1).join(' ')
+        : undefined;
+    const lines = dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'resolve-pending-kills',
+        actor: { kind: 'director' },
+        payload: { squadId: squad.squadId, victimMemberIds: victims, reason },
+      },
+    ]);
+    return lines.join('\n');
+  }
+
+  function commandAttach(args: string[]): string {
+    const [squadQuery, captainQuery] = args;
+    if (!squadQuery || !captainQuery || args.length > 2) {
+      return 'usage: attach <squad> <captain>';
+    }
+    const squad = resolveSquad(squadQuery);
+    if ('error' in squad) return squad.error;
+    const captain = resolveParticipant(captainQuery);
+    if ('error' in captain) return captain.error;
+    const lines = dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'attach-captain',
+        actor: { kind: 'director' },
+        payload: { squadId: squad.squadId, captainId: captain.id },
+      },
+    ]);
+    return lines.join('\n');
+  }
+
+  function commandDetach(args: string[]): string {
+    const becauseAt = args.indexOf('because');
+    const positional = args.slice(0, becauseAt === -1 ? args.length : becauseAt);
+    const [squadQuery] = positional;
+    if (!squadQuery || positional.length > 1) {
+      return 'usage: detach <squad> [because <reason ...>]';
+    }
+    const squad = resolveSquad(squadQuery);
+    if ('error' in squad) return squad.error;
+    const reason =
+      becauseAt !== -1 && args.length > becauseAt + 1
+        ? args.slice(becauseAt + 1).join(' ')
+        : undefined;
+    const lines = dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'detach-captain',
+        actor: { kind: 'director' },
+        payload: { squadId: squad.squadId, reason },
+      },
+    ]);
+    return lines.join('\n');
+  }
+
   function commandEnd(args: string[]): string {
     const keeps: string[] = [];
     if (args[0] === 'keep') {
@@ -609,6 +810,14 @@ export function createPlaySession(options: {
             return { output: commandRemove(args), quit: false };
           case 'clearterrain':
             return { output: commandClearTerrain(args), quit: false };
+          case 'damage':
+            return { output: commandDamage(args), quit: false };
+          case 'resolvekills':
+            return { output: commandResolveKills(args), quit: false };
+          case 'attach':
+            return { output: commandAttach(args), quit: false };
+          case 'detach':
+            return { output: commandDetach(args), quit: false };
           case 'end':
             return { output: commandEnd(args), quit: false };
           case 'log':

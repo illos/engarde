@@ -3,8 +3,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { type DriverSquadSeed, ParticipantStatsSchema, squadSeedWarnings } from '@engarde/engine';
 import { loadArtifactRecords } from './bundle-io.js';
 import { type PlayActor, createPlaySession } from './play.js';
+import { statblockStats } from './statblock-stats.js';
 
 /**
  * Headless play CLI (engine-plan 5.1) — a readline shell over the play
@@ -13,9 +15,14 @@ import { type PlayActor, createPlaySession } from './play.js';
  *
  * Usage:
  *   pnpm play --structured-bundles <dir> --chapter-bundles <dir>
- *     [--actor <id>=<recordId>]... [--seed <n>] [--transcript <out.json>]
+ *     [--actor <id>=<recordId>]... [--squad <squadId>=<member,member,...>]...
+ *     [--seed <n>] [--transcript <out.json>]
  *
- * Default actors are the pilot trio (real corpus records).
+ * Default actors are the pilot trio (real corpus records). Actors whose
+ * record is a stat block get deterministic stats from the paired structured
+ * JSON (canon `statblockStats` — the Convex host's seeding path); minion
+ * squads seed against those stats [R-0023] and a canon-incoherent seed
+ * refuses at startup with the engine's reason.
  */
 
 const DEFAULT_ACTORS: PlayActor[] = [
@@ -63,14 +70,48 @@ async function main(): Promise<void> {
         })
       : DEFAULT_ACTORS;
 
+  // Squad seeds [R-0023]: --squad <squadId>=<member,member,...> — members
+  // are actor ids; the display name is the squad id.
+  const squads: DriverSquadSeed[] = argumentsNamed('squad').map((spec) => {
+    const at = spec.indexOf('=');
+    if (at < 1) throw new Error(`bad --squad "${spec}" (expected <squadId>=<member,member,...>)`);
+    const squadId = spec.slice(0, at);
+    const memberIds = spec
+      .slice(at + 1)
+      .split(',')
+      .filter(Boolean);
+    return { squadId, name: squadId, memberIds };
+  });
+
   stdout.write('loading artifact store…\n');
   const artifacts = await loadArtifactRecords(roots);
   const records = new Map(artifacts.map((artifact) => [artifact.id, artifact.text]));
+  const structuredById = new Map(
+    artifacts.map((artifact) => [artifact.id, artifact.structuredData]),
+  );
+  // Deterministic stats from the stat block's paired structured JSON
+  // (DEC-0008) — the same seeding path as the Convex host. Non-statblock
+  // records stay table-mode actors (receipts only). Unreadable rows are
+  // receipts, never guesses.
+  const statedActors: PlayActor[] = actors.map((actor) => {
+    const structured = structuredById.get(actor.recordId);
+    const stats = structured ? statblockStats(structured) : null;
+    if (!stats) return actor;
+    for (const row of stats.unparsedRows) {
+      stdout.write(`${actor.id}: unreadable stat-block row "${row}" — apply at the table\n`);
+    }
+    return { ...actor, stats: ParticipantStatsSchema.parse(stats) };
+  });
   const session = createPlaySession({
-    actors,
+    actors: statedActors,
     records,
+    squads,
     seed: argument('seed') ? Number(argument('seed')) : undefined,
   });
+  // The printed up-to-eight bound warns-and-applies (permissive engine).
+  for (const warning of squadSeedWarnings(squads)) {
+    stdout.write(`WARNING: ${warning}\n`);
+  }
   stdout.write(
     `${records.size} records loaded. participants: ${actors.map((actor) => actor.id).join(', ')}. type help.\n`,
   );

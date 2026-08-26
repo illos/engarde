@@ -27,6 +27,7 @@ const GOBLIN_ASSASSIN: ParticipantStats = {
   potencies: null,
   organization: 'Horde',
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 /** Count Rhodar von Glauer — corruption 10 / poison 10 immunities
@@ -42,6 +43,7 @@ const RHODAR: ParticipantStats = {
   potencies: null,
   organization: 'Solo',
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 const context = { intentId: 'i1', actor: { kind: 'director' as const } };
@@ -262,6 +264,7 @@ describe('automation blockers', () => {
       potencies: null,
       organization: 'Minion',
       recoveriesMax: null,
+      withCaptain: null,
     };
     expect(damageAutomationBlocker(participant(sniper))).toMatch(/minion/i);
     expect(damageAutomationBlocker(participant(GOBLIN_ASSASSIN))).toBeNull();

@@ -44,6 +44,11 @@ export interface StatblockStats {
    * don't have Recoveries or a recovery value" [rule.health/stamina
    * §No Recoveries]; hero values arrive via character data, never here. */
   recoveriesMax: null;
+  /** The stat block's VERBATIM "With Captain" entry (structured
+   * `with_captain`) — every in-pin Minion-organization statblock carries
+   * one; null otherwise. Surfaces verbatim while a captain is attached,
+   * never automated [R-0028]. */
+  withCaptain: string | null;
   /** Upstream rows the deterministic parser cannot read — shown at the
    * table, never silently dropped or guessed. */
   unparsedRows: string[];
@@ -97,6 +102,10 @@ export function statblockStats(structuredData: Record<string, unknown>): Statblo
     organization:
       typeof structuredData.organization === 'string' && structuredData.organization !== ''
         ? structuredData.organization
+        : null,
+    withCaptain:
+      typeof structuredData.with_captain === 'string' && structuredData.with_captain !== ''
+        ? structuredData.with_captain
         : null,
     unparsedRows,
   };

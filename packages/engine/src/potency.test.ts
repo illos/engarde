@@ -18,6 +18,7 @@ const CONDUIT: ParticipantStats = {
   potencies: { weak: 0, average: 1, strong: 2 },
   organization: null,
   recoveriesMax: null,
+  withCaptain: null,
 };
 
 function actor(stats: ParticipantStats | null, id: string): ParticipantState {
@@ -42,6 +43,7 @@ const bandit = actor(
     potencies: null,
     organization: null,
     recoveriesMax: null,
+    withCaptain: null,
   },
   'bandit',
 );
@@ -95,6 +97,7 @@ describe('numeric thresholds (monster notation, e.g. "M < 1")', () => {
             potencies: null,
             organization: null,
             recoveriesMax: null,
+            withCaptain: null,
           },
           'target',
         ),
