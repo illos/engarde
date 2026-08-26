@@ -754,3 +754,202 @@ is recorded here for the squad-attack follow-up family.
 
 **Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
 fd7e05db verified; user note "Yes, the books are right"), 2026-08-26.
+
+## R-0034 — Squad Action: one roll, per-target instances, free-strike-value stacking (approved 2026-08-26)
+
+**Ruling:** a squad's signature attack dispatches as ONE ability use by
+the squad (squad-owned resolution entry): an ordered participation list
+(which members attack which targets — order is the damager's printed
+choice, hash-witnessed; one designated instance owner per target), one
+power roll, one instance of the tier result per target. Each attacker on
+a target beyond the first adds their printed free-strike value as extra
+damage, typed by inheritance from the tier's damage packet. 4+ attackers
+on one target is warn-and-apply (R-0030 posture). Non-participating
+members are the printed "waste their main action doing nothing" case
+(per-member budget debits per R-0033 regardless). Adjudications of
+confirmed book silence, accepted with the card: (a) attacker-referent
+tier riders resolve against the target's instance owner; (b) a
+damage-less tier result (war-dog-socialite's self-strike tiers) gives
+stacking extras nothing to join — 2+ attackers on one target emits a
+warn receipt with the verbatim tier text (residue, never a guess);
+(c) multi-packet tiers (war-dog-draconite "4 damage, 3 psychic damage")
+and flag-carrying tiers (optacus "this damage ignores immunity") are the
+same residue class for the extras' type/flags; (d) a participating
+member's outbound next-roll grants join the per-target pools only for
+targets that member attacks. The two Area-keyword signatures
+(fire-giant-fireballer, cyclops) roll with the squad's single roll, hit
+each target in any member's area once (target list is the union), and
+never stack — PDF-confirmed silence on squad-used area abilities. A
+member may deliver the signature via Charge (`partOf` composition;
+movement table-asserted).
+
+**Evidence (verbatim, Monsters p.8 §Squad Action, PDF-recovered):**
+"Each minion has a signature ability that is typically a strike
+targeting one creature or object. When multiple minions in a squad use
+their signature ability on a turn, you make one roll for the whole
+squad. Each target of a minion's signature ability is affected by only
+one instance of the ability. But when two or three (at maximum) of a
+squad's minions attack the same creature or object simultaneously, each
+additional minion causes the signature ability to deal extra damage to
+the target equal to the minion's free strike value." · The printed
+worked example (p.8, recorded durably here; the family's exact golden):
+"As an example, a squad of three demon pitlings are attacking a shadow
+and a conduit with their Spit signature ability, with a tier 2 outcome
+on the power roll. One pitling targets the shadow, dealing 4 poison
+damage. Two pitlings target the conduit, dealing 4 poison damage plus an
+extra 2 poison damage for the additional pitling." · The p.9 sidebar
+restatement: "Two targets are within distance of three pitlings taking
+the Spit squad action. One pitling spits at the shadow for 4 damage, one
+pitling spits at the conduit for 4 damage, and the remaining pitling
+deals an extra 2 damage to the conduit." Pin reconciliation: pitling
+Spit tier-2 "4 poison damage", free_strike 2 — the numbers derive
+exactly.
+
+**Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
+d5466f78 verified), 2026-08-26.
+
+## R-0035 — Squad crit: one main-action grant per participating member, crit fine print carries (approved 2026-08-26)
+
+**Ruling:** a natural-crit squad roll compiles to one plain main-action
+`action` grant (schema v6 union) per PARTICIPATING member, carrying the
+printed critical-hit escapes ("whether or not it's your turn and even if
+you are dazed", Heroes p.75). Both halves are adjudications — the
+printed minion sentence prints neither the escapes nor any turn
+restriction. No squad-machinery consumption constraint; odd spends warn
+under the permissive posture.
+
+**Evidence (verbatim):** "If a minion squad scores a critical hit with
+their signature ability, all the minions who participated in using the
+ability can take another main action." [Monsters p.8 §Squad Action,
+PDF-recovered] · "A critical hit allows you to immediately take an
+additional main action after resolving the power roll, whether or not
+it's your turn and even if you are dazed (see Conditions below)."
+[Heroes p.75 §Critical Hit]
+
+**Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
+710a3fc2 verified), 2026-08-26.
+
+## R-0036 — Minion Maneuvers together: one roll for Grab/Knockback/Search; Hide and Search ride as directives where no roll compiles (approved 2026-08-26)
+
+**Ruling:** Grab, Knockback, and Search for Hidden Creatures dispatch
+squad-together with the participation shape: one roll for the whole
+squad, one instance per target. Grab and Knockback resolve through their
+compiled common ability artifacts; Search has no roll-bearing compiled
+artifact in-pin and rides as a directive receipt until its prose feature
+compiles (accounted, never dropped). Hide is used together but sits
+outside the printed one-roll list ("Grab, Knockback, and Search in
+particular") — directive receipt. The individual-maneuver forfeit is
+per-member budget state already automated by R-0033.
+
+**Evidence (verbatim, Monsters p.9 §Minion Maneuvers, PDF-recovered):**
+"Minions in a squad use the Grab, Hide, Knockback, and Search for Hidden
+Creatures maneuvers together. For Grab, Knockback, and Search in
+particular, you make one roll for the whole squad, and each target of a
+minion's maneuver is only affected by one instance of the ability."
+
+**Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
+7fe498ba verified), 2026-08-26.
+
+## R-0037 — Free Strike Together: summed contributions, one strike (approved 2026-08-26)
+
+**Ruling:** a combined free-strike dispatch — contributions
+`[{memberId, count}]`, count defaulting 1 — against one target produces
+ONE damage instance equal to the sum, "treated as one strike": the
+target's weakness/immunity applies once to the summed instance and
+per-strike triggered effects see one strike. skeleton-knight "More
+Swings" contributes 2. Substitution traits (ogre blue-blood "In My
+Stead") are out of payload scope — the substitute's strike is its own
+dispatch. Triggered free strikes off the SAME trigger occurrence may
+join one combined dispatch (the printed example is itself a
+one-event multi-reaction; radenwight Ready Rodent ×k off one damage
+event is the corpus case); sequential occurrences stay individual.
+Simultaneity is table-asserted — the dispatch is the assertion.
+
+**Evidence (verbatim):** "If several minions in a squad make a free
+strike at the same target at the same time, such as from a hero
+provoking an opportunity attack by moving away from several minions
+surrounding them, the damage from each minion's free strike is added
+together and treated as one strike." [Monsters p.9 §Free Strike
+Together, PDF-recovered] · "Whenever the knight makes a free strike,
+they can make two free strikes instead." [Skeleton Knight, More Swings]
+· "Whenever the blue blood would make a free strike, an ally within 5
+squares can make a free strike instead." [Ogre Blue Blood, In My Stead]
+· "Trigger: An ally deals damage to the target. Effect: The scrapper
+makes a free strike against the target." [Radenwight Scrapper, Ready
+Rodent — carried by all four radenwight minions]
+
+**Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
+18fe976d verified), 2026-08-26.
+
+## R-0038 — With-Captain benefits automate by closed template; AMENDED: detach is automatic on captain death (approved with amendment 2026-08-26)
+
+**Ruling:** the 21 distinct With-Captain strings (116 statblocks)
+classify by exact-text closed templates through a benefit-source-generic
+one-home (`parseBenefitPhrase`; `parseWithCaptain` a thin caller), and
+automated buckets flow through a named derived-modifier channel
+(persistent while-attached, receipt-visible, its own roll-receipt field
+beside asserted and granted modifiers). Edge lines (27× "Gain an edge on
+strikes") contribute ONE edge to the squad's roll regardless of how many
+members attack — per-member summing would double-edge every 2+-member
+captained squad, collapsing the printed single/double distinction
+(unguloid's unique "Have a double edge on strikes" contributes two);
+accepted as proposed (card Question 1). Damage lines (28× "+N damage
+bonus to strikes"): +N once per target-instance on the signature
+(stacking extras are free-strike values, not strikes); +N per
+contribution inside a summed free strike. lizardfolk-tonguer's "+1 bonus
+to strikes" is ruled a damage bonus (card Question 2, accepted as
+proposed; the general rule's taxonomy names no roll-bonus class).
+Speed/distance lines (48 statblocks) surface as template-tagged verbatim
+chips (no map substrate). war-dog-sparkslinger's bespoke line stays a
+verbatim directive. Unknown FUTURE strings refuse to classify.
+**AMENDMENT (user note: "Detach should be automatic on Capt.'s death.
+No other changes needed."):** when an attached captain dies, the engine
+detaches them automatically — benefits end at that moment, the R-0039
+pool adjustment fires if applicable, and the receipt quotes the printed
+succession rule; re-attach ("a new allied creature can become that
+squad's captain at the start of the next round (no action required)")
+remains the Director's act. This amends R-0028's manual-detach-only
+posture for the death case specifically; Director detach stays available
+for all other cases. Supersedes the audit-L-3 nudge design — the nudge
+becomes the automatic detach's receipt.
+
+**Evidence (verbatim):** "While a minion squad has a captain, each
+minion in the squad gains the benefits noted at the 'With Captain' entry
+on their stat block." [Monsters p.9 §Captain Benefits] · "Usually, this
+benefit is either a damage boost, a bonus to speed, or additional
+Stamina." [Monsters p.9] · "the effects of the same ability used
+multiple times don't stack" [Heroes, Stacking Unique Effects — the
+recorded basis of once-not-per-member] · "With Captain: +1 bonus to
+strikes" [Lizardfolk Tonguer, Monsters p.199, PDF-confirmed EXACT] ·
+"With Captain: Lightning spread increases by 1 square" [War Dog
+Sparkslinger, Monsters p.304, PDF-confirmed EXACT; the referent is the
+ability's own Effect: "The lightning's spread is the distance it arcs
+from a target to nearby enemies."] · "If a squad of minions loses their
+captain, a new allied creature can become that squad's captain at the
+start of the next round (no action required)." [Monsters p.9, recorded
+in R-0028]
+
+**Gate 3:** amended-and-accepted via the squad-attack-gate3 card surface
+(cardHash a177bd29 verified; amendment recorded above), 2026-08-26.
+
+## R-0039 — Stamina-type With-Captain benefits shift effective per-minion Stamina; mid-fight attach/detach adjusts the pool (approved 2026-08-26)
+
+**Ruling:** while a "+N bonus to Stamina" captain (10 statblocks;
++2/+3/+4/+6) is attached, the squad's effective per-minion Stamina is
+printed + N — pool, max, the kill divisor, and the R-0025 area
+per-contribution cap all move together, so the one-home damage math and
+the ruling never diverge. Attach adds N × living members to pool and
+max; detach/death removes N × living-at-detach, floored at 0 — kills
+already recorded are never retroactively undone. Both movements
+receipt-visible. (Composes with R-0038's amendment: automatic detach on
+captain death fires this adjustment.) This answers the book-silent
+mid-fight question R-0028 explicitly parked for this family.
+
+**Evidence (verbatim):** "Each squad of minions shares a Stamina pool,
+with initial Stamina equal to each individual minion's Stamina
+multiplied by the number of minions in the squad." [Monsters p.7 §Shared
+Low Stamina] · "With Captain: +2 bonus to Stamina" [Lizardfolk
+Shellguard, Monsters p.199, PDF-confirmed EXACT]
+
+**Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
+a44aa128 verified), 2026-08-26.

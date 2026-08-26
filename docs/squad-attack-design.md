@@ -1,4 +1,12 @@
-# Squad attacks + With-Captain benefits — design (rev 2, 2026-08-26)
+# Squad attacks + With-Captain benefits — design (rev 2.1, 2026-08-26)
+
+> **Gate-3 CLEARED 2026-08-26:** R-0034..R-0039 all accepted (hashes 6/6
+> verified; blob archived at
+> `.artifacts/canon/squad-attack/rulings-blob-2026-08-26.json`). R-0038
+> AMENDED in review: **detach is automatic on captain death** (user note:
+> "Detach should be automatic on Capt.'s death. No other changes
+> needed.") — folded into §3/§4 below; recorded in
+> `docs/canon-rulings.md`.
 
 Rev 1 was red-teamed by four independent lanes (Gate-2 PDF confirmation,
 canon fidelity, substrate scalability, rules-lawyer counterexamples); the
@@ -239,9 +247,12 @@ p.8–9; recorded in R-0033 except where marked as this arc's recovery).
   speed, or additional Stamina" (Monsters p.9). Proposed: rule it a
   damage bonus; if declined it stays a verbatim directive. Unknown
   FUTURE strings refuse to classify — residue, never a guess. Dead
-  captain (audit L-3): captain death emits a table-directive receipt
-  nudging detach and quoting the printed succession rule (R-0028:
-  succession is Director re-attach; no automation).
+  captain (audit L-3; **amended in Gate-3 review**): captain death
+  AUTOMATICALLY detaches the captain — benefits end at that moment, the
+  R-0039 pool adjustment fires if applicable, and the receipt quotes the
+  printed succession rule. Re-attach remains the Director's act; Director
+  detach stays available for all non-death cases (amends R-0028's
+  manual-detach-only posture for the death case).
 - **R-0039 — Stamina-type benefits and the mid-fight pool question.**
   10 statblocks print "+N bonus to Stamina" as a With-Captain benefit;
   squad pools are seeded per-minion-Stamina × members (R-0023). The
