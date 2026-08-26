@@ -58,6 +58,17 @@ const FURY = 'mcdm.heroes.v1/class/fury';
  * (packages/canon/src/fixtures/goblin-spinecleaver.verbatim.ts). */
 const SPINECLEAVER_WITH_CAPTAIN = '+1 damage bonus to strikes';
 
+/** v6 action-economy participant slots — empty outside combat (the view
+ * contract pins them as always-present). */
+const economyIdle = {
+  actionGrants: [],
+  turnGrants: [],
+  actionBudget: {},
+  triggeredThisRound: 0,
+  triggeredActionLimit: 1,
+  abilityUses: {},
+};
+
 function member(id: string) {
   return {
     id,
@@ -70,6 +81,7 @@ function member(id: string) {
     vitals: null,
     conditions: [],
     grants: [],
+    ...economyIdle,
   };
 }
 
@@ -94,6 +106,9 @@ const activeEncounter = {
   status: 'active' as const,
   startedAt: 0,
   viewerIsDirector: true,
+  turnState: null,
+  villainActions: { usedThisRound: false, usedByAbility: [] },
+  resolutions: [],
   participants: [
     {
       id: 'fury',
@@ -103,6 +118,7 @@ const activeEncounter = {
       vitals: null,
       conditions: [],
       grants: [],
+      ...economyIdle,
     },
     {
       id: 'goblin-warrior',
@@ -122,6 +138,7 @@ const activeEncounter = {
       },
       conditions: [],
       grants: [],
+      ...economyIdle,
     },
     member('sc1'),
     member('sc2'),

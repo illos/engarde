@@ -87,6 +87,9 @@ importers:
       '@engarde/backend':
         specifier: workspace:^
         version: link:../../packages/backend
+      '@engarde/engine':
+        specifier: workspace:^
+        version: link:../../packages/engine
       '@fontsource/cormorant-garamond':
         specifier: ^5.3.0
         version: 5.3.0

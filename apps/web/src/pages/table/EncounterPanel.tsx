@@ -1,9 +1,16 @@
 import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
+// The printed per-turn budget lives in the engine's one home — never
+// re-derived client-side (one canon rule, one implementation).
+import { BASE_TURN_BUDGET } from '@engarde/engine';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../primitives';
+import { RecordSearch, type SearchHits } from './RecordSearch';
+import { ResolutionsSection } from './ResolutionsSection';
 import { SquadsSection } from './SquadsSection';
+import { TurnRail } from './TurnRail';
+import type { ParticipantView } from './economy-contract';
 import type { SquadDamageLogData, SquadPoolDelta } from './squad-contract';
 import { useRun } from './useRun';
 
@@ -14,7 +21,6 @@ import { useRun } from './useRun';
 // verbatim table cards to resolve at the table — nothing is faked.
 
 type EncounterView = NonNullable<ReturnType<typeof useQuery<typeof api.encounters.getActive>>>;
-type SearchHits = NonNullable<ReturnType<typeof useQuery<typeof api.encounters.searchRecords>>>;
 
 const BANDS = ['≤11', '12-16', '17+'] as const;
 type Band = (typeof BANDS)[number];
@@ -39,72 +45,6 @@ export function EncounterPanel({ campaignId }: { campaignId: Id<'campaigns'> }) 
   const isDirector = roster.viewer.gameRole === 'director';
   if (encounter === null) return <StartEncounter campaignId={campaignId} isDirector={isDirector} />;
   return <ActiveEncounter campaignId={campaignId} encounter={encounter} />;
-}
-
-function RecordSearch({
-  campaignId,
-  onPick,
-  pickLabel,
-  requireParsedTier,
-  requireEffect = false,
-  searchLabel,
-}: {
-  campaignId: Id<'campaigns'>;
-  onPick: (hit: SearchHits[number]) => void;
-  pickLabel: string;
-  requireParsedTier: boolean;
-  requireEffect?: boolean;
-  searchLabel: string;
-}) {
-  const [term, setTerm] = useState('');
-  const hits = useQuery(
-    api.encounters.searchRecords,
-    term.trim().length >= 2 ? { campaignId, term } : 'skip',
-  );
-  return (
-    <div>
-      <input
-        value={term}
-        onChange={(event) => setTerm(event.target.value)}
-        placeholder="Search the books… (e.g. blood-for-blood)"
-        aria-label={searchLabel}
-        className="h-11 w-full border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
-      />
-      {hits && hits.length > 0 ? (
-        <ul className="mt-2 flex flex-col divide-y divide-line-soft border border-line bg-ink-2">
-          {hits.map((hit) => {
-            const usable =
-              (!requireParsedTier || hit.parsedTiers.length > 0) &&
-              (!requireEffect || hit.effects.length > 0);
-            return (
-              <li key={hit.artifactId} className="flex items-center gap-2 p-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-mono text-xs">{hit.slug}</p>
-                  <p className="truncate text-xs text-text-mute">
-                    {hit.autoRollable
-                      ? 'rolls automatically'
-                      : hit.parsedTiers.length > 0
-                        ? `tiers parsed: ${hit.parsedTiers.join(', ')}`
-                        : hit.effects.length > 0
-                          ? `${hit.effects.length} Effect instruction${hit.effects.length === 1 ? '' : 's'}`
-                          : 'nothing automatable yet — plays as a verbatim card'}
-                    {hit.hasStats ? ' · stat block' : ''}
-                    {hit.effects.length > 0 && (hit.autoRollable || hit.parsedTiers.length > 0)
-                      ? ` · ${hit.effects.length} Effect${hit.effects.length === 1 ? '' : 's'}`
-                      : ''}
-                    {hit.residueSpans > 0 ? ' · has table-card text' : ''}
-                  </p>
-                </div>
-                <Button size="sm" disabled={!usable} onClick={() => onPick(hit)}>
-                  {pickLabel}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-    </div>
-  );
 }
 
 function handleFromSlug(slug: string, taken: Set<string>): string {
@@ -217,6 +157,8 @@ function ActiveEncounter({
   const useAbility = useMutation(api.encounters.useAbility);
   const useEffectInstruction = useMutation(api.encounters.useEffect);
   const clearTerrainFact = useMutation(api.encounters.clearTerrainFact);
+  const convertAction = useMutation(api.encounters.convertAction);
+  const useTriggeredAction = useMutation(api.encounters.useTriggeredAction);
   const { run, error, busy } = useRun();
   const [rolls, setRolls] = useState<Record<string, string>>({});
   const [keeps, setKeeps] = useState<Record<string, boolean>>({});
@@ -230,6 +172,17 @@ function ActiveEncounter({
   const [banes, setBanes] = useState('0');
   const [diceText, setDiceText] = useState('');
   const [knockOut, setKnockOut] = useState(false);
+  // Two-phase commit [R-0032]: default stays one tap (dispatch without hold
+  // pipelines the commit server-side); holding leaves the resolution open
+  // for reactions/modifications on the open-roll card.
+  const [holdOpen, setHoldOpen] = useState(false);
+  // Triggered-action flow [R-0029/R-0030]: the per-card affordance picks the
+  // acting participant; the shared form below picks the printed ability.
+  const [triggeredActorId, setTriggeredActorId] = useState('');
+  const [triggeredRecord, setTriggeredRecord] = useState<SearchHits[number] | null>(null);
+  const [triggeredAbilitySlug, setTriggeredAbilitySlug] = useState('');
+  const [triggeredFree, setTriggeredFree] = useState(false);
+  const [triggerText, setTriggerText] = useState('');
   const first = encounter.participants[0]?.id ?? '';
   const second = encounter.participants[1]?.id ?? first;
   const [actorId, setActorId] = useState(first);
@@ -278,6 +231,15 @@ function ActiveEncounter({
           </Button>
         ) : null}
       </div>
+
+      <TurnRail campaignId={campaignId} encounter={encounter} />
+
+      <ResolutionsSection
+        campaignId={campaignId}
+        resolutions={encounter.resolutions}
+        participantIds={new Set(encounter.participants.map((participant) => participant.id))}
+        viewerIsDirector={encounter.viewerIsDirector}
+      />
 
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">
         {encounter.participants.map((participant) => (
@@ -352,6 +314,16 @@ function ActiveEncounter({
                 Table mode — no stat automation for this record
               </p>
             )}
+            <ParticipantEconomy
+              participant={participant}
+              inCombat={encounter.turnState !== null}
+              viewerIsDirector={encounter.viewerIsDirector}
+              busy={busy}
+              onConvert={(to) =>
+                run(() => convertAction({ campaignId, participantId: participant.id, to }))
+              }
+              onTriggeredAction={() => setTriggeredActorId(participant.id)}
+            />
             {participant.conditions.length === 0 ? (
               <p className="mt-2 text-xs text-text-dim">No conditions</p>
             ) : (
@@ -591,6 +563,17 @@ function ActiveEncounter({
                   />
                   knock out, not kill
                 </label>
+                <label className="flex items-center gap-1 text-xs text-text-mute">
+                  {/* R-0032 two-phase commit: hold leaves the resolution
+                      open on the open-roll card; default is one tap. */}
+                  <input
+                    type="checkbox"
+                    aria-label="Hold the roll open"
+                    checked={holdOpen}
+                    onChange={(event) => setHoldOpen(event.target.checked)}
+                  />
+                  hold the roll open
+                </label>
                 <Button
                   variant="primary"
                   size="sm"
@@ -614,6 +597,7 @@ function ActiveEncounter({
                         edges: Number(edges) || 0,
                         banes: Number(banes) || 0,
                         knockOut: knockOut || undefined,
+                        ...(holdOpen ? { hold: true } : {}),
                       }),
                     );
                   }}
@@ -879,9 +863,209 @@ function ActiveEncounter({
         ) : null}
       </div>
 
+      <div className="mt-4 border-t border-line-soft pt-4">
+        <h3 className="type-label text-xs text-text-mute">Use a triggered action</h3>
+        {/* "You can use one triggered action per round, either on your turn
+            or another creature's turn, but only when the action's trigger
+            occurs" — the per-round counter warns, never blocks [R-0030]. The
+            printed ability is a real corpus record; abilities living inside
+            a statblock address as record#ability-slug. */}
+        <div className="mt-2">
+          <RecordSearch
+            campaignId={campaignId}
+            pickLabel="Pick triggered"
+            requireParsedTier={false}
+            searchLabel="Search triggered actions"
+            onPick={(hit) => {
+              setTriggeredRecord(hit);
+              setTriggeredAbilitySlug('');
+            }}
+          />
+        </div>
+        {triggeredRecord ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs">{triggeredRecord.slug}</span>
+            <input
+              value={triggeredAbilitySlug}
+              onChange={(event) => setTriggeredAbilitySlug(event.target.value)}
+              placeholder="ability slug (e.g. meat-shield)"
+              aria-label="Triggered ability within the record"
+              className="h-11 w-44 border border-line bg-ink-1 px-2 text-xs"
+            />
+            <select
+              aria-label="Triggered actor"
+              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              value={triggeredActorId === '' ? first : triggeredActorId}
+              onChange={(event) => setTriggeredActorId(event.target.value)}
+            >
+              {participantOptions}
+            </select>
+            <label className="flex items-center gap-1 text-xs text-text-mute">
+              <input
+                type="checkbox"
+                aria-label="Free triggered action"
+                checked={triggeredFree}
+                onChange={(event) => setTriggeredFree(event.target.checked)}
+              />
+              free (bypasses the round counter)
+            </label>
+            <input
+              value={triggerText}
+              onChange={(event) => setTriggerText(event.target.value)}
+              placeholder="asserted trigger (optional)"
+              aria-label="Asserted trigger"
+              className="h-11 w-52 border border-line bg-ink-1 px-2 text-xs"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                const suffix = triggeredAbilitySlug.trim();
+                const text = triggerText.trim();
+                run(() =>
+                  useTriggeredAction({
+                    campaignId,
+                    participantId: triggeredActorId === '' ? first : triggeredActorId,
+                    abilityArtifactId:
+                      suffix.length > 0
+                        ? `${triggeredRecord.artifactId}#${suffix}`
+                        : triggeredRecord.artifactId,
+                    ...(triggeredFree ? { free: true } : {}),
+                    ...(text.length > 0 ? { triggerText: text } : {}),
+                  }),
+                );
+              }}
+            >
+              Use triggered action
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
       <EncounterLog campaignId={campaignId} encounterId={encounter.encounterId} />
       {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
     </section>
+  );
+}
+
+/** Per-card action-economy block [R-0029/R-0030, design §3]: budget chips
+ * (used vs printed-1-plus-granted per cost), the per-round triggered
+ * counter, pending action/turn grants with their escape flags, and the
+ * Director's convert-action affordance ("You can also turn your main action
+ * into a move action or a maneuver"). Economy state exists only in combat. */
+function ParticipantEconomy({
+  participant,
+  inCombat,
+  viewerIsDirector,
+  busy,
+  onConvert,
+  onTriggeredAction,
+}: {
+  participant: ParticipantView;
+  inCombat: boolean;
+  viewerIsDirector: boolean;
+  busy: boolean;
+  onConvert: (to: 'maneuver' | 'move-action') => void;
+  onTriggeredAction: () => void;
+}) {
+  if (!inCombat) return null;
+  const chip = (cost: 'main-action' | 'maneuver' | 'move-action', label: string) => {
+    const cell = participant.actionBudget[cost] ?? { used: 0, granted: 0 };
+    return (
+      <span
+        aria-label={`${participant.id} ${cost} ${cell.used}/${BASE_TURN_BUDGET + cell.granted}`}
+        className="border border-line-soft bg-ink-1 px-2 py-1"
+      >
+        <span className="font-mono">
+          {cell.used}/{BASE_TURN_BUDGET + cell.granted}
+        </span>{' '}
+        <span className="type-label text-text-mute">{label}</span>
+      </span>
+    );
+  };
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        {chip('main-action', 'Main')}
+        {chip('maneuver', 'Maneuver')}
+        {chip('move-action', 'Move')}
+        <span
+          aria-label={`${participant.id} triggered ${participant.triggeredThisRound}/${participant.triggeredActionLimit}`}
+          className="border border-line-soft bg-ink-1 px-2 py-1"
+        >
+          <span className="font-mono">
+            {participant.triggeredThisRound}/{participant.triggeredActionLimit}
+          </span>{' '}
+          <span className="type-label text-text-mute">Triggered</span>
+        </span>
+      </div>
+      {participant.actionGrants.length > 0 || participant.turnGrants.length > 0 ? (
+        <ul className="mt-1 flex flex-col gap-1">
+          {participant.actionGrants.map((grant) => {
+            const escapes = [
+              grant.escapes.ignoresDazed ? 'ignores dazed' : null,
+              grant.escapes.ignoresSurprised ? 'ignores surprised' : null,
+              grant.escapes.offTurn ? 'off-turn' : null,
+            ].filter((flag): flag is string => flag !== null);
+            return (
+              <li key={grant.grantId} className="text-sm text-text-dim">
+                granted: additional {grant.cost}
+                {grant.magnitude > 1 ? ` ×${grant.magnitude}` : ''}
+                <span className="text-xs text-text-mute">
+                  {escapes.length > 0 ? ` (${escapes.join(' · ')})` : ''}
+                  {grant.expiry === 'end-of-round' ? ' (until end of round)' : ''}
+                  {grant.sourceRecordSlug ? ` · ${grant.sourceRecordSlug}` : ''}
+                  {grant.sourceParticipantId ? ` · from ${grant.sourceParticipantId}` : ''}
+                </span>
+              </li>
+            );
+          })}
+          {participant.turnGrants.map((grant) => (
+            <li key={grant.grantId} className="text-sm text-text-dim">
+              granted: {grant.mode === 'allowance' ? 'extra turn allowance' : 'turn insertion'}
+              {grant.magnitude > 1 ? ` ×${grant.magnitude}` : ''}
+              <span className="text-xs text-text-mute">
+                {grant.constraint === 'no-consecutive' ? ' (no consecutive turns)' : ''}
+                {grant.expiry === 'end-of-round' ? ' (until end of round)' : ''}
+                {grant.sourceRecordSlug ? ` · ${grant.sourceRecordSlug}` : ''}
+                {grant.sourceParticipantId ? ` · from ${grant.sourceParticipantId}` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          disabled={busy}
+          aria-label={`Triggered action for ${participant.id}`}
+          onClick={onTriggeredAction}
+        >
+          Triggered action
+        </Button>
+        {viewerIsDirector ? (
+          <>
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={`Convert main action to maneuver for ${participant.id}`}
+              onClick={() => onConvert('maneuver')}
+            >
+              Main → maneuver
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy}
+              aria-label={`Convert main action to move action for ${participant.id}`}
+              onClick={() => onConvert('move-action')}
+            >
+              Main → move
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -963,16 +1147,24 @@ function EncounterLog({
                 </div>
               );
             }
+            if (entry.kind === 'warning')
+              // R-0030 warn-and-apply must be VISIBLE: rule-violation
+              // receipts render loud and distinct, never buried in the
+              // receipt stream (permissive engine — warn, never block).
+              return (
+                <div key={entry.entryId} role="alert" className="border border-accent bg-ink-1 p-2">
+                  <p className="type-label text-xs text-accent">Rule warning</p>
+                  <p className="mt-1 text-sm text-accent">{entry.message}</p>
+                </div>
+              );
             const tone =
               entry.kind === 'invariant-violation' || entry.kind === 'refusal'
                 ? 'text-foe'
-                : entry.kind === 'warning'
-                  ? 'text-accent'
-                  : entry.kind === 'not-automated'
-                    ? 'text-text-mute italic'
-                    : entry.kind === 'informational'
-                      ? 'text-text-dim'
-                      : 'text-text';
+                : entry.kind === 'not-automated'
+                  ? 'text-text-mute italic'
+                  : entry.kind === 'informational'
+                    ? 'text-text-dim'
+                    : 'text-text';
             return (
               <p key={entry.entryId} className={`text-sm ${tone}`}>
                 {entry.kind === 'not-automated' ? 'Not automated — ' : ''}

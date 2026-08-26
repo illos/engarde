@@ -64,11 +64,25 @@ function setSessionActive() {
   setQuery(api.sessions.getActive, { number: 1 });
 }
 
+/** v6 action-economy participant slots — empty outside combat (the view
+ * contract pins them as always-present). */
+const economyIdle = {
+  actionGrants: [],
+  turnGrants: [],
+  actionBudget: {},
+  triggeredThisRound: 0,
+  triggeredActionLimit: 1,
+  abilityUses: {},
+};
+
 const activeEncounter = {
   encounterId,
   status: 'active' as const,
   startedAt: 0,
   viewerIsDirector: true,
+  turnState: null,
+  villainActions: { usedThisRound: false, usedByAbility: [] },
+  resolutions: [],
   participants: [
     {
       id: 'fury',
@@ -78,6 +92,7 @@ const activeEncounter = {
       vitals: null,
       conditions: [],
       grants: [],
+      ...economyIdle,
     },
     {
       id: 'censor',
@@ -116,6 +131,7 @@ const activeEncounter = {
           sourceRecordSlug: 'skitterling',
         },
       ],
+      ...economyIdle,
     },
   ],
   terrainFacts: [],
@@ -360,6 +376,7 @@ describe('EncounterPanel', () => {
           },
           conditions: [],
           grants: [],
+          ...economyIdle,
         },
       ],
     });
