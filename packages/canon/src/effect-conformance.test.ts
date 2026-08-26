@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { type EncounterState, createSeededRandomSource } from '@engarde/engine';
+import {
+  type EncounterState,
+  createSeededRandomSource,
+  upgradeEncounterState,
+} from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { compileAbilities, executeIntents, tierOutcomeToIntents } from './effect-conformance.js';
 import { parseEffectText } from './effect-grammar.js';
@@ -24,7 +28,7 @@ async function ingestText(markdownPath: string): Promise<string> {
 }
 
 function freshState(): EncounterState {
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -39,7 +43,7 @@ function freshState(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-for-blood)', () => {
@@ -67,41 +71,50 @@ describe.skipIf(!sourceRoot)('channel-1 conformance: grammar → engine (blood-f
 
     // EXHAUSTIVE delta: the target gains exactly these two instances, in this
     // order, with these endings and provenance — and nothing else changes.
-    expect(state).toEqual({
-      schemaVersion: 5,
-      terrainFacts: [],
-      squads: [],
-      participants: {
-        fury: { id: 'fury', conditions: [], kind: 'hero', stats: null, stamina: null, grants: [] },
-        target: {
-          id: 'target',
-          kind: 'director-creature',
-          stats: null,
-          stamina: null,
-          grants: [],
-          conditions: [
-            {
-              instanceId: 'mcdm.heroes.v1/condition/bleeding#bfb-17-0',
-              conditionId: 'mcdm.heroes.v1/condition/bleeding',
-              ending: { kind: 'save-ends' },
-              source: {
-                participantId: 'fury',
-                effectArtifactId: 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood',
+    expect(state).toEqual(
+      upgradeEncounterState({
+        schemaVersion: 5,
+        terrainFacts: [],
+        squads: [],
+        participants: {
+          fury: {
+            id: 'fury',
+            conditions: [],
+            kind: 'hero',
+            stats: null,
+            stamina: null,
+            grants: [],
+          },
+          target: {
+            id: 'target',
+            kind: 'director-creature',
+            stats: null,
+            stamina: null,
+            grants: [],
+            conditions: [
+              {
+                instanceId: 'mcdm.heroes.v1/condition/bleeding#bfb-17-0',
+                conditionId: 'mcdm.heroes.v1/condition/bleeding',
+                ending: { kind: 'save-ends' },
+                source: {
+                  participantId: 'fury',
+                  effectArtifactId: 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood',
+                },
               },
-            },
-            {
-              instanceId: 'mcdm.heroes.v1/condition/weakened#bfb-17-1',
-              conditionId: 'mcdm.heroes.v1/condition/weakened',
-              ending: { kind: 'save-ends' },
-              source: {
-                participantId: 'fury',
-                effectArtifactId: 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood',
+              {
+                instanceId: 'mcdm.heroes.v1/condition/weakened#bfb-17-1',
+                conditionId: 'mcdm.heroes.v1/condition/weakened',
+                ending: { kind: 'save-ends' },
+                source: {
+                  participantId: 'fury',
+                  effectArtifactId: 'mcdm.heroes.v1/feature.ability.fury.level-1/blood-for-blood',
+                },
               },
-            },
-          ],
+            ],
+          },
         },
-      },
-    });
+      }),
+    );
   });
 
   it('round-trips: both conditions can then be saved off at end of turn', async () => {

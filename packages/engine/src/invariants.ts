@@ -54,7 +54,23 @@ export interface InvariantViolation {
     | 'unattributed-squad-change'
     | 'phantom-squad-claim'
     | 'squad-member-stamina-tracked'
-    | 'squad-weakness-multiply-applied';
+    | 'squad-weakness-multiply-applied'
+    | 'unattributed-budget-change'
+    | 'phantom-budget-claim'
+    | 'budget-over-capacity-unreceipted'
+    | 'unattributed-triggered-change'
+    | 'phantom-triggered-claim'
+    | 'triggered-over-limit-unreceipted'
+    | 'unattributed-ability-use-change'
+    | 'phantom-ability-use-claim'
+    | 'unattributed-turn-change'
+    | 'phantom-turn-claim'
+    | 'turns-over-allowance-unreceipted'
+    | 'unattributed-villain-change'
+    | 'phantom-villain-claim'
+    | 'duplicate-resolution-id'
+    | 'unattributed-resolution-change'
+    | 'phantom-resolution-claim';
   detail: string;
 }
 
@@ -726,6 +742,453 @@ export function checkInvariants(
           });
         }
       }
+    }
+  }
+
+  // ── Action-economy reconciliation (v6, R-0029/R-0030/R-0032/R-0033) ─────
+  // Every new counter/slot walks the SAME claim machinery (walkClaims /
+  // reconcileSetClaims — a bespoke walker is a design smell), and capacity
+  // checks are RECEIPT-AWARE per R-0030: a counter that rose above its
+  // printed capacity WITH a matching rule-violation warning in this
+  // dispatch's log is legal state; without one it is corruption. (The
+  // check is delta-gated: a counter left above capacity by an earlier,
+  // receipted dispatch does not re-flag.)
+  {
+    const violationReceipts = result.log
+      .filter((logEntry) => logEntry.kind === 'warning')
+      .map((logEntry) => logEntry.data.ruleViolation as { participantId?: unknown } | undefined)
+      .filter(
+        (receiptData): receiptData is { participantId?: unknown } => receiptData !== undefined,
+      );
+    const hasReceiptFor = (participantId: string): boolean =>
+      violationReceipts.some((receiptData) => receiptData.participantId === participantId);
+
+    // actionBudget: per participant × cost, {used, granted} walked.
+    interface BudgetClaim {
+      participantId: string;
+      cost: string;
+      usedFrom: number;
+      usedTo: number;
+      grantedFrom: number;
+      grantedTo: number;
+    }
+    const budgetClaims = collectClaimRows<BudgetClaim>(mutations, 'actionBudgetDeltas', (claim) =>
+      claim ? `${claim.participantId} ${claim.cost}` : undefined,
+    );
+    for (const participant of Object.values(result.state.participants)) {
+      const beforeParticipant = before.participants[participant.id];
+      const costs = new Set<string>([
+        ...Object.keys(beforeParticipant?.actionBudget ?? {}),
+        ...Object.keys(participant.actionBudget),
+      ]);
+      for (const [key, rows] of budgetClaims) {
+        const [pid, cost] = key.split(' ');
+        if (pid === participant.id && cost !== undefined && rows.length > 0) costs.add(cost);
+      }
+      for (const cost of costs) {
+        const beforeCell = beforeParticipant?.actionBudget[cost] ?? { used: 0, granted: 0 };
+        const afterCell = participant.actionBudget[cost] ?? { used: 0, granted: 0 };
+        const claims = budgetClaims.get(`${participant.id} ${cost}`) ?? [];
+        violations.push(
+          ...walkClaims(
+            { used: beforeCell.used, granted: beforeCell.granted },
+            { used: afterCell.used, granted: afterCell.granted },
+            claims,
+            {
+              from: (claim) => ({ used: claim.usedFrom, granted: claim.grantedFrom }),
+              to: (claim) => ({ used: claim.usedTo, granted: claim.grantedTo }),
+              equals: (a, b) => a.used === b.used && a.granted === b.granted,
+              phantom: (claim, walked) => ({
+                code: 'phantom-budget-claim',
+                detail: `${participant.id}/${cost}: claim starts at ${claim.usedFrom}/${claim.grantedFrom}, state was ${walked.used}/${walked.granted}`,
+              }),
+              unattributed: (walked) => ({
+                code: 'unattributed-budget-change',
+                detail: `${participant.id}/${cost}: ended at ${afterCell.used}/${afterCell.granted}; claims walk to ${walked.used}/${walked.granted}`,
+              }),
+            },
+          ),
+        );
+        // Receipt-aware capacity: printed budget is one of each own-turn
+        // action [rule.combat/turn]; `granted` counters extend it.
+        if (
+          afterCell.used > beforeCell.used &&
+          afterCell.used > 1 + afterCell.granted &&
+          !hasReceiptFor(participant.id)
+        ) {
+          violations.push({
+            code: 'budget-over-capacity-unreceipted',
+            detail: `${participant.id}/${cost}: used ${afterCell.used} of ${1 + afterCell.granted} with no rule-violation receipt [R-0030]`,
+          });
+        }
+      }
+
+      // triggeredThisRound walk + receipt-aware limit.
+      interface TriggeredClaim {
+        participantId: string;
+        from: number;
+        to: number;
+      }
+      const triggeredClaims = collectClaimRows<TriggeredClaim>(
+        mutations,
+        'triggeredCountDeltas',
+        (claim) => claim?.participantId,
+      );
+      const beforeTriggered = beforeParticipant?.triggeredThisRound ?? 0;
+      violations.push(
+        ...walkClaims(
+          beforeTriggered,
+          participant.triggeredThisRound,
+          triggeredClaims.get(participant.id) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-triggered-claim',
+              detail: `${participant.id}: claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-triggered-change',
+              detail: `${participant.id}: ended at ${participant.triggeredThisRound}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
+      if (
+        participant.triggeredThisRound > beforeTriggered &&
+        participant.triggeredThisRound > participant.traits.triggeredActionLimit &&
+        !hasReceiptFor(participant.id)
+      ) {
+        violations.push({
+          code: 'triggered-over-limit-unreceipted',
+          detail: `${participant.id}: ${participant.triggeredThisRound} triggered actions of limit ${participant.traits.triggeredActionLimit} with no rule-violation receipt [R-0030]`,
+        });
+      }
+
+      // abilityUses: per participant × abilityKey, counter triple walked.
+      interface AbilityUseClaim {
+        participantId: string;
+        abilityKey: string;
+        from: { round: number; turn: number; encounter: number };
+        to: { round: number; turn: number; encounter: number };
+      }
+      const abilityUseClaims = collectClaimRows<AbilityUseClaim>(
+        mutations,
+        'abilityUseDeltas',
+        (claim) => (claim ? `${claim.participantId} ${claim.abilityKey}` : undefined),
+      );
+      const abilityKeys = new Set<string>([
+        ...Object.keys(beforeParticipant?.abilityUses ?? {}),
+        ...Object.keys(participant.abilityUses),
+      ]);
+      for (const [key, rows] of abilityUseClaims) {
+        const [pid, abilityKey] = key.split(' ');
+        if (pid === participant.id && abilityKey !== undefined && rows.length > 0)
+          abilityKeys.add(abilityKey);
+      }
+      const zeroUses = { round: 0, turn: 0, encounter: 0 };
+      for (const abilityKey of abilityKeys) {
+        const beforeUses = beforeParticipant?.abilityUses[abilityKey] ?? zeroUses;
+        const afterUses = participant.abilityUses[abilityKey] ?? zeroUses;
+        violations.push(
+          ...walkClaims(
+            beforeUses,
+            afterUses,
+            abilityUseClaims.get(`${participant.id} ${abilityKey}`) ?? [],
+            {
+              from: (claim) => claim.from,
+              to: (claim) => claim.to,
+              equals: (a, b) =>
+                a.round === b.round && a.turn === b.turn && a.encounter === b.encounter,
+              phantom: (claim, walked) => ({
+                code: 'phantom-ability-use-claim',
+                detail: `${participant.id}/${abilityKey}: claim starts at ${JSON.stringify(claim.from)}, state was ${JSON.stringify(walked)}`,
+              }),
+              unattributed: (walked) => ({
+                code: 'unattributed-ability-use-change',
+                detail: `${participant.id}/${abilityKey}: ended at ${JSON.stringify(afterUses)}; claims walk to ${JSON.stringify(walked)}`,
+              }),
+            },
+          ),
+        );
+      }
+    }
+
+    // turnState: presence flips need their explicit claims; scalar fields
+    // walk under the singleton-key convention (the field name is the key);
+    // turnsTaken walks per turn id with receipt-aware allowance capacity.
+    const beforeTurn = before.turnState;
+    const afterTurn = result.state.turnState;
+    if (beforeTurn === null && afterTurn !== null) {
+      if (!mutations.some((logEntry) => logEntry.data.turnStateInitialized === true)) {
+        violations.push({
+          code: 'unattributed-turn-change',
+          detail: 'turnState appeared with no turnStateInitialized claim',
+        });
+      }
+    } else if (beforeTurn !== null && afterTurn === null) {
+      if (!mutations.some((logEntry) => logEntry.data.turnStateCleared === true)) {
+        violations.push({
+          code: 'unattributed-turn-change',
+          detail: 'turnState vanished with no turnStateCleared claim',
+        });
+      }
+    } else if (
+      beforeTurn !== null &&
+      afterTurn !== null &&
+      // A turnStateInitialized claim re-seeds the whole structure (the
+      // warned mid-combat re-begin) — field walks don't apply across it.
+      !mutations.some((logEntry) => logEntry.data.turnStateInitialized === true)
+    ) {
+      interface TurnFieldClaim {
+        field: string;
+        from: unknown;
+        to: unknown;
+      }
+      const fieldClaims = collectClaimRows<TurnFieldClaim>(
+        mutations,
+        'turnStateDeltas',
+        (claim) => claim?.field,
+      );
+      const fields = ['round', 'firstSide', 'sideToChoose', 'activeTurnId', 'lastTurnId'] as const;
+      for (const field of fields) {
+        violations.push(
+          ...walkClaims(beforeTurn[field], afterTurn[field], fieldClaims.get(field) ?? [], {
+            from: (claim) => claim.from as (typeof beforeTurn)[typeof field],
+            to: (claim) => claim.to as (typeof beforeTurn)[typeof field],
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-turn-claim',
+              detail: `turnState.${field}: claim starts at ${String(claim.from)}, state was ${String(walked)}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-turn-change',
+              detail: `turnState.${field}: ended at ${String(afterTurn[field])}; claims walk to ${String(walked)}`,
+            }),
+          }),
+        );
+      }
+      interface TurnsTakenClaim {
+        turnId: string;
+        from: number;
+        to: number;
+      }
+      const turnsTakenClaims = collectClaimRows<TurnsTakenClaim>(
+        mutations,
+        'turnsTakenDeltas',
+        (claim) => claim?.turnId,
+      );
+      const turnIds = new Set<string>([
+        ...Object.keys(beforeTurn.turnsTaken),
+        ...Object.keys(afterTurn.turnsTaken),
+        ...turnsTakenClaims.keys(),
+      ]);
+      for (const turnId of turnIds) {
+        const beforeCount = beforeTurn.turnsTaken[turnId] ?? 0;
+        const afterCount = afterTurn.turnsTaken[turnId] ?? 0;
+        violations.push(
+          ...walkClaims(beforeCount, afterCount, turnsTakenClaims.get(turnId) ?? [], {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-turn-claim',
+              detail: `turnsTaken[${turnId}]: claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-turn-change',
+              detail: `turnsTaken[${turnId}]: ended at ${afterCount}; claims walk to ${walked}`,
+            }),
+          }),
+        );
+        // Receipt-aware allowance: beyond the trait allowance needs either
+        // a rule-violation receipt or a consumed turn grant (silent printed
+        // escape) in this dispatch [R-0030].
+        const allowance = result.state.participants[turnId]?.traits.turnAllowance ?? 1;
+        if (afterCount > beforeCount && afterCount > allowance) {
+          const beforeTurnGrantIds = new Set(
+            (before.participants[turnId]?.grants ?? [])
+              .filter((grant) => grant.kind === 'turn')
+              .map((grant) => grant.grantId),
+          );
+          const grantConsumed = mutations.some(
+            (logEntry) =>
+              claimed(logEntry.data, 'removedGrantIds').some((id) => beforeTurnGrantIds.has(id)) ||
+              (typeof logEntry.data.grantMagnitudeConsumed === 'string' &&
+                beforeTurnGrantIds.has(logEntry.data.grantMagnitudeConsumed)),
+          );
+          if (!grantConsumed && !hasReceiptFor(turnId)) {
+            violations.push({
+              code: 'turns-over-allowance-unreceipted',
+              detail: `${turnId}: ${afterCount} turns of allowance ${allowance} with neither a rule-violation receipt nor a consumed turn grant [R-0030]`,
+            });
+          }
+        }
+      }
+    }
+
+    // villainActions: the per-round flag walks; per-encounter spends are a
+    // set reconciliation.
+    interface VillainClaim {
+      usedThisRoundFrom: boolean;
+      usedThisRoundTo: boolean;
+    }
+    const villainClaims: VillainClaim[] = mutations.flatMap((logEntry) => {
+      const rows = logEntry.data.villainEconomyDeltas;
+      return Array.isArray(rows) ? (rows as VillainClaim[]) : [];
+    });
+    violations.push(
+      ...walkClaims(
+        before.villainActions.usedThisRound,
+        result.state.villainActions.usedThisRound,
+        villainClaims,
+        {
+          from: (claim) => claim.usedThisRoundFrom,
+          to: (claim) => claim.usedThisRoundTo,
+          equals: (a, b) => a === b,
+          phantom: (claim, walked) => ({
+            code: 'phantom-villain-claim',
+            detail: `usedThisRound claim starts at ${String(claim.usedThisRoundFrom)}, state was ${String(walked)}`,
+          }),
+          unattributed: (walked) => ({
+            code: 'unattributed-villain-change',
+            detail: `usedThisRound ended at ${String(result.state.villainActions.usedThisRound)}; claims walk to ${String(walked)}`,
+          }),
+        },
+      ),
+    );
+    violations.push(
+      ...reconcileSetClaims(
+        before.villainActions.usedByAbility,
+        result.state.villainActions.usedByAbility,
+        mutations.flatMap((logEntry) => [
+          ...claimed(logEntry.data, 'villainAbilityUses').map((id) => ({
+            op: 'added' as const,
+            id,
+          })),
+          ...claimed(logEntry.data, 'villainAbilitiesCleared').map((id) => ({
+            op: 'removed' as const,
+            id,
+          })),
+        ]),
+        {
+          unattributed: (op, id) => ({
+            code: 'unattributed-villain-change',
+            detail: `villain ability ${id} ${op === 'added' ? 'spent' : 'cleared'} with no claim`,
+          }),
+          phantom: (op, id) => ({
+            code: 'phantom-villain-claim',
+            detail: `mutation entry claims ${op} villain ability ${id} but the state shows no such change`,
+          }),
+        },
+      ).violations,
+    );
+
+    // resolutionStack: id uniqueness, membership, phase walk, and
+    // append-only modification counts.
+    const seenResolutionIds = new Set<string>();
+    for (const stackEntry of result.state.resolutionStack) {
+      if (seenResolutionIds.has(stackEntry.resolutionId)) {
+        violations.push({ code: 'duplicate-resolution-id', detail: stackEntry.resolutionId });
+      }
+      seenResolutionIds.add(stackEntry.resolutionId);
+    }
+    const openedClaims: string[] = [];
+    for (const logEntry of mutations) {
+      const opened = logEntry.data.resolutionOpened as { resolutionId?: unknown } | undefined;
+      if (typeof opened?.resolutionId === 'string') openedClaims.push(opened.resolutionId);
+    }
+    violations.push(
+      ...reconcileSetClaims(
+        before.resolutionStack.map((stackEntry) => stackEntry.resolutionId),
+        result.state.resolutionStack.map((stackEntry) => stackEntry.resolutionId),
+        [
+          ...openedClaims.map((id) => ({ op: 'added' as const, id })),
+          ...mutations.flatMap((logEntry) =>
+            claimed(logEntry.data, 'resolutionsCleared').map((id) => ({
+              op: 'removed' as const,
+              id,
+            })),
+          ),
+        ],
+        {
+          unattributed: (op, id) => ({
+            code: 'unattributed-resolution-change',
+            detail: `resolution ${id} ${op === 'added' ? 'appeared' : 'vanished'} with no claim`,
+          }),
+          phantom: (op, id) => ({
+            code: 'phantom-resolution-claim',
+            detail: `mutation entry claims ${op} resolution ${id} but the state shows no such change`,
+          }),
+        },
+      ).violations,
+    );
+    interface PhaseClaim {
+      resolutionId: string;
+      from: string;
+      to: string;
+    }
+    const phaseClaims = collectClaimRows<PhaseClaim>(
+      mutations,
+      'resolutionPhaseDeltas',
+      (claim) => claim?.resolutionId,
+    );
+    interface ModificationCountClaim {
+      resolutionId: string;
+      from: number;
+      to: number;
+    }
+    const modificationClaims = collectClaimRows<ModificationCountClaim>(
+      mutations,
+      'resolutionModificationDeltas',
+      (claim) => claim?.resolutionId,
+    );
+    const beforeEntries = new Map(
+      before.resolutionStack.map((stackEntry) => [stackEntry.resolutionId, stackEntry]),
+    );
+    for (const stackEntry of result.state.resolutionStack) {
+      const beforeEntry = beforeEntries.get(stackEntry.resolutionId);
+      violations.push(
+        ...walkClaims(
+          beforeEntry?.phase ?? 'rolled',
+          stackEntry.phase,
+          phaseClaims.get(stackEntry.resolutionId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-resolution-claim',
+              detail: `${stackEntry.resolutionId}: phase claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-resolution-change',
+              detail: `${stackEntry.resolutionId}: phase ended at ${stackEntry.phase}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
+      violations.push(
+        ...walkClaims(
+          beforeEntry?.modifications.length ?? 0,
+          stackEntry.modifications.length,
+          modificationClaims.get(stackEntry.resolutionId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-resolution-claim',
+              detail: `${stackEntry.resolutionId}: modification-count claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-resolution-change',
+              detail: `${stackEntry.resolutionId}: ${stackEntry.modifications.length} modifications; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
     }
   }
 

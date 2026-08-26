@@ -1,6 +1,7 @@
 import type { LifecycleContext } from './condition-lifecycle.js';
 import type {
   EncounterState,
+  Grant,
   GrantScope,
   LogEntry,
   NextRollGrant,
@@ -77,6 +78,30 @@ export function scopeMatchesRoll(
   return roll.kind === 'ability-roll' && roll.isStrike;
 }
 
+/** The attacker/target binding of one roll-consumption question. `targetId`
+ * null = the roll-wide (uniform) pool question. */
+export interface RollBinding {
+  attackerId: string;
+  targetId: string | null;
+}
+
+/**
+ * The ONE consumption predicate for next-roll grants over a roll — taken as
+ * the (grant, roll, binding) TRIPLE so per-target-scoped consumption can
+ * land as a predicate change, not a call-site rewrite: the squad-attack
+ * family's proposed R-0034(d) scopes a squad member's outbound grants to
+ * the targets THAT member attacks. Today the binding does not narrow
+ * consumption (R-0013's roll-shape rule is binding-independent); the
+ * parameter is the seam.
+ */
+export function grantConsumedByRoll(
+  grant: NextRollGrant,
+  roll: { kind: 'ability-roll' | 'test'; isStrike: boolean },
+  _binding: RollBinding,
+): boolean {
+  return scopeMatchesRoll(grant.scope, roll);
+}
+
 export interface AddGrantArgs {
   target: ParticipantState;
   grant: NextRollGrant;
@@ -97,6 +122,7 @@ export function addGrant(
   const log: LogEntry[] = [];
   const collapsed = target.grants.filter(
     (existing) =>
+      existing.kind === 'next-roll' &&
       existing.source.effectArtifactId !== undefined &&
       existing.source.effectArtifactId === grant.source.effectArtifactId &&
       existing.polarity === grant.polarity &&
@@ -144,14 +170,121 @@ export interface ConsumedGrant {
  * threads state. */
 export function splitGrants(
   holder: ParticipantState,
-  shouldConsume: (grant: NextRollGrant) => boolean,
-): { remaining: NextRollGrant[]; consumed: NextRollGrant[] } {
-  const remaining: NextRollGrant[] = [];
-  const consumed: NextRollGrant[] = [];
+  shouldConsume: (grant: Grant) => boolean,
+): { remaining: Grant[]; consumed: Grant[] } {
+  const remaining: Grant[] = [];
+  const consumed: Grant[] = [];
   for (const grant of holder.grants) {
     (shouldConsume(grant) ? consumed : remaining).push(grant);
   }
   return { remaining, consumed };
+}
+
+/**
+ * Per-kind grant lifecycle registry (v6, design §3; red-team F4): each
+ * grant kind declares WHERE it expires, so a new kind adds a row here —
+ * never a sweep-site special case. Encounter end clears every kind (the
+ * R-0012 default posture). Consumption stays with the consumer that owns
+ * the kind's semantics (next-roll: the roll path [R-0013..R-0015]; action:
+ * the debit home; turn: start-turn).
+ */
+export const GRANT_KIND_REGISTRY: {
+  readonly [K in Grant['kind']]: {
+    /** Expires at the HOLDER's end-of-turn sweep. */
+    readonly endOfHolderTurn: (grant: Extract<Grant, { kind: K }>) => boolean;
+    /** Expires at the start-of-round sweep (end-of-round expiry). */
+    readonly endOfRound: (grant: Extract<Grant, { kind: K }>) => boolean;
+  };
+} = {
+  // Windowed next-roll grants expire at the holder's end-turn event
+  // [R-0016]; they never carry a round expiry.
+  'next-roll': {
+    endOfHolderTurn: (grant) => grant.window === 'end-of-targets-next-turn',
+    endOfRound: () => false,
+  },
+  action: {
+    endOfHolderTurn: () => false,
+    endOfRound: (grant) => grant.expiry === 'end-of-round',
+  },
+  turn: {
+    endOfHolderTurn: () => false,
+    endOfRound: (grant) => grant.expiry === 'end-of-round',
+  },
+};
+
+function grantExpires(grant: Grant, boundary: 'endOfHolderTurn' | 'endOfRound'): boolean {
+  switch (grant.kind) {
+    case 'next-roll':
+      return GRANT_KIND_REGISTRY['next-roll'][boundary](grant);
+    case 'action':
+      return GRANT_KIND_REGISTRY.action[boundary](grant);
+    case 'turn':
+      return GRANT_KIND_REGISTRY.turn[boundary](grant);
+  }
+}
+
+/**
+ * Append a non-collapsing grant (action / turn kinds, or a manual
+ * next-roll grant the Director asserts) with its machine-readable claim.
+ * The next-roll same-ability collapse rule stays in `addGrant` — it is
+ * that kind's printed stacking semantics, not a universal one.
+ */
+export function appendGrant(
+  state: EncounterState,
+  { target, grant }: { target: ParticipantState; grant: Grant },
+  context: LifecycleContext,
+): { state: EncounterState; log: LogEntry[] } {
+  const description =
+    grant.kind === 'action'
+      ? `an additional ${grant.cost}${grant.magnitude > 1 ? ` ×${grant.magnitude}` : ''} (escapes: ${
+          Object.entries(grant.escapes)
+            .filter(([, held]) => held)
+            .map(([name]) => name)
+            .join(', ') || 'none'
+        })`
+      : grant.kind === 'turn'
+        ? grant.mode === 'allowance'
+          ? `${grant.magnitude} extra turn allowance this round${grant.constraint === 'no-consecutive' ? ' (no consecutive turns)' : ''}`
+          : 'an inserted out-of-order turn'
+        : `a pending ${grant.polarity} on their next ${grant.scope === 'strike' ? 'strike' : 'power roll'}`;
+  return {
+    state: withParticipant(state, { ...target, grants: [...target.grants, grant] }),
+    log: [
+      entry(
+        context,
+        'mutation',
+        `${target.id} is granted ${description}`,
+        grant.source.effectArtifactId ? [grant.source.effectArtifactId] : [],
+        { addedGrantIds: [grant.grantId], grantAdded: grant },
+      ),
+    ],
+  };
+}
+
+/** Start-of-round expiry sweep: every grant whose kind's registry row
+ * declares an end-of-round expiry clears for every participant. */
+export function startOfRoundGrantSweep(
+  state: EncounterState,
+  context: LifecycleContext,
+): { state: EncounterState; log: LogEntry[] } {
+  const log: LogEntry[] = [];
+  let nextState = state;
+  for (const participant of Object.values(state.participants)) {
+    const expired = participant.grants.filter((grant) => grantExpires(grant, 'endOfRound'));
+    if (expired.length === 0) continue;
+    const remaining = participant.grants.filter((grant) => !grantExpires(grant, 'endOfRound'));
+    nextState = withParticipant(nextState, { ...participant, grants: remaining });
+    log.push(
+      entry(
+        context,
+        'mutation',
+        `granted actions/turns on ${participant.id} expire with the round`,
+        [GRANT_CANON.endOfTurn],
+        { removedGrantIds: expired.map((grant) => grant.grantId), grantsExpired: expired },
+      ),
+    );
+  }
+  return { state: nextState, log };
 }
 
 /**
@@ -166,9 +299,9 @@ export function endOfTurnGrantSweep(
   target: ParticipantState,
   context: LifecycleContext,
 ): { state: EncounterState; log: LogEntry[] } {
-  const expired = target.grants.filter((grant) => grant.window === 'end-of-targets-next-turn');
+  const expired = target.grants.filter((grant) => grantExpires(grant, 'endOfHolderTurn'));
   if (expired.length === 0) return { state, log: [] };
-  const remaining = target.grants.filter((grant) => grant.window !== 'end-of-targets-next-turn');
+  const remaining = target.grants.filter((grant) => !grantExpires(grant, 'endOfHolderTurn'));
   return {
     state: withParticipant(state, { ...target, grants: remaining }),
     log: [
@@ -204,7 +337,7 @@ export function endEncounterGrantSweep(
       entry(
         context,
         'mutation',
-        `pending next-roll modifiers on ${participant.id} end with the encounter`,
+        `pending grants on ${participant.id} end with the encounter`,
         [GRANT_CANON.endingEffects],
         {
           removedGrantIds: participant.grants.map((grant) => grant.grantId),

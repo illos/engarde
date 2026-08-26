@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { checkInvariants } from './invariants.js';
+import { upgradeEncounterState } from './migrate.js';
+import { ParticipantStateSchema } from './schemas.js';
 import type {
   AbilityEffectDataInput,
   EncounterState,
@@ -114,7 +116,7 @@ const BANDIT_STATS: ParticipantStats = {
 };
 
 function state(): EncounterState {
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -147,7 +149,7 @@ function state(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 function hammer(overrides: Record<string, unknown> = {}): Intent {
@@ -228,7 +230,7 @@ describe('the roll [rule.dice/power-roll, rule.dice/ability-roll]', () => {
 
   it('a fixed-bonus monster roll needs no actor stats', () => {
     const withGoblin = state();
-    withGoblin.participants.goblin = {
+    withGoblin.participants.goblin = ParticipantStateSchema.parse({
       id: 'goblin',
       conditions: [],
       sourceRecordId: null,
@@ -236,7 +238,7 @@ describe('the roll [rule.dice/power-roll, rule.dice/ability-roll]', () => {
       stats: null,
       stamina: null,
       grants: [],
-    };
+    });
     const result = dispatchChecked(withGoblin, {
       intentId: 'i2',
       actor: { kind: 'director' },
@@ -291,7 +293,7 @@ describe('refusals leave the world untouched (permissive-engine boundary)', () =
 
   it('a stats-null actor cannot bind a characteristic roll', () => {
     const withGoblin = state();
-    withGoblin.participants.goblin = {
+    withGoblin.participants.goblin = ParticipantStateSchema.parse({
       id: 'goblin',
       conditions: [],
       sourceRecordId: null,
@@ -299,7 +301,7 @@ describe('refusals leave the world untouched (permissive-engine boundary)', () =
       stats: null,
       stamina: null,
       grants: [],
-    };
+    });
     const result = applyIntent(
       withGoblin,
       {

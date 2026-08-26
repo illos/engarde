@@ -1,7 +1,14 @@
 import { type ApplyResult, type EngineContext, applyIntent } from './apply-intent.js';
 import { isMinion } from './damage.js';
 import { type InvariantViolation, checkInvariants } from './invariants.js';
-import type { EncounterState, Intent, LogEntry, ParticipantStats, SquadState } from './schemas.js';
+import {
+  type EncounterState,
+  EncounterStateSchema,
+  type Intent,
+  type LogEntry,
+  type ParticipantStats,
+  type SquadState,
+} from './schemas.js';
 
 /**
  * Driver harness v0 (engine-plan 4.1, pilot thin form): the programmatic
@@ -48,6 +55,16 @@ export interface DriverParticipant {
   /** Stat-block-sourced or Director-asserted stats; omitted = table-mode
    * actor (no stat automation, receipts only). */
   stats?: ParticipantStats;
+  /** Seeded trait data (v6, design §3): printed turn/trigger structure —
+   * a two-turn solo's allowance + no-consecutive constraint, Ajax's
+   * triggered-action limit, declared sub-actors. Asserted from the stat
+   * block at seed time, never derived. */
+  traits?: {
+    turnAllowance?: number;
+    noConsecutiveTurns?: boolean;
+    triggeredActionLimit?: number;
+    subActorOf?: string | null;
+  };
 }
 
 /**
@@ -172,8 +189,10 @@ export function initialEncounterState(
       captainId: null,
     };
   });
-  return {
-    schemaVersion: 5,
+  // Parsed through the schema so every v6 slot lands at its documented
+  // default (turnState null until begin-combat, empty budgets/counters).
+  return EncounterStateSchema.parse({
+    schemaVersion: 6,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
@@ -194,12 +213,13 @@ export function initialEncounterState(
                 }
               : null,
           grants: [],
+          ...(participant.traits ? { traits: participant.traits } : {}),
         },
       ]),
     ),
     terrainFacts: [],
     squads: seededSquads,
-  };
+  });
 }
 
 export function createDriver(

@@ -7,6 +7,7 @@ import {
   checkInvariants,
   createSeededRandomSource,
   resolvePowerRoll,
+  upgradeEncounterState,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import {
@@ -158,7 +159,7 @@ function diceForTier(ability: AbilityEffectData, tier: Tier): [number, number] {
 }
 
 function freshState(): EncounterState {
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -182,7 +183,7 @@ function freshState(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 function choicePayload(ability: AbilityEffectData, tier: Tier): Record<string, unknown> {

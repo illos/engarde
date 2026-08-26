@@ -3,7 +3,12 @@ import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
-import type { EffectProgramDataInput, Intent, ParticipantStats } from './schemas.js';
+import {
+  type EffectProgramDataInput,
+  type Intent,
+  ParticipantStateSchema,
+  type ParticipantStats,
+} from './schemas.js';
 
 const STATS: ParticipantStats = {
   staminaMax: 20,
@@ -407,7 +412,7 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
       ...seeded,
       participants: {
         ...seeded.participants,
-        target: {
+        target: ParticipantStateSchema.parse({
           id: 'target',
           kind: 'director-creature' as const,
           sourceRecordId: null,
@@ -415,7 +420,7 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
           stats: null,
           stamina: null,
           grants: [],
-        },
+        }),
       },
     };
     const dispatched = testIntent(testEffect(), { testRolls: { target: { dice: [9, 9] } } });

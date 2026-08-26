@@ -223,6 +223,7 @@ function clawsIntent(targets: string[], overrides: Record<string, unknown> = {})
 }
 
 const bareBane = (grantId: string, sourceAbility: string): NextRollGrant => ({
+  kind: 'next-roll',
   grantId,
   polarity: 'bane',
   scope: 'strike',
@@ -334,6 +335,7 @@ describe('outbound consumption (R-0013, R-0015)', () => {
 
   it('a power-roll-scoped grant is consumed by a test (a test is a power roll, R-0013)', () => {
     const grant: NextRollGrant = {
+      kind: 'next-roll',
       grantId: 'test-grant-3',
       polarity: 'bane',
       scope: 'power-roll',
@@ -390,6 +392,7 @@ describe('outbound consumption (R-0013, R-0015)', () => {
 describe('inbound marks are target-local (R-0014)', () => {
   it('one strike gains the edge against the marked target only, with per-target tiers', () => {
     const mark: NextRollGrant = {
+      kind: 'next-roll',
       grantId: 'mark-1',
       polarity: 'edge',
       scope: 'strike',
@@ -422,6 +425,7 @@ describe('inbound marks are target-local (R-0014)', () => {
 
   it('different-ability marks on one target combine into a double edge; both are spent', () => {
     const ghostMark: NextRollGrant = {
+      kind: 'next-roll',
       grantId: 'mark-ghost',
       polarity: 'edge',
       scope: 'strike',
@@ -451,6 +455,7 @@ describe('inbound marks are target-local (R-0014)', () => {
 
   it('a non-strike roll neither consumes nor sees a strike-scoped mark', () => {
     const mark: NextRollGrant = {
+      kind: 'next-roll',
       grantId: 'mark-2',
       polarity: 'edge',
       scope: 'strike',
@@ -479,6 +484,7 @@ describe('inbound marks are target-local (R-0014)', () => {
 
 describe('expiry (R-0012, R-0016)', () => {
   const windowed: NextRollGrant = {
+    kind: 'next-roll',
     grantId: 'windowed-1',
     polarity: 'bane',
     scope: 'power-roll',
@@ -538,6 +544,7 @@ describe('table-mode holders (stats: null)', () => {
       { id: 'husk', kind: 'director-creature' },
     ]);
     const mark: NextRollGrant = {
+      kind: 'next-roll',
       grantId: 'mark-husk',
       polarity: 'edge',
       scope: 'strike',

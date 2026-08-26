@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyIntent } from './apply-intent.js';
 import { CANON, SAVING_THROW } from './condition-lifecycle.js';
 import { createSeededRandomSource } from './determinism.js';
-import type { EncounterState, Intent } from './schemas.js';
+import { upgradeEncounterState } from './migrate.js';
+import { type EncounterState, type Intent, ParticipantStateSchema } from './schemas.js';
 
 /**
  * Fixtures use REAL corpus records only (prime directive): the condition and
@@ -18,7 +19,7 @@ const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
 const DYING = 'mcdm.heroes.v1/rule.health/dying';
 
 function freshState(): EncounterState {
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -33,7 +34,7 @@ function freshState(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 function dispatch(state: EncounterState, intent: Intent, seed = 1): ReturnType<typeof applyIntent> {
@@ -224,7 +225,7 @@ describe('remove-condition', () => {
 
   it('refuses to remove dying-mandated bleeding while the hero is still dying', () => {
     const before = freshState();
-    before.participants.hero = {
+    before.participants.hero = ParticipantStateSchema.parse({
       id: 'hero',
       kind: 'hero',
       stats: {
@@ -247,7 +248,7 @@ describe('remove-condition', () => {
           source: { effectArtifactId: DYING },
         },
       ],
-    };
+    });
 
     const { state, log } = dispatch(before, {
       intentId: 'i2',

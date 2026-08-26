@@ -240,15 +240,22 @@ export function createPlaySession(options: {
         );
       }
       for (const grant of participant.grants) {
-        // Pending next-roll modifiers [R-0012..R-0016]: outbound rides this
-        // participant's next matching roll; inbound rides the next
-        // qualifying strike against them.
+        // Pending grants: next-roll modifiers [R-0012..R-0016] plus the v6
+        // action/turn kinds (design §3).
         const shape =
-          grant.direction === 'inbound'
-            ? `next strike against them: ${grant.polarity}`
-            : `${grant.polarity} on next ${grant.scope === 'strike' ? 'strike' : 'power roll'}`;
+          grant.kind === 'next-roll'
+            ? grant.direction === 'inbound'
+              ? `next strike against them: ${grant.polarity}`
+              : `${grant.polarity} on next ${grant.scope === 'strike' ? 'strike' : 'power roll'}`
+            : grant.kind === 'action'
+              ? `additional ${grant.cost}${grant.magnitude > 1 ? ` ×${grant.magnitude}` : ''}`
+              : grant.mode === 'allowance'
+                ? `extra turn allowance ×${grant.magnitude}`
+                : 'inserted out-of-order turn';
         const until =
-          grant.window === 'end-of-targets-next-turn' ? ' until end of their next turn' : '';
+          grant.kind === 'next-roll' && grant.window === 'end-of-targets-next-turn'
+            ? ' until end of their next turn'
+            : '';
         const via = grant.source.effectArtifactId
           ? ` via ${shortName(grant.source.effectArtifactId)}`
           : '';

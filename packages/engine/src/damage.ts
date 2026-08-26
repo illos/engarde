@@ -274,7 +274,15 @@ function reduceStamina(
       entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {}),
     );
     const applied = applyConditionInstance(
-      { schemaVersion: 5, participants: { [result.id]: result }, terrainFacts: [], squads: [] },
+      {
+        schemaVersion: 6,
+        participants: { [result.id]: result },
+        terrainFacts: [],
+        squads: [],
+        turnState: null,
+        villainActions: { usedThisRound: false, usedByAbility: [] },
+        resolutionStack: [],
+      },
       {
         target: result,
         instance: {
@@ -298,7 +306,15 @@ function reduceStamina(
   if (!deadBefore && wouldBeDead) {
     if (options.knockOut) {
       const applied = applyConditionInstance(
-        { schemaVersion: 5, participants: { [result.id]: result }, terrainFacts: [], squads: [] },
+        {
+          schemaVersion: 6,
+          participants: { [result.id]: result },
+          terrainFacts: [],
+          squads: [],
+          turnState: null,
+          villainActions: { usedThisRound: false, usedByAbility: [] },
+          resolutionStack: [],
+        },
         {
           target: result,
           instance: {

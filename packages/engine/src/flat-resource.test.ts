@@ -526,7 +526,7 @@ describe('migration v3 → v4', () => {
       },
     };
     const lifted = upgradeEncounterState(v3);
-    expect(lifted.schemaVersion).toBe(5);
+    expect(lifted.schemaVersion).toBe(6);
     expect(lifted.terrainFacts).toEqual([]);
     expect(lifted.participants.goblin?.stamina).toEqual({
       current: 12,

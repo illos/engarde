@@ -1,4 +1,5 @@
-import { targetCountOf } from './ability-execution.js';
+import { abilityCostOf, targetCountOf } from './ability-execution.js';
+import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type DamageOutcome,
@@ -17,13 +18,20 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import { GRANT_CANON, addGrant, grantContribution, splitGrants } from './grant-lifecycle.js';
+import {
+  GRANT_CANON,
+  addGrant,
+  grantConsumedByRoll,
+  grantContribution,
+  splitGrants,
+} from './grant-lifecycle.js';
 import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type {
   EncounterState,
   LogEntry,
+  NextRollGrant,
   ParsedIntent,
   ParticipantState,
   TestTier,
@@ -222,6 +230,59 @@ export function executeUseEffect(
     }
   }
 
+  // Remaining whole-dispatch refusal conditions, hoisted BEFORE the
+  // economy debit so a refusal never follows a mutation
+  // (refusal-with-change holds by construction).
+  if (effect.resolution.kind === 'spend-recovery') {
+    for (const targetId of targets) {
+      if (intent.payload.recoverySpends[targetId] === undefined) {
+        return {
+          state,
+          log: [
+            entry(
+              context,
+              'refusal',
+              `no accept/decline recorded for ${targetId} — a Recovery offer needs every bound participant's answer`,
+              refs(effect, [HEALTH_CANON.recoveries]),
+              receipt(intent),
+            ),
+          ],
+        };
+      }
+    }
+  }
+  if (effect.resolution.kind === 'terrain-fact') {
+    const factId = `${effect.effectArtifactId}#${effect.effectOrdinal}#${intent.intentId}-terrain`;
+    if (state.terrainFacts.some((fact) => fact.factId === factId)) {
+      return {
+        state,
+        log: [
+          entry(
+            context,
+            'refusal',
+            `terrain fact ${factId} already recorded`,
+            refs(effect),
+            receipt(intent),
+          ),
+        ],
+      };
+    }
+  }
+  if (intent.payload.operatorId !== undefined && !state.participants[intent.payload.operatorId]) {
+    return {
+      state,
+      log: [
+        entry(
+          context,
+          'refusal',
+          `unknown participant ${intent.payload.operatorId}`,
+          refs(effect),
+          receipt(intent),
+        ),
+      ],
+    };
+  }
+
   const log: LogEntry[] = [
     entry(
       context,
@@ -244,13 +305,47 @@ export function executeUseEffect(
     );
   }
 
+  // ── action-economy debit (v6, R-0029/R-0030; combat only) — the same
+  // one-home helper use-ability routes through [design §3].
+  let economyState = state;
+  const cost = abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType });
+  if (state.turnState !== null && cost !== null) {
+    if (effect.operatorPays && intent.payload.operatorId === undefined) {
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `${effect.effectArtifactId} is operator-paid ("${effect.actionType}") but no operatorId was named — the ${cost} debit is table-adjudicated`,
+          refs(effect, [ECONOMY_CANON.turn]),
+          { operatorDebitUnassigned: { effectArtifactId: effect.effectArtifactId, cost } },
+        ),
+      );
+    } else {
+      const debited = debitActionCost(
+        economyState,
+        {
+          cost,
+          payerId: effect.operatorPays
+            ? (intent.payload.operatorId ?? intent.payload.actorParticipantId)
+            : intent.payload.actorParticipantId,
+          abilityKey: effect.effectArtifactId,
+          usesPerRound: effect.usesPerRound,
+          partOf: intent.payload.partOf ?? null,
+        },
+        context,
+      );
+      economyState = debited.state;
+      log.push(...debited.log);
+    }
+  }
+
   if (effect.resolution.kind === 'test') {
-    return executeTest(state, intent, effect.resolution, log, context, random);
+    return executeTest(economyState, intent, effect.resolution, log, context, random);
   }
 
   if (effect.resolution.kind === 'next-roll-grant') {
     const resolution = effect.resolution;
-    let nextState = state;
+    let nextState = economyState;
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
       if (!target) continue; // presence proven by the refusal gates
@@ -259,6 +354,7 @@ export function executeUseEffect(
         {
           target,
           grant: {
+            kind: 'next-roll',
             grantId: `${effect.effectArtifactId}#${intent.intentId}-${targetId}`,
             polarity: resolution.polarity,
             scope: resolution.scope,
@@ -285,22 +381,7 @@ export function executeUseEffect(
 
   if (effect.resolution.kind === 'spend-recovery') {
     const resolution = effect.resolution;
-    for (const targetId of targets) {
-      if (intent.payload.recoverySpends[targetId] === undefined) {
-        return {
-          state,
-          log: [
-            entry(
-              context,
-              'refusal',
-              `no accept/decline recorded for ${targetId} — a Recovery offer needs every bound participant's answer`,
-              refs(effect, [HEALTH_CANON.recoveries]),
-              receipt(intent),
-            ),
-          ],
-        };
-      }
-    }
+    // The missing-answer refusal is hoisted above the economy debit.
     if (resolution.singular && targets.length > 1) {
       log.push(
         entry(
@@ -312,7 +393,7 @@ export function executeUseEffect(
         ),
       );
     }
-    const recoveryState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
+    const recoveryState = applyPerTarget(economyState, targets, effect, log, (target, targetId) => {
       if (intent.payload.recoverySpends[targetId] !== true) {
         log.push(
           entry(
@@ -434,7 +515,7 @@ export function executeUseEffect(
         ),
       );
     }
-    const regainState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
+    const regainState = applyPerTarget(economyState, targets, effect, log, (target, targetId) => {
       // R-0027: a LIVING SQUAD MEMBER is refused per-binding — "minions
       // can't regain Stamina, and can't gain temporary Stamina during a
       // battle"; sibling bindings proceed. A minion outside any seeded
@@ -507,20 +588,7 @@ export function executeUseEffect(
     // Ordinal in the id: a future batched dispatch of one artifact's two
     // terrain effects must not collide (audit L-4 hardening).
     const factId = `${effect.effectArtifactId}#${effect.effectOrdinal}#${intent.intentId}-terrain`;
-    if (state.terrainFacts.some((fact) => fact.factId === factId)) {
-      return {
-        state,
-        log: [
-          entry(
-            context,
-            'refusal',
-            `terrain fact ${factId} already exists`,
-            refs(effect, [TERRAIN_CANON.difficultTerrain]),
-            receipt(intent),
-          ),
-        ],
-      };
-    }
+    // (The duplicate-factId refusal is hoisted above the economy debit.)
     const fact = {
       factId,
       terrain: effect.resolution.terrain,
@@ -539,7 +607,7 @@ export function executeUseEffect(
         { terrainFactAdded: fact },
       ),
     );
-    return { state: { ...state, terrainFacts: [...state.terrainFacts, fact] }, log };
+    return { state: { ...economyState, terrainFacts: [...economyState.terrainFacts, fact] }, log };
   }
 
   if (effect.resolution.kind === 'table') {
@@ -554,10 +622,10 @@ export function executeUseEffect(
         },
       }),
     );
-    return { state, log };
+    return { state: economyState, log };
   }
 
-  let nextState = state;
+  let nextState = economyState;
   if (effect.resolution.kind === 'damage') {
     // Same-squad minion targets aggregate into ONE pool application per
     // squad [R-0026]; the effect header's Area keyword is the printed
@@ -700,9 +768,20 @@ function executeTest(
     // A test is a power roll: the roller's pending outbound power-roll-scoped
     // grants are consumed by it and contribute to its modifier pool; strike-
     // scoped grants sit dormant across tests [R-0013, R-0015].
-    const { remaining, consumed } = splitGrants(
+    const split = splitGrants(
       target,
-      (grant) => grant.direction === 'outbound' && grant.scope === 'power-roll',
+      (grant) =>
+        grant.kind === 'next-roll' &&
+        grantConsumedByRoll(
+          grant,
+          { kind: 'test', isStrike: false },
+          { attackerId: targetId, targetId: null },
+        ) &&
+        grant.direction === 'outbound',
+    );
+    const remaining = split.remaining;
+    const consumed = split.consumed.filter(
+      (grant): grant is NextRollGrant => grant.kind === 'next-roll',
     );
     let grantEdges = 0;
     let grantBanes = 0;

@@ -1,4 +1,10 @@
 import { executeUseAbility } from './ability-execution.js';
+import {
+  ECONOMY_CANON,
+  debitActionCost,
+  isOnActiveTurn,
+  sideOfParticipant,
+} from './action-economy.js';
 import { runBoundarySweeps } from './boundary-sweeps.js';
 import {
   CANON,
@@ -20,7 +26,9 @@ import {
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
+import { appendGrant } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
+import { commitResolutionEntry, openResolutionsOwnedBy } from './resolution.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 
 /**
@@ -113,14 +121,49 @@ export function applyIntent(
           ],
         };
       }
-      return removeConditionInstance(
-        state,
-        target,
+      // R-0001 wiring (pilot step 7): "A creature who imposes an effect on
+      // another creature using an ability can end that effect as a free
+      // maneuver unless the ability says otherwise" [chapter/classes
+      // §Ending Effects] — and free maneuvers are TURN-ONLY (R-0001). An
+      // imposer ending their imposed effect routes through the one debit
+      // home as a free maneuver: off-turn use warns-and-applies; the
+      // printed "(no action required)" ability-text escape is asserted at
+      // dispatch via noActionRequired.
+      let preState = state;
+      const preLog: LogEntry[] = [];
+      if (
+        state.turnState !== null &&
+        instance !== undefined &&
+        instance.source.effectArtifactId !== undefined &&
+        intent.actor.kind === 'participant' &&
+        intent.actor.participantId === instance.source.participantId &&
+        intent.actor.participantId !== target.id &&
+        !intent.payload.noActionRequired
+      ) {
+        const debited = debitActionCost(
+          preState,
+          {
+            cost: 'free-maneuver',
+            payerId: intent.actor.participantId,
+            abilityKey: instance.source.effectArtifactId,
+            usesPerRound: null,
+            partOf: null,
+          },
+          lifecycleContext,
+        );
+        preState = debited.state;
+        preLog.push(...debited.log);
+      }
+      const liveTarget = preState.participants[intent.payload.target] ?? target;
+      const removed = removeConditionInstance(
+        preState,
+        liveTarget,
         intent.payload.instanceId,
         lifecycleContext,
         [CANON.creatureEndsAbilityEffect],
-        `condition instance removed from ${target.id}${intent.payload.reason ? `: ${intent.payload.reason}` : ''}`,
+        `condition instance removed from ${liveTarget.id}${intent.payload.reason ? `: ${intent.payload.reason}` : ''}`,
       );
+      return { state: removed.state, log: [...preLog, ...removed.log] };
     }
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);
@@ -228,26 +271,142 @@ export function applyIntent(
       return { state: withParticipant(state, outcome.participant), log: outcome.log };
     }
     case 'end-turn': {
-      const target = state.participants[intent.payload.participantId];
-      if (!target) {
+      const turnId = intent.payload.participantId;
+      const endingSquad = state.squads.find((candidate) => candidate.squadId === turnId);
+      const endingParticipant = state.participants[turnId];
+      if (!endingParticipant && !endingSquad) {
         return {
           state,
-          log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
+          log: [refusal(intent, `unknown participant ${turnId}`)],
         };
       }
+      // The participants whose per-turn boundary passes: the ending
+      // participant, or every living member of the ending squad [R-0033].
+      const endingIds = endingSquad ? [...endingSquad.memberIds] : [turnId];
+      const log: LogEntry[] = [];
+      let nextState = state;
+      const skipInstanceIds = new Set<string>();
+
+      if (state.turnState !== null) {
+        // ── force-commit open resolutions owned by the ending actor FIRST
+        // [design §3, red-team F8]: printed damage is never discarded. A
+        // missing re-supplied payload is a structural refusal, checked
+        // before any mutation.
+        const owned = openResolutionsOwnedBy(state, [turnId, ...endingIds]);
+        for (const open of owned) {
+          if (intent.payload.commitPayloads[open.resolutionId] === undefined) {
+            return {
+              state,
+              log: [
+                refusal(
+                  intent,
+                  `resolution ${open.resolutionId} (owned by ${open.actorId}) is still open — end-turn must re-supply its payload via commitPayloads so the printed damage is never discarded [R-0032]`,
+                ),
+              ],
+            };
+          }
+        }
+        const preCommitInstances = new Map<string, Set<string>>();
+        for (const endingId of endingIds) {
+          const participant = state.participants[endingId];
+          if (participant) {
+            preCommitInstances.set(
+              endingId,
+              new Set(participant.conditions.map((instance) => instance.instanceId)),
+            );
+          }
+        }
+        for (const open of [...owned].reverse()) {
+          const payload = intent.payload.commitPayloads[open.resolutionId];
+          if (payload === undefined) continue; // proven present above
+          const committed = commitResolutionEntry(
+            nextState,
+            { resolutionId: open.resolutionId, payload, forced: true },
+            lifecycleContext,
+          );
+          if (!committed.ok) {
+            return { state, log: [refusal(intent, committed.refusal)] };
+          }
+          nextState = committed.state;
+          log.push(...committed.log);
+        }
+        // Saving throws run AFTER the forced commit: a condition the
+        // commit just imposed on an ending participant saves next turn,
+        // not this one [design §3].
+        for (const endingId of endingIds) {
+          const before = preCommitInstances.get(endingId);
+          const participant = nextState.participants[endingId];
+          if (!before || !participant) continue;
+          for (const instance of participant.conditions) {
+            if (!before.has(instance.instanceId)) skipInstanceIds.add(instance.instanceId);
+          }
+        }
+      }
+
       // Per-slot boundary behavior (conditions' saving throws + expiry,
-      // grants' windowed expiry [R-0016]) lives in the boundary-sweep
-      // registry; the handler names the boundary once.
-      return runBoundarySweeps(
-        state,
-        {
-          kind: 'end-of-turn',
-          participantId: intent.payload.participantId,
-          rolls: intent.payload.rolls ?? {},
-          rollSavingThrow: () => context.random.roll(SAVING_THROW.die),
-        },
-        lifecycleContext,
-      );
+      // grants' windowed expiry [R-0016], per-turn ability counters) lives
+      // in the boundary-sweep registry; the handler names the boundary
+      // once per ending participant.
+      for (const endingId of endingIds) {
+        if (!nextState.participants[endingId]) continue;
+        const swept = runBoundarySweeps(
+          nextState,
+          {
+            kind: 'end-of-turn',
+            participantId: endingId,
+            rolls: intent.payload.rolls ?? {},
+            rollSavingThrow: () => context.random.roll(SAVING_THROW.die),
+            skipInstanceIds,
+          },
+          lifecycleContext,
+        );
+        nextState = swept.state;
+        log.push(...swept.log);
+      }
+
+      // ── turn bookkeeping [design §3] ─────────────────────────────────
+      const turnState = nextState.turnState;
+      if (turnState !== null) {
+        if (turnState.activeTurnId !== null && turnState.activeTurnId !== turnId) {
+          log.push({
+            kind: 'warning',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.turn],
+            message: `end-turn for ${turnId} while the active turn is ${turnState.activeTurnId} — applied anyway (permissive engine, R-0030)`,
+            data: {
+              ruleViolation: {
+                kind: 'off-turn',
+                participantId: turnId,
+                cost: null,
+                abilityKey: null,
+              },
+            },
+          });
+        }
+        const deltas: Array<Record<string, unknown>> = [];
+        if (turnState.activeTurnId !== null) {
+          deltas.push({ field: 'activeTurnId', from: turnState.activeTurnId, to: null });
+        }
+        if (turnState.lastTurnId !== turnId) {
+          deltas.push({ field: 'lastTurnId', from: turnState.lastTurnId, to: turnId });
+        }
+        if (deltas.length > 0) {
+          nextState = {
+            ...nextState,
+            turnState: { ...turnState, activeTurnId: null, lastTurnId: turnId },
+          };
+          log.push({
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.turn],
+            message: `${turnId} ends their turn`,
+            data: { turnStateDeltas: deltas },
+          });
+        }
+      }
+      return { state: nextState, log };
     }
     case 'end-encounter': {
       // Per-slot boundary behavior (conditions' ending-effects sweep with
@@ -259,6 +418,592 @@ export function applyIntent(
         { kind: 'end-of-encounter', keepInstanceIds: intent.payload.keepInstanceIds },
         lifecycleContext,
       );
+    }
+    case 'begin-combat': {
+      // "Sometimes figuring out who gets to take the first turn in combat
+      // is automatic. If all the creatures on one side are surprised, then
+      // a creature on the other side gets to act first." Otherwise "the
+      // Director or a player they choose rolls a d10. On a 6 or higher,
+      // the players determine who goes first—the heroes' side or the other
+      // side. Otherwise, the Director decides which side goes first."
+      // [rule.combat/combat-round §Determine Who Goes First]. Deviations
+      // are warn-and-apply — project permissive policy, NOT printed
+      // authority (red-team ledger).
+      const log: LogEntry[] = [];
+      const payload = intent.payload;
+      if (state.turnState !== null) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.combatRound],
+          message: `combat already begun (round ${state.turnState.round}) — reinitialized on Director assertion (permissive engine, R-0030)`,
+          data: { ruleViolation: { kind: 'combat-reinitialized', participantId: null } },
+        });
+      }
+      let roll: number | null = null;
+      if (payload.surprisedSide !== null) {
+        if (payload.firstSide === payload.surprisedSide) {
+          log.push({
+            kind: 'warning',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.combatRound, ECONOMY_CANON.surprised],
+            message: `the entirely-surprised side (${payload.surprisedSide}) is asserted to act first — "If all the creatures on one side are surprised, then a creature on the other side gets to act first." Applied anyway (permissive engine, R-0030)`,
+            data: {
+              ruleViolation: { kind: 'surprised-first-side', participantId: null },
+            },
+          });
+        }
+      } else {
+        roll = payload.roll ?? context.random.roll(10);
+        const assignedTo = roll >= 6 ? 'players' : 'director';
+        if (payload.chosenBy !== undefined && payload.chosenBy !== assignedTo) {
+          log.push({
+            kind: 'warning',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.combatRound],
+            message: `the d10 rolled ${roll}, assigning the first-side choice to the ${assignedTo === 'players' ? 'players ("On a 6 or higher, the players determine who goes first")' : 'Director ("Otherwise, the Director decides which side goes first")'} — ${payload.chosenBy} chose instead. Applied anyway (Director-deviation policy, R-0030)`,
+            data: { ruleViolation: { kind: 'first-side-choice-deviation', participantId: null } },
+          });
+        }
+      }
+      const turnState = {
+        round: 1,
+        firstSide: payload.firstSide,
+        sideToChoose: payload.firstSide,
+        activeTurnId: null,
+        lastTurnId: null,
+        turnsTaken: {},
+      };
+      log.push({
+        kind: 'mutation',
+        intentId: intent.intentId,
+        actor: intent.actor,
+        canonRefs: [ECONOMY_CANON.combatRound],
+        message: `combat begins — round 1, ${payload.firstSide} act first${roll !== null ? ` (d10: ${roll}${payload.roll !== undefined ? ', asserted' : ''})` : payload.surprisedSide !== null ? ` (${payload.surprisedSide} are entirely surprised and cede the first action)` : ''}`,
+        data: {
+          turnStateInitialized: true,
+          beginCombat: {
+            firstSide: payload.firstSide,
+            surprisedSide: payload.surprisedSide,
+            roll,
+            rollAsserted: payload.roll !== undefined,
+          },
+          // Re-begin claims: a mid-combat reinitialization clears the
+          // villain economy and the resolution stack; the claims keep the
+          // state↔log walk whole.
+          ...(state.villainActions.usedThisRound
+            ? { villainEconomyDeltas: [{ usedThisRoundFrom: true, usedThisRoundTo: false }] }
+            : {}),
+          ...(state.villainActions.usedByAbility.length > 0
+            ? { villainAbilitiesCleared: state.villainActions.usedByAbility }
+            : {}),
+          ...(state.resolutionStack.length > 0
+            ? {
+                resolutionsCleared: state.resolutionStack.map(
+                  (candidate) => candidate.resolutionId,
+                ),
+              }
+            : {}),
+        },
+      });
+      return {
+        state: {
+          ...state,
+          turnState,
+          villainActions: { usedThisRound: false, usedByAbility: [] },
+          resolutionStack: [],
+        },
+        log,
+      };
+    }
+    case 'start-turn': {
+      const turnState = state.turnState;
+      if (turnState === null) {
+        return {
+          state,
+          log: [refusal(intent, 'combat has not begun — dispatch begin-combat first')],
+        };
+      }
+      const turnId = intent.payload.turnId;
+      const squad = state.squads.find((candidate) => candidate.squadId === turnId);
+      const participant = state.participants[turnId];
+      if (!participant && !squad) {
+        return { state, log: [refusal(intent, `unknown participant or squad ${turnId}`)] };
+      }
+      const log: LogEntry[] = [];
+      let nextState = state;
+      const side: 'heroes' | 'director' = participant ? sideOfParticipant(participant) : 'director';
+
+      if (participant?.traits.subActorOf !== null && participant?.traits.subActorOf !== undefined) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.turn],
+          message: `${turnId} is a declared sub-actor of ${participant.traits.subActorOf} — sub-actors spend budgets within their owner's turn and do not take turns of their own. Applied anyway (permissive engine, R-0030)`,
+          data: { ruleViolation: { kind: 'sub-actor-turn', participantId: turnId } },
+        });
+      }
+      const memberSquad = participant
+        ? state.squads.find((candidate) => candidate.memberIds.includes(turnId))
+        : undefined;
+      if (memberSquad) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.squad],
+          message: `${turnId} is a member of ${memberSquad.squadId} — "All members of a minion squad act together on the same initiative" (the squad occupies one turn slot) [R-0033]. Applied anyway (permissive engine, R-0030)`,
+          data: { ruleViolation: { kind: 'squad-member-turn', participantId: turnId } },
+        });
+      }
+
+      // ── allowance: printed one turn per round; solo traits and turn
+      // grants extend it; a turn grant consumes SILENTLY [R-0030] ─────────
+      const taken = turnState.turnsTaken[turnId] ?? 0;
+      const allowance = participant?.traits.turnAllowance ?? 1;
+      let consumedTurnGrant = false;
+      let noConsecutiveFromGrant = false;
+      if (taken >= allowance && participant) {
+        const grant = participant.grants.find(
+          (candidate) => candidate.kind === 'turn' && candidate.mode === 'allowance',
+        );
+        if (grant && grant.kind === 'turn') {
+          consumedTurnGrant = true;
+          noConsecutiveFromGrant = grant.constraint === 'no-consecutive';
+          const remaining =
+            grant.magnitude > 1
+              ? participant.grants.map((candidate) =>
+                  candidate === grant
+                    ? { ...candidate, magnitude: candidate.magnitude - 1 }
+                    : candidate,
+                )
+              : participant.grants.filter((candidate) => candidate !== grant);
+          nextState = {
+            ...nextState,
+            participants: {
+              ...nextState.participants,
+              [turnId]: { ...participant, grants: remaining },
+            },
+          };
+          log.push({
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.combatRound],
+            message: `${turnId} takes an additional turn through a granted allowance (printed escape — no warning) [R-0030]`,
+            data:
+              grant.magnitude > 1
+                ? { grantMagnitudeConsumed: grant.grantId }
+                : { removedGrantIds: [grant.grantId] },
+          });
+        }
+      }
+      if (taken >= allowance && !consumedTurnGrant) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.combatRound],
+          message: `${turnId} acts again after taking ${taken} turn(s) this round — "Unless an ability or special rule allows them to do so, any creature who has taken a turn during a combat round can't act again until a new round begins". Applied anyway (permissive engine, R-0030)`,
+          data: { ruleViolation: { kind: 'already-acted', participantId: turnId } },
+        });
+      }
+
+      // ── no-consecutive: the printed multi-turn solo constraint ─────────
+      const noConsecutive =
+        (participant?.traits.noConsecutiveTurns ?? false) || noConsecutiveFromGrant;
+      if (noConsecutive && turnState.lastTurnId === turnId) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.combatRound],
+          message: `${turnId} takes consecutive turns — their printed multi-turn allowance says "They can't take turns consecutively". Applied anyway (permissive engine, R-0030)`,
+          data: { ruleViolation: { kind: 'consecutive-turns', participantId: turnId } },
+        });
+      }
+
+      // ── alternation: warn out-of-order unless an insertion grant covers
+      // it or the choosing side has no living unspent turns (tail-of-round
+      // free order) ──────────────────────────────────────────────────────
+      let consumedInsertion = false;
+      if (side !== turnState.sideToChoose) {
+        const insertionHolder = nextState.participants[turnId];
+        const insertion = insertionHolder?.grants.find(
+          (candidate) => candidate.kind === 'turn' && candidate.mode === 'insertion',
+        );
+        if (insertionHolder && insertion) {
+          consumedInsertion = true;
+          nextState = {
+            ...nextState,
+            participants: {
+              ...nextState.participants,
+              [turnId]: {
+                ...insertionHolder,
+                grants: insertionHolder.grants.filter((candidate) => candidate !== insertion),
+              },
+            },
+          };
+          log.push({
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.combatRound],
+            message: `${turnId} takes an inserted out-of-order turn through a grant (printed-scheduling escape — no warning) [R-0030]`,
+            data: { removedGrantIds: [insertion.grantId] },
+          });
+        }
+        if (!consumedInsertion) {
+          const sideExhausted = Object.values(state.participants)
+            .filter(
+              (candidate) =>
+                sideOfParticipant(candidate) === turnState.sideToChoose &&
+                candidate.traits.subActorOf === null &&
+                !state.squads.some((squadCandidate) =>
+                  squadCandidate.memberIds.includes(candidate.id),
+                ),
+            )
+            .every(
+              (candidate) =>
+                (turnState.turnsTaken[candidate.id] ?? 0) >= candidate.traits.turnAllowance,
+            );
+          if (!sideExhausted) {
+            log.push({
+              kind: 'warning',
+              intentId: intent.intentId,
+              actor: intent.actor,
+              canonRefs: [ECONOMY_CANON.combatRound],
+              message: `${turnId} (${side}) acts while the turn choice belongs to ${turnState.sideToChoose} (side alternation, Heroes p.267). Applied anyway (permissive engine, R-0030)`,
+              data: { ruleViolation: { kind: 'out-of-alternation', participantId: turnId } },
+            });
+          }
+        }
+      }
+
+      // ── mutations: the turn opens ──────────────────────────────────────
+      const nextTurnsTaken = { ...turnState.turnsTaken, [turnId]: taken + 1 };
+      nextState = {
+        ...nextState,
+        turnState: {
+          ...turnState,
+          activeTurnId: turnId,
+          sideToChoose: side === 'heroes' ? 'director' : 'heroes',
+          turnsTaken: nextTurnsTaken,
+        },
+      };
+      log.push({
+        kind: 'mutation',
+        intentId: intent.intentId,
+        actor: intent.actor,
+        canonRefs: [ECONOMY_CANON.turn],
+        message: `${turnId} starts their turn (round ${turnState.round})`,
+        data: {
+          turnStateDeltas: [
+            { field: 'activeTurnId', from: turnState.activeTurnId, to: turnId },
+            ...(turnState.sideToChoose !== (side === 'heroes' ? 'director' : 'heroes')
+              ? [
+                  {
+                    field: 'sideToChoose',
+                    from: turnState.sideToChoose,
+                    to: side === 'heroes' ? 'director' : 'heroes',
+                  },
+                ]
+              : []),
+          ],
+          turnsTakenDeltas: [{ turnId, from: taken, to: taken + 1 }],
+        },
+      });
+      // Fresh printed budget for the acting participants (a two-turn solo
+      // gets a new budget each turn); declared sub-actors of the starter
+      // ride along [design §3].
+      const actingIds = [
+        ...(squad ? squad.memberIds : [turnId]),
+        ...Object.values(state.participants)
+          .filter((candidate) => candidate.traits.subActorOf === turnId)
+          .map((candidate) => candidate.id),
+      ];
+      const swept = runBoundarySweeps(
+        nextState,
+        { kind: 'start-of-turn', participantIds: actingIds },
+        lifecycleContext,
+      );
+      return { state: swept.state, log: [...log, ...swept.log] };
+    }
+    case 'advance-round': {
+      const turnState = state.turnState;
+      if (turnState === null) {
+        return {
+          state,
+          log: [refusal(intent, 'combat has not begun — dispatch begin-combat first')],
+        };
+      }
+      const log: LogEntry[] = [];
+      // Advisory warn [design §3, red-team F6]: the printed round
+      // definition ("Once every creature has taken a turn, a new round
+      // begins") is uncomputable from engine state (dead/skipped actors,
+      // sub-actors), so round advance is Director-asserted; the engine
+      // lists living turn-takers with unspent turns.
+      const unspent: string[] = [];
+      for (const participant of Object.values(state.participants)) {
+        if (participant.traits.subActorOf !== null) continue;
+        if (state.squads.some((candidate) => candidate.memberIds.includes(participant.id)))
+          continue;
+        const alive =
+          participant.stamina === null ||
+          participant.kind === 'hero' ||
+          participant.stamina.current > 0;
+        if (!alive) continue;
+        if ((turnState.turnsTaken[participant.id] ?? 0) < participant.traits.turnAllowance) {
+          unspent.push(participant.id);
+        }
+      }
+      for (const squad of state.squads) {
+        if (squad.memberIds.length === 0) continue;
+        if ((turnState.turnsTaken[squad.squadId] ?? 0) < 1) unspent.push(squad.squadId);
+      }
+      if (unspent.length > 0) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.combatRound],
+          message: `round advances with living unspent turns: ${unspent.join(', ')} — "During a combat round, each creature in the battle takes a turn." Applied anyway (Director-asserted round advance, R-0030)`,
+          data: {
+            ruleViolation: { kind: 'unspent-turns', participantId: null },
+            unspentTurns: unspent,
+          },
+        });
+      }
+      const swept = runBoundarySweeps(state, { kind: 'start-of-round' }, lifecycleContext);
+      return { state: swept.state, log: [...log, ...swept.log] };
+    }
+    case 'convert-action': {
+      const turnState = state.turnState;
+      if (turnState === null) {
+        return {
+          state,
+          log: [refusal(intent, 'combat has not begun — dispatch begin-combat first')],
+        };
+      }
+      const participant = state.participants[intent.payload.participantId];
+      if (!participant) {
+        return {
+          state,
+          log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
+        };
+      }
+      // "You can also turn your main action into a move action or a
+      // maneuver" [rule.combat/turn]: debit the main action through the
+      // one home (its violations warn there), then grant the target cost.
+      const debited = debitActionCost(
+        state,
+        {
+          cost: 'main-action',
+          payerId: participant.id,
+          abilityKey: `convert-action:${intent.payload.to}`,
+          usesPerRound: null,
+          partOf: null,
+        },
+        lifecycleContext,
+      );
+      const afterDebit = debited.state.participants[participant.id];
+      if (!afterDebit) return { state, log: debited.log };
+      const cell = afterDebit.actionBudget[intent.payload.to] ?? { used: 0, granted: 0 };
+      const nextCell = { used: cell.used, granted: cell.granted + 1 };
+      const nextState = {
+        ...debited.state,
+        participants: {
+          ...debited.state.participants,
+          [participant.id]: {
+            ...afterDebit,
+            actionBudget: { ...afterDebit.actionBudget, [intent.payload.to]: nextCell },
+          },
+        },
+      };
+      return {
+        state: nextState,
+        log: [
+          ...debited.log,
+          {
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [ECONOMY_CANON.turn],
+            message: `${participant.id} turns their main action into a ${intent.payload.to} — "You can also turn your main action into a move action or a maneuver"`,
+            data: {
+              actionBudgetDeltas: [
+                {
+                  participantId: participant.id,
+                  cost: intent.payload.to,
+                  usedFrom: cell.used,
+                  usedTo: nextCell.used,
+                  grantedFrom: cell.granted,
+                  grantedTo: nextCell.granted,
+                },
+              ],
+              actionConverted: { from: 'main-action', to: intent.payload.to },
+            },
+          },
+        ],
+      };
+    }
+    case 'use-triggered-action': {
+      const turnState = state.turnState;
+      if (turnState === null) {
+        return {
+          state,
+          log: [refusal(intent, 'combat has not begun — dispatch begin-combat first')],
+        };
+      }
+      const participant = state.participants[intent.payload.participantId];
+      if (!participant) {
+        return {
+          state,
+          log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
+        };
+      }
+      const log: LogEntry[] = [
+        {
+          kind: 'informational',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [ECONOMY_CANON.triggeredAction, intent.payload.abilityArtifactId],
+          message:
+            intent.payload.trigger === null
+              ? `${participant.id} uses ${intent.payload.abilityArtifactId} with no recorded trigger occurrence — the trigger is table-asserted ("only when the action's trigger occurs")`
+              : intent.payload.trigger.kind === 'occurrence'
+                ? `${participant.id} uses ${intent.payload.abilityArtifactId}, triggered by dispatch ${intent.payload.trigger.intentId}`
+                : `${participant.id} uses ${intent.payload.abilityArtifactId}; asserted trigger: ${intent.payload.trigger.text}`,
+          data: { trigger: intent.payload.trigger },
+        },
+      ];
+      const debited = debitActionCost(
+        state,
+        {
+          cost: intent.payload.free ? 'free-triggered-action' : 'triggered-action',
+          payerId: participant.id,
+          abilityKey: intent.payload.abilityArtifactId,
+          usesPerRound: intent.payload.perRoundCap,
+          partOf: null,
+        },
+        lifecycleContext,
+      );
+      return { state: debited.state, log: [...log, ...debited.log] };
+    }
+    case 'use-villain-action': {
+      const turnState = state.turnState;
+      if (turnState === null) {
+        return {
+          state,
+          log: [refusal(intent, 'combat has not begun — dispatch begin-combat first')],
+        };
+      }
+      const participant = state.participants[intent.payload.participantId];
+      if (!participant) {
+        return {
+          state,
+          log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
+        };
+      }
+      const debited = debitActionCost(
+        state,
+        {
+          cost: 'villain-action',
+          payerId: participant.id,
+          abilityKey: intent.payload.abilityArtifactId,
+          usesPerRound: null,
+          partOf: null,
+        },
+        lifecycleContext,
+      );
+      return debited;
+    }
+    case 'add-grant': {
+      const target = state.participants[intent.payload.target];
+      if (!target) {
+        return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
+      }
+      // Deterministic identity, like condition instances: derived from the
+      // (host-unique) intent id.
+      const grant = { ...intent.payload.grant, grantId: `grant#${intent.intentId}` };
+      const added = appendGrant(state, { target, grant }, lifecycleContext);
+      return added;
+    }
+    case 'commit-resolution': {
+      const committed = commitResolutionEntry(
+        state,
+        {
+          resolutionId: intent.payload.resolutionId,
+          payload: intent.payload.payload,
+          forced: false,
+        },
+        lifecycleContext,
+      );
+      if (!committed.ok) return { state, log: [refusal(intent, committed.refusal)] };
+      return { state: committed.state, log: committed.log };
+    }
+    case 'modify-resolution': {
+      const stackEntry = state.resolutionStack.find(
+        (candidate) => candidate.resolutionId === intent.payload.resolutionId,
+      );
+      if (!stackEntry) {
+        return {
+          state,
+          log: [refusal(intent, `unknown resolution ${intent.payload.resolutionId}`)],
+        };
+      }
+      const log: LogEntry[] = [];
+      if (stackEntry.phase === 'committed') {
+        // "Anything arriving after commit is a warned table correction,
+        // not a reopen" [R-0032]: recorded on the entry's history with a
+        // warning; nothing re-executes.
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [],
+          message: `modification arrives after resolution ${stackEntry.resolutionId} committed — recorded as a table correction, not a reopen; the Director adjudicates [R-0032]`,
+          data: {
+            ruleViolation: {
+              kind: 'post-commit-modification',
+              participantId: stackEntry.actorId,
+            },
+          },
+        });
+      }
+      const nextState = {
+        ...state,
+        resolutionStack: state.resolutionStack.map((candidate) =>
+          candidate.resolutionId === stackEntry.resolutionId
+            ? {
+                ...candidate,
+                modifications: [...candidate.modifications, intent.payload.modification],
+              }
+            : candidate,
+        ),
+      };
+      log.push({
+        kind: 'mutation',
+        intentId: intent.intentId,
+        actor: intent.actor,
+        canonRefs: [stackEntry.abilityArtifactId],
+        message: `resolution ${stackEntry.resolutionId} records a ${intent.payload.modification.kind} modification (modifications apply in dispatch order at commit)`,
+        data: {
+          resolutionModificationDeltas: [
+            {
+              resolutionId: stackEntry.resolutionId,
+              from: stackEntry.modifications.length,
+              to: stackEntry.modifications.length + 1,
+            },
+          ],
+          modificationRecorded: intent.payload.modification,
+        },
+      });
+      return { state: nextState, log };
     }
     case 'resolve-pending-kills': {
       // Identity assignment for pool-counted kills [R-0024]: "the minions

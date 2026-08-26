@@ -79,6 +79,10 @@ export const GrantWindowSchema = z.enum(['end-of-targets-next-turn']);
 export type GrantWindow = z.infer<typeof GrantWindowSchema>;
 
 export const NextRollGrantSchema = z.object({
+  /** v6 generalized-grant discriminator. The default keeps v3–v5 stored
+   * grants (and pre-v6 literals) valid — migration wraps them as
+   * `next-roll` by parse [design §3]. */
+  kind: z.literal('next-roll').default('next-roll'),
   grantId: z.string().min(1),
   polarity: GrantPolaritySchema,
   /** Which roll consumes it [R-0013]: 'strike' = the next Strike-keyword
@@ -93,6 +97,98 @@ export const NextRollGrantSchema = z.object({
 });
 
 export type NextRollGrant = z.infer<typeof NextRollGrantSchema>;
+
+/**
+ * The closed action-cost vocabulary [R-0029]: every surveyed ability header
+ * action cell normalizes onto exactly these members (1,878 headers at the
+ * accepted pin; case/spelling surface variants fold; `-` cells resolve by
+ * context — Villain Action name lines vs the Wave of Blood no-cost
+ * sub-ability form). A future cost category is a new enum member, not a
+ * schema migration; unknown FUTURE surface values refuse to normalize and
+ * surface as residue, never guessed.
+ */
+export const ACTION_COSTS = [
+  'main-action',
+  'maneuver',
+  'move-action',
+  'triggered-action',
+  'free-triggered-action',
+  'free-maneuver',
+  'no-action',
+  'villain-action',
+] as const;
+export const ActionCostSchema = z.enum(ACTION_COSTS);
+export type ActionCost = z.infer<typeof ActionCostSchema>;
+
+/**
+ * Printed escapes ride grants, never warnings [R-0030]: critical hit's
+ * "additional main action … whether or not it's your turn and even if you
+ * are dazed" [rule.combat/critical-hit], the Solo Action malice sheets
+ * ("They can use this feature even if they are dazed"), tactician Out of
+ * Position ("even if you are surprised"). A grant consumed with the
+ * matching escape flag suppresses that violation warning — escapes are a
+ * general grant property, not a crit special case.
+ */
+export const GrantEscapesSchema = z.object({
+  ignoresDazed: z.boolean().default(false),
+  ignoresSurprised: z.boolean().default(false),
+  offTurn: z.boolean().default(false),
+});
+export type GrantEscapes = z.infer<typeof GrantEscapesSchema>;
+
+/** Grant expiry vocabulary: null = the R-0012 default (until consumed,
+ * encounter-end sweep); 'end-of-round' rides the start-of-round sweep. */
+export const GrantExpirySchema = z.enum(['end-of-round']).nullable();
+
+/**
+ * An `action` grant [design §3, R-0030]: an extra action of a given cost
+ * beyond the printed turn budget. Critical hit compiles to one; the
+ * Director's manual grant intent covers malice Solo Actions until the
+ * malice family lands. Consumption is SILENT — printed escapes never warn.
+ */
+export const ActionGrantSchema = z.object({
+  kind: z.literal('action'),
+  grantId: z.string().min(1),
+  cost: ActionCostSchema,
+  magnitude: z.number().int().positive().default(1),
+  escapes: GrantEscapesSchema.default({
+    ignoresDazed: false,
+    ignoresSurprised: false,
+    offTurn: false,
+  }),
+  expiry: GrantExpirySchema.default(null),
+  source: ConditionSourceSchema,
+});
+export type ActionGrant = z.infer<typeof ActionGrantSchema>;
+
+/**
+ * A `turn` grant [design §3]: whole-turn scheduling — an extra turn
+ * allowance this round ('allowance') or an out-of-order turn insertion
+ * ('insertion'). The scheduling ability family (Hesitation Is Weakness,
+ * Patter Song, …) plugs in later; this arc ships the shape plus
+ * Director-asserted scheduling. `no-consecutive` mirrors the printed solo
+ * constraint ("They can't take turns consecutively").
+ */
+export const TurnGrantSchema = z.object({
+  kind: z.literal('turn'),
+  grantId: z.string().min(1),
+  mode: z.enum(['allowance', 'insertion']),
+  magnitude: z.number().int().positive().default(1),
+  constraint: z.enum(['no-consecutive']).nullable().default(null),
+  expiry: GrantExpirySchema.default(null),
+  source: ConditionSourceSchema,
+});
+export type TurnGrant = z.infer<typeof TurnGrantSchema>;
+
+/**
+ * The generalized grant union (v6, design §3; red-team B6/F4). A plain
+ * union — not a discriminated union — so the `next-roll` member's defaulted
+ * discriminator keeps v3–v5 stored grants parseable; per-kind
+ * consumption/expiry config lives in the grant registry
+ * (grant-lifecycle.ts), not call sites.
+ */
+export const GrantSchema = z.union([NextRollGrantSchema, ActionGrantSchema, TurnGrantSchema]);
+export type Grant = z.infer<typeof GrantSchema>;
 
 /** The five characteristics, scores −5..+5 [rule.character/characteristic]. */
 export const CHARACTERISTIC_LETTERS = ['M', 'A', 'R', 'I', 'P'] as const;
@@ -192,6 +288,47 @@ export const StaminaStateSchema = z.object({
 
 export type StaminaState = z.infer<typeof StaminaStateSchema>;
 
+/**
+ * Seeded trait data (v6, design §3): printed per-creature turn/trigger
+ * structure asserted at seed time from the stat block — never derived.
+ * "The dragon can take two turns each round. They can't take turns
+ * consecutively." (21 solo statblocks); Ajax's three turns + three
+ * triggered actions; declared sub-actors (Xorannox's eyestalks,
+ * gloom-dragon's illusion, blackcap ash clones) spend budgets within
+ * their owner's turn without entering turnsTaken.
+ */
+export const ParticipantTraitsSchema = z.object({
+  turnAllowance: z.number().int().positive().default(1),
+  noConsecutiveTurns: z.boolean().default(false),
+  /** "You can use one triggered action per round" [rule.combat/
+   * triggered-action]; Ajax's 3 is seeded trait data (its not-dazed
+   * condition rides an escape-flagged grant, not this number). */
+  triggeredActionLimit: z.number().int().min(0).default(1),
+  /** Declared sub-actor: acts within this owner's turn slot. */
+  subActorOf: ParticipantIdSchema.nullable().default(null),
+});
+export type ParticipantTraits = z.infer<typeof ParticipantTraitsSchema>;
+
+/** One per-cost consumed/granted counter pair (v6). `granted` counts
+ * capacity added beyond the printed budget (action-conversion targets,
+ * consumed action grants), so capacity = base + granted always and only a
+ * true violation exceeds it. */
+export const ActionBudgetCellSchema = z.object({
+  used: z.number().int().min(0).default(0),
+  granted: z.number().int().min(0).default(0),
+});
+export type ActionBudgetCell = z.infer<typeof ActionBudgetCellSchema>;
+
+/** Per-ability usage counters (v6): the printed once-per-round cap family
+ * (Ride's two counters, Keeper of Order's capped free trigger, siege
+ * actions) warns correctly through these [R-0029 scope, R-0030]. */
+export const AbilityUseCountersSchema = z.object({
+  round: z.number().int().min(0).default(0),
+  turn: z.number().int().min(0).default(0),
+  encounter: z.number().int().min(0).default(0),
+});
+export type AbilityUseCounters = z.infer<typeof AbilityUseCountersSchema>;
+
 const participantShape = {
   id: ParticipantIdSchema,
   conditions: z.array(ConditionInstanceSchema),
@@ -203,9 +340,34 @@ const participantShape = {
   /** null = table-mode actor: no stat automation, receipts only. */
   stats: ParticipantStatsSchema.nullable(),
   stamina: StaminaStateSchema.nullable(),
-  /** Pending next-roll edge/bane grants (v3, R-0012..R-0016). The default
-   * keeps v2-shaped literals valid while migration stamps the version. */
-  grants: z.array(NextRollGrantSchema).default([]),
+  /** Pending grants (v3 next-roll, R-0012..R-0016; v6 generalized union,
+   * design §3). The default keeps pre-v3 literals valid while migration
+   * stamps the version. */
+  grants: z.array(GrantSchema).default([]),
+  /** v6 additions — defaults keep v5 stored bodies and literals valid. */
+  traits: ParticipantTraitsSchema.default({
+    turnAllowance: 1,
+    noConsecutiveTurns: false,
+    triggeredActionLimit: 1,
+    subActorOf: null,
+  }),
+  /** Per-turn action budget, keyed by the actionCost enum (a Record, not a
+   * closed struct — a future cost category is an enum member, not a schema
+   * migration) [design §3]. Reset by the start-of-turn/start-of-round
+   * sweeps. */
+  actionBudget: z
+    .record(z.string(), ActionBudgetCellSchema)
+    .refine(
+      (budget) =>
+        Object.keys(budget).every((key) => (ACTION_COSTS as readonly string[]).includes(key)),
+      { message: 'actionBudget keys must be action-cost enum members' },
+    )
+    .default({}),
+  /** "You can use one triggered action per round" [rule.combat/
+   * triggered-action]; free triggered actions bypass this counter. */
+  triggeredThisRound: z.number().int().min(0).default(0),
+  /** Per-ability usage counters keyed by ability artifact id. */
+  abilityUses: z.record(z.string().min(1), AbilityUseCountersSchema).default({}),
 };
 
 export const ParticipantStateSchema = z
@@ -291,8 +453,170 @@ export const SquadStateSchema = z
 
 export type SquadState = z.infer<typeof SquadStateSchema>;
 
+/**
+ * Combat sides [rule.combat/combat-round §Determine Who Goes First: "the
+ * heroes' side or the other side"]. Participants map by kind: hero →
+ * 'heroes', director-creature → 'director'.
+ */
+export const SIDES = ['heroes', 'director'] as const;
+export const SideSchema = z.enum(SIDES);
+export type Side = z.infer<typeof SideSchema>;
+
+/**
+ * Encounter-level turn structure (v6, design §3). `turnsTaken` is a COUNT
+ * map, not a set — solos take two turns, Ajax three [21 statblocks +
+ * Ajax]; `lastTurnId` serves the no-consecutive-turns warn. Turn ids are
+ * participant ids or squad ids (a squad occupies one turn slot — "All
+ * members of a minion squad act together on the same initiative",
+ * Monsters p.7 [R-0033]). Global scalar slots walk the invariant claim
+ * machinery under the documented singleton-key convention (the field name
+ * is the key).
+ */
+export const TurnStateSchema = z.object({
+  round: z.number().int().positive(),
+  /** "The side whose members acted first during the initial combat round
+   * goes first in all subsequent rounds." [Heroes p.267]. */
+  firstSide: SideSchema,
+  /** Alternation pointer: whose side the next turn choice belongs to. */
+  sideToChoose: SideSchema,
+  activeTurnId: z.string().min(1).nullable(),
+  lastTurnId: z.string().min(1).nullable(),
+  turnsTaken: z.record(z.string().min(1), z.number().int().min(0)),
+});
+export type TurnState = z.infer<typeof TurnStateSchema>;
+
+/**
+ * Encounter-level villain-action economy (v6): "A creature with villain
+ * actions always has three. Each villain action can be used only once per
+ * encounter, and no more than one villain action can be used per round."
+ * — even across creatures [rule.monster/villain-action, Monsters p.4].
+ */
+export const VillainActionStateSchema = z.object({
+  usedThisRound: z.boolean().default(false),
+  /** Ability artifact ids spent this encounter (once each). */
+  usedByAbility: z.array(z.string().min(1)).default([]),
+});
+export type VillainActionState = z.infer<typeof VillainActionStateSchema>;
+
+/**
+ * One recorded roll — the COMPLETE recompute inputs [R-0032, red-team
+ * F12], including per-target edge/bane pools [R-0014]. The invariant
+ * suite re-derives total/tier from these on every dispatch.
+ */
+export const RollReceiptSchema = z.object({
+  dice: z.tuple([z.number().int().min(1).max(10), z.number().int().min(1).max(10)]),
+  characteristicValue: z.number().int(),
+  characteristicLabel: z.string().min(1),
+  bonuses: z.array(z.object({ value: z.number().int().positive(), reason: z.string().min(1) })),
+  penalties: z.array(z.object({ value: z.number().int().positive(), reason: z.string().min(1) })),
+  edges: z.number().int().min(0),
+  banes: z.number().int().min(0),
+  automaticOutcomes: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])),
+  downgradeToTier: z.union([z.literal(1), z.literal(2)]).nullable(),
+  natural: z.number().int(),
+  total: z.number().int(),
+  tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  naturalTopEnd: z.boolean(),
+  /** Per-target pools/tiers where inbound marks applied [R-0014]. */
+  perTarget: z
+    .record(
+      ParticipantIdSchema,
+      z.object({
+        edges: z.number().int().min(0),
+        banes: z.number().int().min(0),
+        tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+      }),
+    )
+    .default({}),
+});
+export type RollReceipt = z.infer<typeof RollReceiptSchema>;
+
+/**
+ * The modification vocabulary [R-0032, red-team F5]: a discriminated union
+ * with a declared apply contract per kind, so a future family adds a
+ * member instead of shotgun-editing the commit handler. Modifications
+ * apply in dispatch order; retro-incoherent combinations warn-and-apply
+ * with the full history on the receipt.
+ */
+export const ResolutionModificationSchema = z.discriminatedUnion('kind', [
+  /** "you can downgrade it to select the outcome of a lower tier"
+   * [rule.dice/power-roll]. Applies: effective tier = min(current, toTier). */
+  z.object({ kind: z.literal('downgrade'), toTier: z.union([z.literal(1), z.literal(2)]) }),
+  /** Tier-outcome mutation (angulotl Tongue Slap [R-0031 'rolled']).
+   * Applies: effective tier = clamp(current + delta, 1..3). */
+  z.object({
+    kind: z.literal('tier-adjust'),
+    delta: z.number().int(),
+    reason: z.string().min(1),
+  }),
+  /** Potency manipulation mid-resolution. Applies: adds to the commit-time
+   * potency adjustment pool (optionally per target). */
+  z.object({
+    kind: z.literal('potency-adjust'),
+    delta: z.number().int(),
+    target: ParticipantIdSchema.optional(),
+    reason: z.string().min(1),
+  }),
+  /** Target replacement (goblin monarch "The ally is the target of the
+   * triggering strike instead"). Applies: swaps `from` for `to` in the
+   * committed target list; a `from` not in the list warns-and-skips. */
+  z.object({
+    kind: z.literal('retarget'),
+    from: ParticipantIdSchema,
+    to: ParticipantIdSchema,
+    reason: z.string().min(1),
+  }),
+  /** Damage halving (Repel, In All This Confusion, ghost Shriek). The
+   * books at the pin state no general halving-rounding rule, so the
+   * rounding direction is a dispatch-asserted table fact (the spatial-fact
+   * precedent), never invented. Applies: amount → halved, rounded as
+   * asserted, per target when named. */
+  z.object({
+    kind: z.literal('damage-halve'),
+    target: ParticipantIdSchema.optional(),
+    rounding: z.enum(['down', 'up']),
+    reason: z.string().min(1),
+  }),
+]);
+export type ResolutionModification = z.infer<typeof ResolutionModificationSchema>;
+
+/**
+ * One entry on the keyed resolution STACK (v6, R-0032; red-team B1/B2):
+ * a rolling ability in combat opens an entry storing the payload HASH
+ * (commit re-supplies the payload and the engine verifies — the
+ * Convex-boundary integrity precedent) plus the complete roll receipt.
+ * Entries nest (a reaction that itself rolls; Breaking Point's inserted
+ * turn); LIFO discipline is a warn, never corruption. Committed entries
+ * stay on the stack (phase 'committed') so post-commit modifications are
+ * distinguishable from unknown ids and bleeding's once-per-action dedup
+ * can key on `actionKey` across a composed Charge [rule: "only happens
+ * once per action", condition/bleeding].
+ */
+export const ResolutionEntrySchema = z.object({
+  resolutionId: z.string().min(1),
+  /** The owning actor: a participant id OR a squad id — widened exactly
+   * like `turnState.activeTurnId`, because a squad signature attack (the
+   * squad-attack follow-up family) opens ONE entry owned by the squad,
+   * and end-turn force-commit already treats squad turns as ending
+   * actors [R-0033, design §3]. */
+  actorId: z.string().min(1),
+  abilityArtifactId: z.string().min(1),
+  /** The compiled action cost the dispatch carried (bleeding fires on main
+   * actions, triggered actions, and M/A power rolls). */
+  actionCost: ActionCostSchema.nullable(),
+  /** SHA-256 hex of the canonical use-ability payload [R-0032]. */
+  payloadHash: z.string().regex(/^[0-9a-f]{64}$/),
+  /** partOf composition root: the parent reference for a composed inner
+   * ability (Charge), else this entry's own resolutionId. */
+  actionKey: z.string().min(1),
+  phase: z.enum(['rolled', 'committed']),
+  rollReceipt: RollReceiptSchema,
+  modifications: z.array(ResolutionModificationSchema).default([]),
+});
+export type ResolutionEntry = z.infer<typeof ResolutionEntrySchema>;
+
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(5),
+  schemaVersion: z.literal(6),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
   /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
    * literals valid while migration stamps the version. */
@@ -300,9 +624,29 @@ export const EncounterStateSchema = z.object({
   /** Minion squad Stamina pools (v5, R-0023..R-0028). Default keeps
    * v4-shaped literals valid while migration stamps the version. */
   squads: z.array(SquadStateSchema).default([]),
+  /** Combat turn structure (v6, design §3). Null = combat not begun — the
+   * economy machinery (debits, warns, two-phase resolution) activates with
+   * `begin-combat` and stands down at encounter end. */
+  turnState: TurnStateSchema.nullable().default(null),
+  /** Encounter-level villain-action economy (v6). */
+  villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
+  /** The keyed resolution stack (v6, R-0032). */
+  resolutionStack: z.array(ResolutionEntrySchema).default([]),
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The minion-squad-pool stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — every v6 slot
+ * defaults — so only the version literal distinguishes the wrapper. */
+export const EncounterStateV5Schema = z.object({
+  schemaVersion: z.literal(5),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  terrainFacts: z.array(TerrainFactSchema).default([]),
+  squads: z.array(SquadStateSchema).default([]),
+});
+
+export type EncounterStateV5 = z.infer<typeof EncounterStateV5Schema>;
 
 /** The flat-resource stored shape, retained for migration (migrate.ts).
  * Participant bodies parse through the current schema — `squads` defaults to
@@ -368,28 +712,6 @@ export const SpatialFactSchema = z.object({
   b: ParticipantIdSchema,
   holds: z.boolean(),
 });
-
-/**
- * The closed action-cost vocabulary [R-0029]: every surveyed ability header
- * action cell normalizes onto exactly these members (1,878 headers at the
- * accepted pin; case/spelling surface variants fold; `-` cells resolve by
- * context — Villain Action name lines vs the Wave of Blood no-cost
- * sub-ability form). A future cost category is a new enum member, not a
- * schema migration; unknown FUTURE surface values refuse to normalize and
- * surface as residue, never guessed.
- */
-export const ACTION_COSTS = [
-  'main-action',
-  'maneuver',
-  'move-action',
-  'triggered-action',
-  'free-triggered-action',
-  'free-maneuver',
-  'no-action',
-  'villain-action',
-] as const;
-export const ActionCostSchema = z.enum(ACTION_COSTS);
-export type ActionCost = z.infer<typeof ActionCostSchema>;
 
 /**
  * The five named reaction interception points [R-0031]. The books define
@@ -688,6 +1010,65 @@ const intentBase = {
 
 const dieRoll = z.number().int().min(1).max(10);
 
+/**
+ * The use-ability payload, named so `commit-resolution` and `end-turn`
+ * force-commit can RE-SUPPLY it (R-0032, red-team B1: the pure reducer
+ * dereferences nothing — the payload travels again and the stored hash
+ * verifies it byte-for-byte in canonical form).
+ */
+export const UseAbilityPayloadSchema = z
+  .object({
+    actorParticipantId: ParticipantIdSchema,
+    ability: AbilityEffectDataSchema,
+    targets: z.array(ParticipantIdSchema).min(1),
+    /** Composition reference [R-0032, design §3]: the parent dispatch's
+     * intent id. The inner Charge-keyword ability consumes the parent's
+     * already-debited main action — never a second one — and bleeding
+     * keys once on the shared actionKey. */
+    partOf: z.string().min(1).optional(),
+    /** `Main action (Adjacent creature)` [R-0029]: the dispatching
+     * adjacent operator who pays the budget debit. Absent on an
+     * operator-paid ability → the debit routes to a table directive,
+     * never a guess. */
+    operatorId: ParticipantIdSchema.optional(),
+    /** Asserted dice win; absent → exactly two draws from the injected
+     * source, d1 then d2 (replay discipline, design SE-4). */
+    dice: z.tuple([dieRoll, dieRoll]).optional(),
+    characteristicChoice: CharacteristicLetterSchema.optional(),
+    damageCharacteristicChoice: CharacteristicLetterSchema.optional(),
+    damageTypeChoice: DamageTypeSchema.optional(),
+    edges: z.number().int().min(0).default(0),
+    banes: z.number().int().min(0).default(0),
+    bonuses: z.array(attributedValue).default([]),
+    penalties: z.array(attributedValue).default([]),
+    automaticOutcomes: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])).default([]),
+    /** v0 pre-declared (design PL-1); the post-roll downgrade rides the
+     * resolution stack's modification list in combat [R-0032]. */
+    downgradeToTier: z.union([z.literal(1), z.literal(2)]).optional(),
+    /** Surge-shaped assertion seam: attributed extra damage / potency
+     * bumps [rule.resource/surge], verified pools arrive later. */
+    extraDamage: z
+      .array(attributedValue.extend({ target: ParticipantIdSchema.optional() }))
+      .default([]),
+    potencyAdjustments: z
+      .array(
+        z.object({
+          delta: z.number().int(),
+          reason: z.string().min(1),
+          target: ParticipantIdSchema.optional(),
+        }),
+      )
+      .default([]),
+    /** rule.health/stamina §Knocking Creatures Out. */
+    knockOut: z.boolean().default(false),
+  })
+  .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
+    message: 'targets must be distinct',
+  });
+
+export type UseAbilityPayload = z.infer<typeof UseAbilityPayloadSchema>;
+export type UseAbilityPayloadInput = z.input<typeof UseAbilityPayloadSchema>;
+
 export const IntentSchema = z.discriminatedUnion('kind', [
   z.object({
     ...intentBase,
@@ -709,50 +1090,16 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       target: ParticipantIdSchema,
       instanceId: z.string().min(1),
       reason: z.string().min(1).optional(),
+      /** R-0001 escape hatch, asserted at dispatch: the imposing ability's
+       * own text grants anytime ending ("(no action required)" — eight
+       * printed abilities). Suppresses the off-turn free-maneuver warn. */
+      noActionRequired: z.boolean().default(false),
     }),
   }),
   z.object({
     ...intentBase,
     kind: z.literal('use-ability'),
-    payload: z
-      .object({
-        actorParticipantId: ParticipantIdSchema,
-        ability: AbilityEffectDataSchema,
-        targets: z.array(ParticipantIdSchema).min(1),
-        /** Asserted dice win; absent → exactly two draws from the injected
-         * source, d1 then d2 (replay discipline, design SE-4). */
-        dice: z.tuple([dieRoll, dieRoll]).optional(),
-        characteristicChoice: CharacteristicLetterSchema.optional(),
-        damageCharacteristicChoice: CharacteristicLetterSchema.optional(),
-        damageTypeChoice: DamageTypeSchema.optional(),
-        edges: z.number().int().min(0).default(0),
-        banes: z.number().int().min(0).default(0),
-        bonuses: z.array(attributedValue).default([]),
-        penalties: z.array(attributedValue).default([]),
-        automaticOutcomes: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])).default([]),
-        /** v0 pre-declared (design PL-1); the post-roll two-phase flow is a
-         * named follow-up with action economy. */
-        downgradeToTier: z.union([z.literal(1), z.literal(2)]).optional(),
-        /** Surge-shaped assertion seam: attributed extra damage / potency
-         * bumps [rule.resource/surge], verified pools arrive later. */
-        extraDamage: z
-          .array(attributedValue.extend({ target: ParticipantIdSchema.optional() }))
-          .default([]),
-        potencyAdjustments: z
-          .array(
-            z.object({
-              delta: z.number().int(),
-              reason: z.string().min(1),
-              target: ParticipantIdSchema.optional(),
-            }),
-          )
-          .default([]),
-        /** rule.health/stamina §Knocking Creatures Out. */
-        knockOut: z.boolean().default(false),
-      })
-      .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
-        message: 'targets must be distinct',
-      }),
+    payload: UseAbilityPayloadSchema,
   }),
   z.object({
     ...intentBase,
@@ -761,6 +1108,12 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       .object({
         actorParticipantId: ParticipantIdSchema,
         effect: EffectProgramDataSchema,
+        /** Composition reference [design §3]: the parent dispatch's intent
+         * id — the parent's debit covers this instruction (a multi-Effect
+         * ability is one printed cost). */
+        partOf: z.string().min(1).optional(),
+        /** Operator-paid fixture instruction [R-0029]. */
+        operatorId: ParticipantIdSchema.optional(),
         /** Manual area/world instructions may have no participant target;
          * automatic damage/condition programs require at least one. */
         targets: z.array(ParticipantIdSchema),
@@ -902,9 +1255,137 @@ export const IntentSchema = z.discriminatedUnion('kind', [
     ...intentBase,
     kind: z.literal('end-turn'),
     payload: z.object({
+      /** The ending turn's id — a participant id, or a squad id (a squad
+       * occupies one turn slot [R-0033]). */
       participantId: ParticipantIdSchema,
       /** Manual saving-throw rolls by instance id; absent = auto-roll. */
       rolls: z.record(z.string(), z.number().int()).optional(),
+      /** Re-supplied payloads for the ending actor's OPEN resolution
+       * entries, keyed by resolutionId [design §3]: end-turn force-commits
+       * them FIRST (printed damage is never discarded), then sweeps; a
+       * missing payload is a structural refusal — the pure reducer cannot
+       * execute an entry it cannot re-verify (red-team B1/F8). */
+      commitPayloads: z.record(z.string().min(1), UseAbilityPayloadSchema).default({}),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('begin-combat'),
+    payload: z.object({
+      /** The side taking the first turn — the table's outcome of the
+       * printed procedure [rule.combat/combat-round §Determine Who Goes
+       * First]. */
+      firstSide: SideSchema,
+      /** "If all the creatures on one side are surprised, then a creature
+       * on the other side gets to act first." — the automatic case. */
+      surprisedSide: SideSchema.nullable().default(null),
+      /** Asserted d10 wins; absent → one draw from the injected source
+       * ("the Director or a player they choose rolls a d10"). */
+      roll: dieRoll.optional(),
+      /** Who made the 1–5/6+ choice, when asserted: the roll assigns it
+       * ("On a 6 or higher, the players determine … Otherwise, the
+       * Director decides"); a deviation is warn-and-apply (project
+       * permissive policy, NOT printed authority — red-team ledger). */
+      chosenBy: z.enum(['players', 'director']).optional(),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('start-turn'),
+    payload: z.object({
+      /** A participant id or squad id. R-0030 violations (already acted,
+       * out of alternation, consecutive solo turns) warn-and-apply; round
+       * advance is NEVER computed here [design §3]. */
+      turnId: z.string().min(1),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('advance-round'),
+    payload: z.object({
+      /** Director-asserted [design §3, red-team F6]: the printed round
+       * definition is advisory; the engine warns listing living unspent
+       * turns, then runs the start-of-round sweeps. */
+      reason: z.string().min(1).optional(),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('convert-action'),
+    payload: z.object({
+      participantId: ParticipantIdSchema,
+      /** "You can also turn your main action into a move action or a
+       * maneuver" [rule.combat/turn] — always FROM the main action. */
+      to: z.enum(['maneuver', 'move-action']),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('use-triggered-action'),
+    payload: z.object({
+      participantId: ParticipantIdSchema,
+      /** The printed triggered ability this dispatch exercises. */
+      abilityArtifactId: z.string().min(1),
+      /** Free triggered action: "doesn't count against your limit of one
+       * triggered action per round" [rule.combat/triggered-action] — but
+       * honors per-ability caps and BOTH prevention couplings. */
+      free: z.boolean().default(false),
+      /** A receipt-visible trigger occurrence, or a table assertion
+       * (Ride's triggerless free-trigger dispatches without one). */
+      trigger: z
+        .discriminatedUnion('kind', [
+          z.object({ kind: z.literal('occurrence'), intentId: z.string().min(1) }),
+          z.object({ kind: z.literal('asserted'), text: z.string().min(1) }),
+        ])
+        .nullable()
+        .default(null),
+      /** The compiled per-ability once-per-round cap, supplied from the
+       * compiled shape (Keeper of Order = 1); null = no printed cap. */
+      perRoundCap: z.number().int().positive().nullable().default(null),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('use-villain-action'),
+    payload: z.object({
+      participantId: ParticipantIdSchema,
+      abilityArtifactId: z.string().min(1),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('add-grant'),
+    payload: z.object({
+      /** Director grant intent [design §3, R-0030]: escape-flagged action
+       * grants cover the Solo Action malice spends until the malice family
+       * lands; turn grants cover Director-asserted scheduling. Grant
+       * identity derives from the intent id (deterministic, like condition
+       * instances). */
+      target: ParticipantIdSchema,
+      grant: z.union([
+        NextRollGrantSchema.omit({ grantId: true }),
+        ActionGrantSchema.omit({ grantId: true }),
+        TurnGrantSchema.omit({ grantId: true }),
+      ]),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('commit-resolution'),
+    payload: z.object({
+      resolutionId: z.string().min(1),
+      /** The re-supplied payload; the engine verifies its canonical hash
+       * against the entry and executes against COMMIT-TIME state
+       * [R-0032]. */
+      payload: UseAbilityPayloadSchema,
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('modify-resolution'),
+    payload: z.object({
+      resolutionId: z.string().min(1),
+      modification: ResolutionModificationSchema,
     }),
   }),
   z.object({

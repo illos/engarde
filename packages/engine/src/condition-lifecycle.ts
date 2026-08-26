@@ -161,10 +161,18 @@ export function endOfTurnSweep(
   rolls: Readonly<Record<string, number>>,
   rollSavingThrow: () => number,
   context: LifecycleContext,
+  /** Instances imposed by this same dispatch (an end-turn force-committed
+   * resolution): they pass through untouched, so a just-imposed save-ends
+   * condition saves NEXT turn, not this one [design §3, red-team F8]. */
+  skipInstanceIds?: ReadonlySet<string>,
 ): { state: EncounterState; log: LogEntry[] } {
   const log: LogEntry[] = [];
   const remaining: ConditionInstance[] = [];
   for (const instance of target.conditions) {
+    if (skipInstanceIds?.has(instance.instanceId)) {
+      remaining.push(instance);
+      continue;
+    }
     if (instance.ending.kind === 'save-ends') {
       const roll = rolls[instance.instanceId] ?? rollSavingThrow();
       const asserted = rolls[instance.instanceId] !== undefined;

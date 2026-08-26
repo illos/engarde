@@ -8,7 +8,7 @@ import {
   isWinded,
   windedValue,
 } from './health.js';
-import type { ParticipantState, ParticipantStats } from './schemas.js';
+import { type ParticipantState, ParticipantStateSchema, type ParticipantStats } from './schemas.js';
 
 /**
  * Damage / Stamina core TDD (docs/power-roll-design.md §5/§8). Actor stats
@@ -53,6 +53,13 @@ function participant(
   overrides: Partial<ParticipantState> = {},
 ): ParticipantState {
   return {
+    ...ParticipantStateSchema.parse({
+      id: 'target',
+      conditions: [],
+      kind: 'director-creature',
+      stats: null,
+      stamina: null,
+    }),
     id: 'target',
     conditions: [],
     sourceRecordId: null,
@@ -271,7 +278,7 @@ describe('automation blockers', () => {
   });
 
   it('refuses to automate a stats-null participant', () => {
-    const tableMode: ParticipantState = {
+    const tableMode: ParticipantState = ParticipantStateSchema.parse({
       id: 'target',
       conditions: [],
       sourceRecordId: null,
@@ -279,7 +286,7 @@ describe('automation blockers', () => {
       stats: null,
       stamina: null,
       grants: [],
-    };
+    });
     expect(damageAutomationBlocker(tableMode)).toMatch(/table/);
   });
 });

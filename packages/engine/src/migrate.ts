@@ -6,6 +6,7 @@ import {
   EncounterStateV2Schema,
   EncounterStateV3Schema,
   EncounterStateV4Schema,
+  EncounterStateV5Schema,
 } from './schemas.js';
 
 /**
@@ -32,25 +33,39 @@ import {
  * pools, R-0023..R-0028). No v4 encounter could hold a seeded squad (every
  * minion routed to the table), so the lossless upgrade is `squads: []` —
  * supplied by the schema default; the migration re-stamps the version.
+ *
+ * v5 → v6 (action economy + two-phase commit, R-0029..R-0033): the
+ * encounter gains `turnState` (null — combat not begun), `villainActions`,
+ * and `resolutionStack`; participants gain `traits`, `actionBudget`,
+ * `triggeredThisRound`, and `abilityUses`; stored grants generalize to the
+ * `kind`-discriminated union — every existing entry wraps as
+ * `kind: 'next-roll'`, supplied by that member's defaulted discriminator.
+ * No v5 encounter was mid-combat (no turn structure existed), so every new
+ * slot's default is the lossless upgrade; the migration re-stamps the
+ * version.
  */
 export function upgradeEncounterState(stored: unknown): EncounterState {
-  const v5 = EncounterStateSchema.safeParse(stored);
-  if (v5.success) return v5.data;
+  const v6 = EncounterStateSchema.safeParse(stored);
+  if (v6.success) return v6.data;
+  const v5 = EncounterStateV5Schema.safeParse(stored);
+  if (v5.success) {
+    return EncounterStateSchema.parse({ ...v5.data, schemaVersion: 6 });
+  }
   const v4 = EncounterStateV4Schema.safeParse(stored);
   if (v4.success) {
-    return EncounterStateSchema.parse({ ...v4.data, schemaVersion: 5 });
+    return EncounterStateSchema.parse({ ...v4.data, schemaVersion: 6 });
   }
   const v3 = EncounterStateV3Schema.safeParse(stored);
   if (v3.success) {
-    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 5 });
+    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 6 });
   }
   const v2 = EncounterStateV2Schema.safeParse(stored);
   if (v2.success) {
-    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 5 });
+    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 6 });
   }
   const v1: EncounterStateV1 = EncounterStateV1Schema.parse(stored);
   return EncounterStateSchema.parse({
-    schemaVersion: 5,
+    schemaVersion: 6,
     participants: Object.fromEntries(
       Object.entries(v1.participants).map(([id, participant]) => [
         id,

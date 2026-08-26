@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolvePotency } from './potency.js';
-import type { ParticipantState, ParticipantStats } from './schemas.js';
+import { type ParticipantState, ParticipantStateSchema, type ParticipantStats } from './schemas.js';
 
 /**
  * Potency gate TDD (docs/power-roll-design.md §6). The golden fixture is the
@@ -22,7 +22,7 @@ const CONDUIT: ParticipantStats = {
 };
 
 function actor(stats: ParticipantStats | null, id: string): ParticipantState {
-  return {
+  return ParticipantStateSchema.parse({
     id,
     conditions: [],
     sourceRecordId: null,
@@ -30,7 +30,7 @@ function actor(stats: ParticipantStats | null, id: string): ParticipantState {
     kind: 'hero',
     stats,
     stamina: stats ? { current: stats.staminaMax, temporary: 0, recoveries: null } : null,
-  };
+  });
 }
 
 /** The worked example's bandit: Agility 0. */

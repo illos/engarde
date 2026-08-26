@@ -8,6 +8,7 @@ import {
   createDriver,
   createSeededRandomSource,
   isDead,
+  upgradeEncounterState,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { compileAbilities, compileAbility } from './effect-conformance.js';
@@ -126,7 +127,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
   };
 
   function freshState(): EncounterState {
-    return {
+    return upgradeEncounterState({
       schemaVersion: 5,
       terrainFacts: [],
       squads: [],
@@ -150,7 +151,7 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
           grants: [],
         },
       },
-    };
+    });
   }
 
   it('the bleeding strike (Power Roll + 2; 5/6/7 damage; M < 0/1/2 bleeding, save ends)', async () => {

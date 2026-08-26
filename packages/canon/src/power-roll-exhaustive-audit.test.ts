@@ -9,6 +9,7 @@ import {
   applyIntent,
   checkInvariants,
   createSeededRandomSource,
+  upgradeEncounterState,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { parseEffectText } from './effect-grammar.js';
@@ -99,7 +100,7 @@ function characteristicStats(): ParticipantStats {
 
 function state(): EncounterState {
   const stats = characteristicStats();
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -123,7 +124,7 @@ function state(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 function rollValue(ability: AbilityEffectData): number {

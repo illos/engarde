@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { checkInvariants } from './invariants.js';
+import { upgradeEncounterState } from './migrate.js';
 import type { EncounterState, Intent, LogEntry } from './schemas.js';
 
 /** Real corpus condition ids (prime directive: no invented fixtures). */
@@ -10,7 +11,7 @@ const FRIGHTENED = 'mcdm.heroes.v1/condition/frightened';
 const GRABBED = 'mcdm.heroes.v1/condition/grabbed';
 
 function freshState(): EncounterState {
-  return {
+  return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
     squads: [],
@@ -25,7 +26,7 @@ function freshState(): EncounterState {
         grants: [],
       },
     },
-  };
+  });
 }
 
 function dispatchChecked(state: EncounterState, intent: Intent, seed = 1) {

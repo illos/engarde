@@ -348,17 +348,25 @@ export const getActive = query({
             ? slugOf(instance.source.effectArtifactId)
             : null,
         })),
-        grants: participant.grants.map((grant) => ({
-          grantId: grant.grantId,
-          polarity: grant.polarity,
-          scope: grant.scope,
-          direction: grant.direction,
-          window: grant.window,
-          sourceParticipantId: grant.source.participantId ?? null,
-          sourceRecordSlug: grant.source.effectArtifactId
-            ? slugOf(grant.source.effectArtifactId)
-            : null,
-        })),
+        // The view surfaces next-roll grants as before; the v6 action/turn
+        // grant kinds surface with the host leg of the action-economy arc
+        // (design §3) — filtered here, never mislabeled.
+        grants: participant.grants
+          .filter(
+            (grant): grant is Extract<typeof grant, { kind: 'next-roll' }> =>
+              grant.kind === 'next-roll',
+          )
+          .map((grant) => ({
+            grantId: grant.grantId,
+            polarity: grant.polarity,
+            scope: grant.scope,
+            direction: grant.direction,
+            window: grant.window,
+            sourceParticipantId: grant.source.participantId ?? null,
+            sourceRecordSlug: grant.source.effectArtifactId
+              ? slugOf(grant.source.effectArtifactId)
+              : null,
+          })),
       })),
       terrainFacts: state.terrainFacts.map((fact) => ({
         factId: fact.factId,

@@ -1,4 +1,5 @@
 import { normalizeActionCostValue } from './action-cost.js';
+import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type PendingSquadContribution,
@@ -11,10 +12,12 @@ import {
 import type { RandomSource } from './determinism.js';
 import {
   GRANT_CANON,
+  appendGrant,
+  grantConsumedByRoll,
   grantContribution,
-  scopeMatchesRoll,
   splitGrants,
 } from './grant-lifecycle.js';
+import { hashPayload } from './payload-hash.js';
 import { CHARACTERISTIC_KEY, POTENCY_CANON, resolvePotency } from './potency.js';
 import {
   POWER_ROLL_CANON,
@@ -24,6 +27,7 @@ import {
   resolvePowerRoll,
 } from './power-roll.js';
 import type {
+  ActionCost,
   CharacteristicLetter,
   DamageType,
   EncounterState,
@@ -31,14 +35,22 @@ import type {
   NextRollGrant,
   ParsedIntent,
   ParticipantState,
+  ResolutionEntry,
+  RollReceipt,
+  UseAbilityPayload,
 } from './schemas.js';
 
 /**
- * use-ability executor (docs/power-roll-design.md §4.1): ONE power roll per
- * ability, damage dealt to ALL targets first, then non-damage effects per
- * target in presented order [rule.dice/ability-roll §Abilities With Damage
- * and Effects]. All refusal checks run BEFORE any mutation (the
- * refusal-with-change invariant holds by construction).
+ * use-ability executor (docs/power-roll-design.md §4.1; action-economy
+ * design §3): ONE power roll per ability. Outside combat (`turnState`
+ * null) the v5 single-dispatch behavior holds — damage to ALL targets
+ * first, then non-damage effects per target in presented order
+ * [rule.dice/ability-roll §Abilities With Damage and Effects]. In combat,
+ * a rolling ability debits its action cost, rolls, and OPENS a resolution
+ * entry on the stack [R-0032]; application happens at the explicit
+ * commit-resolution dispatch (hosts pipeline commit for one-tap UX — the
+ * engine never auto-commits). All refusal checks run BEFORE any mutation
+ * (the refusal-with-change invariant holds by construction).
  */
 
 type UseAbilityIntent = Extract<ParsedIntent, { kind: 'use-ability' }>;
@@ -79,10 +91,10 @@ function highestCharacteristic(stats: NonNullable<ParticipantState['stats']>): n
 
 /** Bind the roll's added value per the compiled power-roll bonus. */
 function bindRollValue(
-  intent: UseAbilityIntent,
+  payload: UseAbilityPayload,
   actor: ParticipantState,
 ): { value: number; label: string } | { error: string } {
-  const bonus = intent.payload.ability.powerRollBonus;
+  const bonus = payload.ability.powerRollBonus;
   if (bonus.kind === 'fixed') return { value: bonus.value, label: `fixed +${bonus.value}` };
   if (actor.stats === null) {
     return { error: `${actor.id} has no tracked characteristics — assert stats before rolling` };
@@ -98,7 +110,7 @@ function bindRollValue(
   if (restOptions.length === 0) {
     letter = firstOption;
   } else {
-    const choice = intent.payload.characteristicChoice;
+    const choice = payload.characteristicChoice;
     if (!choice)
       return {
         error: `this ability rolls with a choice of ${options.join(' or ')} — name characteristicChoice`,
@@ -114,7 +126,7 @@ function bindRollValue(
 /** Bind the damage-time characteristic ("N + M or A damage") — defaults to
  * the actor's highest among the offered options, logged as defaulted (PL-5). */
 function bindDamageCharacteristic(
-  intent: UseAbilityIntent,
+  payload: UseAbilityPayload,
   actor: ParticipantState,
   options: readonly CharacteristicLetter[],
 ): { value: number; label: string; defaulted: boolean } | { error: string } {
@@ -125,7 +137,7 @@ function bindDamageCharacteristic(
     };
   }
   const stats = actor.stats;
-  const choice = intent.payload.damageCharacteristicChoice;
+  const choice = payload.damageCharacteristicChoice;
   if (choice !== undefined) {
     if (!options.includes(choice)) {
       return {
@@ -167,75 +179,253 @@ export function targetCountOf(targetsText: string | null): number | null {
   return word !== undefined ? (counts[word] ?? null) : null;
 }
 
-export function executeUseAbility(
+/** The compiled cost with the pre-v6 fallback through the one
+ * normalization home [R-0029]. */
+export function abilityCostOf(ability: {
+  actionCost: ActionCost | null;
+  actionType: string | null;
+}): ActionCost | null {
+  return ability.actionCost ?? normalizeActionCostValue(ability.actionType)?.cost ?? null;
+}
+
+/**
+ * The damage + effect application phases — the ONE home shared by the v5
+ * single-dispatch path and the R-0032 commit path (which parameterizes the
+ * per-target tier and damage/potency transforms with the entry's
+ * modification list).
+ */
+export interface AbilityOutcomeArgs {
+  payload: UseAbilityPayload;
+  /** Effective targets (commit-time retargets applied). */
+  targets: readonly string[];
+  tierFor: (targetId: string) => Tier;
+  /** Per-target damage transform (damage-halve modifications). */
+  damageTransform?: (targetId: string, amount: number) => { amount: number; note: string | null };
+  /** Extra potency delta from modifications, per target. */
+  extraPotencyFor?: (targetId: string) => number;
+}
+
+export function applyAbilityOutcome(
   state: EncounterState,
-  intent: UseAbilityIntent,
-  random: RandomSource,
+  args: AbilityOutcomeArgs,
+  context: LifecycleContext,
 ): ExecutionResult {
-  const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
-  const payload = intent.payload;
+  const { payload, targets, tierFor } = args;
   const ability = payload.ability;
+  const actorId = payload.actorParticipantId;
+  const log: LogEntry[] = [];
+  let nextState = state;
 
-  // ── refusal gates (no mutation may precede these) ──────────────────────
-  const actor = state.participants[payload.actorParticipantId];
-  if (!actor) return refuse(state, context, `unknown participant ${payload.actorParticipantId}`);
-  for (const targetId of payload.targets) {
-    if (!state.participants[targetId]) {
-      return refuse(state, context, `unknown participant ${targetId}`);
-    }
-  }
-  const rollBinding = bindRollValue(intent, actor);
-  if ('error' in rollBinding) return refuse(state, context, rollBinding.error);
+  const actor = state.participants[actorId];
+  if (!actor) return refuse(state, context, `unknown participant ${actorId}`);
 
-  const tierDamageAny =
-    ability.tiers.tier1.damage ?? ability.tiers.tier2.damage ?? ability.tiers.tier3.damage;
-  if (
-    tierDamageAny &&
-    tierDamageAny.typeOptions.length > 1 &&
-    payload.damageTypeChoice === undefined
-  ) {
-    return refuse(
-      state,
-      context,
-      `this ability's damage offers a type choice (${tierDamageAny.typeOptions.join(' or ')}) — name damageTypeChoice`,
-    );
-  }
-  if (
-    payload.damageTypeChoice !== undefined &&
-    tierDamageAny &&
-    tierDamageAny.typeOptions.length > 0 &&
-    !tierDamageAny.typeOptions.includes(payload.damageTypeChoice)
-  ) {
-    return refuse(state, context, `damageTypeChoice ${payload.damageTypeChoice} is not offered`);
-  }
-  if (payload.targets.length > 1) {
-    for (const extra of payload.extraDamage) {
-      if (extra.target === undefined) {
-        return refuse(
-          state,
-          context,
-          'extraDamage must name its target when the ability has several',
-        );
-      }
-    }
-  }
-
-  // Damage bindings pre-validate for every tier carrying damage BEFORE any
-  // mutation: grant consumption precedes the roll, and a refusal may never
-  // follow a mutation (refusal-with-change). Binding errors are
-  // target-independent, so this is safe to hoist.
   const damageBindings = new Map<Tier, { value: number; label: string; defaulted: boolean }>();
   for (const tierNumber of [1, 2, 3] as const) {
     const tierDamage = ability.tiers[`tier${tierNumber}`].damage;
     if (!tierDamage) continue;
-    const binding = bindDamageCharacteristic(intent, actor, tierDamage.characteristicOptions);
+    const binding = bindDamageCharacteristic(payload, actor, tierDamage.characteristicOptions);
     if ('error' in binding) return refuse(state, context, binding.error);
     damageBindings.set(tierNumber, binding);
   }
 
+  // ── damage phase: all targets first [rule.dice/ability-roll] ───────────
+  // Same-squad minion targets aggregate into ONE pool application per squad
+  // (required by R-0026's once-per-squad weakness/immunity step); the Area
+  // keyword is the printed discriminator for the per-minion cap [R-0025].
+  const isArea = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+  const squadContributions = new Map<string, PendingSquadContribution[]>();
+  const defaultedTiersLogged = new Set<Tier>();
+  for (const targetId of targets) {
+    const tierNumber = tierFor(targetId);
+    const tierData = ability.tiers[`tier${tierNumber}` as 'tier1' | 'tier2' | 'tier3'];
+    if (!tierData.damage) continue;
+    const damageBinding = damageBindings.get(tierNumber);
+    if (!damageBinding) continue; // bound above for every tier with damage
+    const damageType: DamageType | null =
+      tierData.damage.typeOptions.length === 0
+        ? null
+        : tierData.damage.typeOptions.length === 1
+          ? (tierData.damage.typeOptions[0] ?? null)
+          : (payload.damageTypeChoice ?? null);
+    if (damageBinding.defaulted && !defaultedTiersLogged.has(tierNumber)) {
+      defaultedTiersLogged.add(tierNumber);
+      log.push(
+        entry(
+          context,
+          'informational',
+          `damage characteristic defaulted to ${damageBinding.label} (the actor's highest among the offered)`,
+          [POWER_ROLL_CANON.abilityRoll],
+          { damageCharacteristicDefaulted: damageBinding.label },
+        ),
+      );
+    }
+    {
+      const target = nextState.participants[targetId];
+      if (!target) continue; // presence proven by the refusal gates
+      const extra = payload.extraDamage
+        .filter((item) => item.target === undefined || item.target === targetId)
+        .reduce((sum, item) => sum + item.value, 0);
+      let amount = tierData.damage.amount + damageBinding.value + extra;
+      if (args.damageTransform) {
+        const transformed = args.damageTransform(targetId, amount);
+        if (transformed.note !== null) {
+          log.push(
+            entry(context, 'informational', transformed.note, [ability.abilityArtifactId], {
+              damageTransformed: { targetId, from: amount, to: transformed.amount },
+            }),
+          );
+        }
+        amount = transformed.amount;
+      }
+      if (
+        collectSquadContribution(
+          nextState,
+          target,
+          { targetId, damage: amount, type: damageType },
+          squadContributions,
+        )
+      ) {
+        continue;
+      }
+      const blocker = damageAutomationBlocker(target);
+      if (blocker !== null) {
+        log.push(
+          entry(
+            context,
+            'table-directive',
+            `${targetId} takes ${amount}${damageType ? ` ${damageType}` : ''} damage — ${blocker}`,
+            [ability.abilityArtifactId],
+            { unautomatedDamage: { targetId, amount, damageType } },
+          ),
+        );
+        continue;
+      }
+      const outcome = applyDamage(
+        target,
+        { amount, type: damageType },
+        {
+          knockOut: payload.knockOut,
+          reason: `${damageType ? `${damageType} ` : ''}damage from ${actor.id}'s ability (tier ${tierNumber})`,
+        },
+        context,
+      );
+      nextState = withParticipant(nextState, outcome.participant);
+      log.push(...outcome.log);
+    }
+  }
+  if (squadContributions.size > 0) {
+    const flushed = flushSquadContributions(
+      nextState,
+      squadContributions,
+      { area: isArea, reason: `from ${actor.id}'s ability` },
+      context,
+    );
+    nextState = flushed.state;
+    log.push(...flushed.log);
+  }
+
+  // ── effect phase: per target, in presented order ────────────────────────
+  for (const targetId of targets) {
+    const target = nextState.participants[targetId];
+    if (!target) continue; // presence proven by the refusal gates
+    const tierData = ability.tiers[`tier${tierFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
+    if (tierData.conditionIds.length === 0) continue;
+
+    if (tierData.potency) {
+      const adjustment =
+        payload.potencyAdjustments
+          .filter((item) => item.target === undefined || item.target === targetId)
+          .reduce((sum, item) => sum + item.delta, 0) + (args.extraPotencyFor?.(targetId) ?? 0);
+      const gate = resolvePotency(tierData.potency, actor, target, adjustment);
+      if (!gate.resolved) {
+        log.push(
+          entry(
+            context,
+            'table-directive',
+            `potency ${tierData.potency.characteristic} < ${tierData.potency.threshold.kind === 'named' ? tierData.potency.threshold.name.toUpperCase() : tierData.potency.threshold.value} on ${targetId} cannot be resolved — ${gate.reason}; effects not applied`,
+            [POTENCY_CANON, ability.abilityArtifactId],
+            {
+              potencyUnresolved: {
+                targetId,
+                reason: gate.reason,
+                conditionIds: tierData.conditionIds,
+              },
+            },
+          ),
+        );
+        continue;
+      }
+      log.push(
+        entry(
+          context,
+          'informational',
+          `potency vs ${targetId}: ${tierData.potency.characteristic} ${gate.targetScore} < ${gate.adjustedValue} → ${gate.applies ? 'affected' : 'resisted'}`,
+          [POTENCY_CANON],
+          { potency: { targetId, ...gate, conditionIds: tierData.conditionIds } },
+        ),
+      );
+      if (!gate.applies) continue;
+    }
+
+    for (const conditionId of tierData.conditionIds) {
+      const liveTarget = nextState.participants[targetId];
+      if (!liveTarget) continue;
+      const applied = applyConditionInstance(
+        nextState,
+        {
+          target: liveTarget,
+          instance: {
+            instanceId: `${conditionId}#${context.intentId}-${targetId}`,
+            conditionId,
+            ending: tierData.ending === 'save-ends' ? { kind: 'save-ends' } : { kind: 'external' },
+            source: {
+              participantId: actorId,
+              effectArtifactId: ability.abilityArtifactId,
+            },
+          },
+          replacesOnNewSource: false,
+        },
+        context,
+      );
+      nextState = applied.state;
+      log.push(...applied.log);
+    }
+  }
+
+  return { state: nextState, log };
+}
+
+/**
+ * The roll-resolution pipeline — grant consumption, per-target edge/bane
+ * pools, resolvePowerRoll, and receipt assembly — exported as the ONE
+ * named home so commit-resolution's recompute and the squad-attack
+ * family's one-roll-for-the-squad attacks call it directly instead of
+ * re-inlining it (design §3; squad-attack forward-dep).
+ */
+export interface AbilityRollOutcome {
+  state: EncounterState;
+  log: LogEntry[];
+  dice: [number, number];
+  resolution: PowerRollResolution;
+  perTarget: Record<
+    string,
+    { edges: number; banes: number; resolution: PowerRollResolution }
+  > | null;
+  tierFor: (targetId: string) => Tier;
+  rollReceipt: RollReceipt;
+}
+
+export function resolveAbilityRoll(
+  state: EncounterState,
+  payload: UseAbilityPayload,
+  rollBinding: { value: number; label: string },
+  random: RandomSource,
+  context: LifecycleContext,
+): AbilityRollOutcome {
+  const ability = payload.ability;
   const log: LogEntry[] = [];
   let nextState = state;
-
+  const actorLabel = payload.actorParticipantId;
   // ── grant consumption [R-0013..R-0015] ─────────────────────────────────
   // The actor's pending outbound grants whose scope matches this roll are
   // consumed and contribute to the (uniform) base pool; each target's
@@ -251,31 +441,43 @@ export function executeUseAbility(
   ): { edges: number; banes: number; consumed: NextRollGrant[] } => {
     const split = splitGrants(
       holder,
-      (grant) => grant.direction === direction && scopeMatchesRoll(grant.scope, rollShape),
+      (grant) =>
+        grant.kind === 'next-roll' &&
+        grant.direction === direction &&
+        // The ONE (grant, roll, binding) consumption predicate — the
+        // R-0034(d) per-target-scoping seam: outbound rides the roller's
+        // own roll, inbound is answered per struck holder [R-0013, R-0014].
+        grantConsumedByRoll(grant, rollShape, {
+          attackerId: payload.actorParticipantId,
+          targetId: direction === 'inbound' ? holder.id : null,
+        }),
+    );
+    const consumed = split.consumed.filter(
+      (grant): grant is NextRollGrant => grant.kind === 'next-roll',
     );
     let edges = 0;
     let banes = 0;
-    for (const grant of split.consumed) {
+    for (const grant of consumed) {
       const contribution = grantContribution(grant.polarity);
       edges += contribution.edges;
       banes += contribution.banes;
     }
-    if (split.consumed.length > 0) {
+    if (consumed.length > 0) {
       nextState = withParticipant(nextState, { ...holder, grants: split.remaining });
       log.push(
         entry(
           context,
           'mutation',
           direction === 'outbound'
-            ? `${holder.id}'s pending next-roll modifiers apply to this roll and are spent (${split.consumed.map((grant) => grant.polarity).join(', ')})`
-            : `the mark on ${holder.id} applies to this strike against them and is spent (${split.consumed.map((grant) => grant.polarity).join(', ')})`,
+            ? `${holder.id}'s pending next-roll modifiers apply to this roll and are spent (${consumed.map((grant) => grant.polarity).join(', ')})`
+            : `the mark on ${holder.id} applies to this strike against them and is spent (${consumed.map((grant) => grant.polarity).join(', ')})`,
           [
             GRANT_CANON.powerRoll,
             ...(direction === 'inbound' ? [GRANT_CANON.rollAgainstMultipleCreatures] : []),
           ],
           {
-            removedGrantIds: split.consumed.map((grant) => grant.grantId),
-            grantsConsumed: split.consumed.map((grant) => ({
+            removedGrantIds: consumed.map((grant) => grant.grantId),
+            grantsConsumed: consumed.map((grant) => ({
               grantId: grant.grantId,
               holderId: holder.id,
               direction: grant.direction,
@@ -286,7 +488,7 @@ export function executeUseAbility(
         ),
       );
     }
-    return { edges, banes, consumed: split.consumed };
+    return { edges, banes, consumed };
   };
 
   const liveActor = nextState.participants[payload.actorParticipantId];
@@ -356,7 +558,7 @@ export function executeUseAbility(
     entry(
       context,
       'informational',
-      `${actor.id} rolls ${ability.abilityArtifactId.split('/').pop()}: ${dice[0]}+${dice[1]}${rollBinding.value >= 0 ? '+' : ''}${rollBinding.value} (${rollBinding.label}) → total ${resolution.total}, tier ${resolution.tier}`,
+      `${actorLabel} rolls ${ability.abilityArtifactId.split('/').pop()}: ${dice[0]}+${dice[1]}${rollBinding.value >= 0 ? '+' : ''}${rollBinding.value} (${rollBinding.label}) → total ${resolution.total}, tier ${resolution.tier}`,
       [POWER_ROLL_CANON.powerRoll, POWER_ROLL_CANON.tierOutcome, ability.abilityArtifactId],
       {
         powerRoll: {
@@ -402,22 +604,188 @@ export function executeUseAbility(
     );
   }
 
-  // Critical hit: natural 19–20 on a MAIN-ACTION ability roll. The
-  // discriminator is the compiled actionCost enum [R-0029]; pre-v6 compiled
-  // data (actionCost null) falls back through the one normalization home.
-  const isMainAction =
-    (ability.actionCost ?? normalizeActionCostValue(ability.actionType)?.cost ?? null) ===
-    'main-action';
-  if (resolution.naturalTopEnd && isMainAction) {
-    log.push(
-      entry(
-        context,
-        'table-directive',
-        `critical hit — ${actor.id} immediately takes an additional main action after this resolves (even off-turn, even dazed)`,
-        [POWER_ROLL_CANON.criticalHit, POWER_ROLL_CANON.naturalRoll],
-        { criticalHit: true, natural: resolution.natural },
-      ),
+  const tierFor = (targetId: string): Tier =>
+    perTarget?.[targetId]?.resolution.tier ?? resolution.tier;
+  const rollReceipt: RollReceipt = {
+    dice,
+    characteristicValue: rollBinding.value,
+    characteristicLabel: rollBinding.label,
+    bonuses: payload.bonuses,
+    penalties: payload.penalties,
+    edges: baseEdges,
+    banes: baseBanes,
+    automaticOutcomes: payload.automaticOutcomes,
+    downgradeToTier: payload.downgradeToTier ?? null,
+    natural: resolution.natural,
+    total: resolution.total,
+    tier: resolution.tier,
+    naturalTopEnd: resolution.naturalTopEnd,
+    perTarget: Object.fromEntries(
+      Object.entries(perTarget ?? {}).map(([targetId, value]) => [
+        targetId,
+        { edges: value.edges, banes: value.banes, tier: value.resolution.tier },
+      ]),
+    ),
+  };
+  return { state: nextState, log, dice, resolution, perTarget, tierFor, rollReceipt };
+}
+
+export function executeUseAbility(
+  state: EncounterState,
+  intent: UseAbilityIntent,
+  random: RandomSource,
+): ExecutionResult {
+  const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
+  const payload = intent.payload;
+  const ability = payload.ability;
+
+  // ── refusal gates (no mutation may precede these) ──────────────────────
+  const actor = state.participants[payload.actorParticipantId];
+  if (!actor) return refuse(state, context, `unknown participant ${payload.actorParticipantId}`);
+  for (const targetId of payload.targets) {
+    if (!state.participants[targetId]) {
+      return refuse(state, context, `unknown participant ${targetId}`);
+    }
+  }
+  if (payload.operatorId !== undefined && !state.participants[payload.operatorId]) {
+    return refuse(state, context, `unknown participant ${payload.operatorId}`);
+  }
+  const rollBinding = bindRollValue(payload, actor);
+  if ('error' in rollBinding) return refuse(state, context, rollBinding.error);
+
+  const tierDamageAny =
+    ability.tiers.tier1.damage ?? ability.tiers.tier2.damage ?? ability.tiers.tier3.damage;
+  if (
+    tierDamageAny &&
+    tierDamageAny.typeOptions.length > 1 &&
+    payload.damageTypeChoice === undefined
+  ) {
+    return refuse(
+      state,
+      context,
+      `this ability's damage offers a type choice (${tierDamageAny.typeOptions.join(' or ')}) — name damageTypeChoice`,
     );
+  }
+  if (
+    payload.damageTypeChoice !== undefined &&
+    tierDamageAny &&
+    tierDamageAny.typeOptions.length > 0 &&
+    !tierDamageAny.typeOptions.includes(payload.damageTypeChoice)
+  ) {
+    return refuse(state, context, `damageTypeChoice ${payload.damageTypeChoice} is not offered`);
+  }
+  if (payload.targets.length > 1) {
+    for (const extra of payload.extraDamage) {
+      if (extra.target === undefined) {
+        return refuse(
+          state,
+          context,
+          'extraDamage must name its target when the ability has several',
+        );
+      }
+    }
+  }
+
+  // Damage bindings pre-validate for every tier carrying damage BEFORE any
+  // mutation: debits and grant consumption precede the roll, and a refusal
+  // may never follow a mutation (refusal-with-change). Binding errors are
+  // target-independent, so this is safe to hoist.
+  for (const tierNumber of [1, 2, 3] as const) {
+    const tierDamage = ability.tiers[`tier${tierNumber}`].damage;
+    if (!tierDamage) continue;
+    const binding = bindDamageCharacteristic(payload, actor, tierDamage.characteristicOptions);
+    if ('error' in binding) return refuse(state, context, binding.error);
+  }
+
+  const log: LogEntry[] = [];
+  let nextState = state;
+
+  // ── action-economy debit (v6, R-0029/R-0030; combat only) ──────────────
+  const cost = abilityCostOf(ability);
+  if (state.turnState !== null && cost !== null) {
+    if (ability.operatorPays && payload.operatorId === undefined) {
+      // R-0029: the fixture takes no turns — the debit belongs to the
+      // dispatching adjacent operator. No operator named → table directive,
+      // never a guessed payer.
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `${ability.abilityArtifactId} is operator-paid ("${ability.actionType}") but no operatorId was named — the ${cost} debit is table-adjudicated`,
+          [ECONOMY_CANON.turn, ability.abilityArtifactId],
+          { operatorDebitUnassigned: { abilityArtifactId: ability.abilityArtifactId, cost } },
+        ),
+      );
+    } else {
+      const debited = debitActionCost(
+        nextState,
+        {
+          cost,
+          payerId: ability.operatorPays
+            ? (payload.operatorId ?? payload.actorParticipantId)
+            : payload.actorParticipantId,
+          abilityKey: ability.abilityArtifactId,
+          usesPerRound: ability.usesPerRound,
+          partOf: payload.partOf ?? null,
+        },
+        context,
+      );
+      nextState = debited.state;
+      log.push(...debited.log);
+    }
+  }
+
+  // ── the roll pipeline (grants → pools → resolve → receipt) ─────────────
+  const rolled = resolveAbilityRoll(nextState, payload, rollBinding, random, context);
+  nextState = rolled.state;
+  log.push(...rolled.log);
+  const { dice, resolution, perTarget, rollReceipt } = rolled;
+
+  // Critical hit: natural 19–20 on a MAIN-ACTION ability roll. The
+  // discriminator is the compiled actionCost enum [R-0029]. In combat the
+  // printed grant compiles to an escape-flagged action grant — "immediately
+  // take an additional main action after resolving the power roll, whether
+  // or not it's your turn and even if you are dazed"
+  // [rule.combat/critical-hit] — consumed silently [R-0030]; outside combat
+  // it stays a table directive (v5 behavior).
+  const isMainAction = cost === 'main-action';
+  if (resolution.naturalTopEnd && isMainAction) {
+    if (nextState.turnState !== null) {
+      const critActor = nextState.participants[payload.actorParticipantId];
+      if (critActor) {
+        const granted = appendGrant(
+          nextState,
+          {
+            target: critActor,
+            grant: {
+              kind: 'action',
+              grantId: `critical-hit#${intent.intentId}`,
+              cost: 'main-action',
+              magnitude: 1,
+              escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+              expiry: null,
+              source: {
+                participantId: payload.actorParticipantId,
+                effectArtifactId: ECONOMY_CANON.criticalHit,
+              },
+            },
+          },
+          context,
+        );
+        nextState = granted.state;
+        log.push(...granted.log);
+      }
+    } else {
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `critical hit — ${actor.id} immediately takes an additional main action after this resolves (even off-turn, even dazed)`,
+          [POWER_ROLL_CANON.criticalHit, POWER_ROLL_CANON.naturalRoll],
+          { criticalHit: true, natural: resolution.natural },
+        ),
+      );
+    }
   }
 
   // Target count beyond the ability's verbatim targets line is a
@@ -456,157 +824,38 @@ export function executeUseAbility(
     }
   }
 
-  // ── damage phase: all targets first [rule.dice/ability-roll] ───────────
-  // Same-squad minion targets aggregate into ONE pool application per squad
-  // (required by R-0026's once-per-squad weakness/immunity step); the Area
-  // keyword is the printed discriminator for the per-minion cap [R-0025].
-  const isArea = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
-  const squadContributions = new Map<string, PendingSquadContribution[]>();
-  const defaultedTiersLogged = new Set<Tier>();
-  for (const targetId of payload.targets) {
-    const tierNumber = tierNumberFor(targetId);
-    const tierData = ability.tiers[`tier${tierNumber}` as 'tier1' | 'tier2' | 'tier3'];
-    if (!tierData.damage) continue;
-    const damageBinding = damageBindings.get(tierNumber);
-    if (!damageBinding) continue; // bound above for every tier with damage
-    const damageType: DamageType | null =
-      tierData.damage.typeOptions.length === 0
-        ? null
-        : tierData.damage.typeOptions.length === 1
-          ? (tierData.damage.typeOptions[0] ?? null)
-          : (payload.damageTypeChoice ?? null);
-    if (damageBinding.defaulted && !defaultedTiersLogged.has(tierNumber)) {
-      defaultedTiersLogged.add(tierNumber);
-      log.push(
-        entry(
-          context,
-          'informational',
-          `damage characteristic defaulted to ${damageBinding.label} (the actor's highest among the offered)`,
-          [POWER_ROLL_CANON.abilityRoll],
-          { damageCharacteristicDefaulted: damageBinding.label },
-        ),
-      );
-    }
-    {
-      const target = nextState.participants[targetId];
-      if (!target) continue; // presence proven by the refusal gates
-      const extra = payload.extraDamage
-        .filter((item) => item.target === undefined || item.target === targetId)
-        .reduce((sum, item) => sum + item.value, 0);
-      const amount = tierData.damage.amount + damageBinding.value + extra;
-      if (
-        collectSquadContribution(
-          nextState,
-          target,
-          { targetId, damage: amount, type: damageType },
-          squadContributions,
-        )
-      ) {
-        continue;
-      }
-      const blocker = damageAutomationBlocker(target);
-      if (blocker !== null) {
-        log.push(
-          entry(
-            context,
-            'table-directive',
-            `${targetId} takes ${amount}${damageType ? ` ${damageType}` : ''} damage — ${blocker}`,
-            [ability.abilityArtifactId],
-            { unautomatedDamage: { targetId, amount, damageType } },
-          ),
-        );
-        continue;
-      }
-      const outcome = applyDamage(
-        target,
-        { amount, type: damageType },
-        {
-          knockOut: payload.knockOut,
-          reason: `${damageType ? `${damageType} ` : ''}damage from ${actor.id}'s ability (tier ${tierNumber})`,
-        },
+  // ── two-phase: in combat, a rolling ability opens a resolution entry ───
+  // [R-0032]; the explicit commit executes against commit-time state.
+  if (nextState.turnState !== null) {
+    const resolutionEntry: ResolutionEntry = {
+      resolutionId: intent.intentId,
+      actorId: payload.actorParticipantId,
+      abilityArtifactId: ability.abilityArtifactId,
+      actionCost: cost,
+      payloadHash: hashPayload(payload),
+      actionKey: payload.partOf ?? intent.intentId,
+      phase: 'rolled',
+      rollReceipt,
+      modifications: [],
+    };
+    nextState = { ...nextState, resolutionStack: [...nextState.resolutionStack, resolutionEntry] };
+    log.push(
+      entry(
         context,
-      );
-      nextState = withParticipant(nextState, outcome.participant);
-      log.push(...outcome.log);
-    }
-  }
-  if (squadContributions.size > 0) {
-    const flushed = flushSquadContributions(
-      nextState,
-      squadContributions,
-      { area: isArea, reason: `from ${actor.id}'s ability` },
-      context,
+        'mutation',
+        `${actor.id}'s ${ability.abilityArtifactId.split('/').pop()} is rolled and OPEN on the resolution stack — reactions and modifications may cut in; commit-resolution applies it [R-0032]`,
+        [POWER_ROLL_CANON.powerRoll, ability.abilityArtifactId],
+        { resolutionOpened: { resolutionId: resolutionEntry.resolutionId } },
+      ),
     );
-    nextState = flushed.state;
-    log.push(...flushed.log);
+    return { state: nextState, log };
   }
 
-  // ── effect phase: per target, in presented order ────────────────────────
-  for (const targetId of payload.targets) {
-    const target = nextState.participants[targetId];
-    if (!target) continue; // presence proven by the refusal gates
-    const tierData = ability.tiers[`tier${tierNumberFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
-    if (tierData.conditionIds.length === 0) continue;
-
-    if (tierData.potency) {
-      const adjustment = payload.potencyAdjustments
-        .filter((item) => item.target === undefined || item.target === targetId)
-        .reduce((sum, item) => sum + item.delta, 0);
-      const gate = resolvePotency(tierData.potency, actor, target, adjustment);
-      if (!gate.resolved) {
-        log.push(
-          entry(
-            context,
-            'table-directive',
-            `potency ${tierData.potency.characteristic} < ${tierData.potency.threshold.kind === 'named' ? tierData.potency.threshold.name.toUpperCase() : tierData.potency.threshold.value} on ${targetId} cannot be resolved — ${gate.reason}; effects not applied`,
-            [POTENCY_CANON, ability.abilityArtifactId],
-            {
-              potencyUnresolved: {
-                targetId,
-                reason: gate.reason,
-                conditionIds: tierData.conditionIds,
-              },
-            },
-          ),
-        );
-        continue;
-      }
-      log.push(
-        entry(
-          context,
-          'informational',
-          `potency vs ${targetId}: ${tierData.potency.characteristic} ${gate.targetScore} < ${gate.adjustedValue} → ${gate.applies ? 'affected' : 'resisted'}`,
-          [POTENCY_CANON],
-          { potency: { targetId, ...gate, conditionIds: tierData.conditionIds } },
-        ),
-      );
-      if (!gate.applies) continue;
-    }
-
-    for (const conditionId of tierData.conditionIds) {
-      const liveTarget = nextState.participants[targetId];
-      if (!liveTarget) continue;
-      const applied = applyConditionInstance(
-        nextState,
-        {
-          target: liveTarget,
-          instance: {
-            instanceId: `${conditionId}#${intent.intentId}-${targetId}`,
-            conditionId,
-            ending: tierData.ending === 'save-ends' ? { kind: 'save-ends' } : { kind: 'external' },
-            source: {
-              participantId: payload.actorParticipantId,
-              effectArtifactId: ability.abilityArtifactId,
-            },
-          },
-          replacesOnNewSource: false,
-        },
-        context,
-      );
-      nextState = applied.state;
-      log.push(...applied.log);
-    }
-  }
-
-  return { state: nextState, log };
+  // ── v5 single-dispatch path (no combat runtime) ────────────────────────
+  const applied = applyAbilityOutcome(
+    nextState,
+    { payload, targets: payload.targets, tierFor: tierNumberFor },
+    context,
+  );
+  return { state: applied.state, log: [...log, ...applied.log] };
 }
