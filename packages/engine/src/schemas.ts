@@ -1069,6 +1069,33 @@ export const UseAbilityPayloadSchema = z
 export type UseAbilityPayload = z.infer<typeof UseAbilityPayloadSchema>;
 export type UseAbilityPayloadInput = z.input<typeof UseAbilityPayloadSchema>;
 
+/**
+ * The asserted-band ability reference (design §3, R-0029/R-0030 parity):
+ * a manual tier assertion — the path Directors use for
+ * grammar-incompilable abilities, dispatching apply-damage /
+ * apply-condition directly — is still a USE of the ability, so it debits
+ * through the one ACTION_COST_DEBITS home exactly like the rolled path:
+ * same silent grant consumption, same warn-and-apply on violations. It
+ * opens NO resolution entry — nothing rolled, single-dispatch stays
+ * correct. The cost comes from the compiled header where one exists;
+ * for headerless prose (the common-actions gap) it stays
+ * dispatch-asserted.
+ */
+export const AssertedAbilityUseSchema = z.object({
+  /** The ability user, who pays the debit (the pure reducer dereferences
+   * nothing — payer identity travels on the dispatch, the B1 precedent). */
+  actorParticipantId: ParticipantIdSchema,
+  abilityArtifactId: z.string().min(1),
+  actionCost: ActionCostSchema,
+  /** Compiled printed once-per-round cap, where present. */
+  usesPerRound: z.number().int().positive().nullable().default(null),
+  /** Composition: several asserted dispatches realizing ONE ability use
+   * (a tier's damage + its condition) share the first dispatch's debit —
+   * the same partOf semantics as the rolled path. */
+  partOf: z.string().min(1).optional(),
+});
+export type AssertedAbilityUse = z.infer<typeof AssertedAbilityUseSchema>;
+
 export const IntentSchema = z.discriminatedUnion('kind', [
   z.object({
     ...intentBase,
@@ -1081,6 +1108,12 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       // Per-condition canon supplied by the caller (e.g. frightened/taunted:
       // "the new condition replaces the old one"), never hard-coded here.
       replacesOnNewSource: z.boolean().default(false),
+      /** Asserted-band economy parity (R-0029/R-0030): a manual tier
+       * assertion for a grammar-incompilable ability is still a USE of
+       * that ability, so it debits through the one ACTION_COST_DEBITS
+       * home exactly like the rolled path. Null = a bare Director edit,
+       * no ability behind it. */
+      assertedAbilityUse: AssertedAbilityUseSchema.nullable().default(null),
     }),
   }),
   z.object({
@@ -1213,6 +1246,9 @@ export const IntentSchema = z.discriminatedUnion('kind', [
        * target — the damager's printed choice; unnamed remainder becomes
        * pendingKills with a table directive [R-0024]. */
       minionKillVictims: z.array(ParticipantIdSchema).default([]),
+      /** Asserted-band economy parity (R-0029/R-0030) — see
+       * apply-condition's field. Null = a bare Director edit. */
+      assertedAbilityUse: AssertedAbilityUseSchema.nullable().default(null),
     }),
   }),
   z.object({

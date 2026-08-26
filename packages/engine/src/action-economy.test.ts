@@ -1084,3 +1084,126 @@ describe('receipt-aware capacity is strictly delta-gated (grant-after-overage co
     );
   });
 });
+
+describe('asserted-band ability use debits the action economy (R-0029/R-0030 parity)', () => {
+  /** Accursed Bite (monsters/md/monster/werewolf/statblock/werewolf.md):
+   * "Charge, Melee, Strike, Weapon | Main action; Power Roll + 3; ≤11: 9
+   * damage; the target gains 2 rage; …" — the rage rider fails the tier
+   * grammar to residue, so this is exactly the manual-assertion path
+   * Directors use for incompilable abilities. */
+  const ACCURSED_BITE = 'mcdm.monsters.v1/monster.werewolf.statblock/werewolf#accursed-bite';
+  /** Bury the Point (goblin-warrior verbatim fixture): "Melee, Strike,
+   * Weapon | Main action; Power Roll + 2; 17+: 7 damage; M < 2 bleeding
+   * (save ends)". */
+  const BURY_THE_POINT = 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#bury-the-point';
+
+  it('an asserted-band apply-damage debits the budget; a second use warns over-budget', () => {
+    let state = initialEncounterState([
+      { id: 'hero', kind: 'hero', stats: GOBLIN_WARRIOR_STATS },
+      {
+        id: 'werewolf',
+        kind: 'director-creature',
+        sourceRecordId: 'mcdm.monsters.v1/monster.werewolf.statblock/werewolf',
+      },
+    ]);
+    state = beginCombat(state, 'director');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'werewolf' })).state;
+    // Tier-1 damage asserted at the table (9, verbatim) — still a USE of
+    // the ability: the main action debits like the rolled path.
+    const first = dispatchChecked(
+      state,
+      director('apply-damage', {
+        target: 'hero',
+        amount: 9,
+        reason:
+          'Accursed Bite ≤11: 9 damage (Director-asserted band; rage rider table-adjudicated)',
+        assertedAbilityUse: {
+          actorParticipantId: 'werewolf',
+          abilityArtifactId: ACCURSED_BITE,
+          actionCost: 'main-action',
+        },
+      }),
+    );
+    expect(first.state.participants.werewolf?.actionBudget['main-action']?.used).toBe(1);
+    expect(first.state.participants.hero?.stamina?.current).toBe(6);
+    expect(first.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    // Nothing rolled — no resolution entry opens on the asserted band.
+    expect(first.state.resolutionStack).toEqual([]);
+
+    const second = dispatchChecked(
+      first.state,
+      director('apply-damage', {
+        target: 'hero',
+        amount: 9,
+        reason:
+          'Accursed Bite ≤11: 9 damage (Director-asserted band; rage rider table-adjudicated)',
+        assertedAbilityUse: {
+          actorParticipantId: 'werewolf',
+          abilityArtifactId: ACCURSED_BITE,
+          actionCost: 'main-action',
+        },
+      }),
+    );
+    const overBudget = second.log.find(
+      (entry) =>
+        entry.kind === 'warning' &&
+        (entry.data.ruleViolation as { kind?: string })?.kind === 'over-budget',
+    );
+    expect(overBudget?.message).toContain(
+      'gets to take a main action, a maneuver, and a move action on their turn',
+    );
+    // Warn-and-apply: the debit and the damage both land.
+    expect(second.state.participants.werewolf?.actionBudget['main-action']?.used).toBe(2);
+    expect(second.state.participants.hero?.stamina?.current).toBe(-3);
+  });
+
+  it('several asserted dispatches realizing one tier share the first debit via partOf', () => {
+    let state = beginCombat(baseEncounter(), 'director');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'warrior' })).state;
+    // Bury the Point 17+ asserted at the table: "7 damage; M < 2 bleeding
+    // (save ends)" — the damage half…
+    const damageIntentId = nextId('bury-damage');
+    const damaged = dispatchChecked(state, {
+      intentId: damageIntentId,
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        amount: 7,
+        reason: 'Bury the Point 17+: 7 damage (Director-asserted band)',
+        assertedAbilityUse: {
+          actorParticipantId: 'warrior',
+          abilityArtifactId: BURY_THE_POINT,
+          actionCost: 'main-action',
+        },
+      },
+    });
+    expect(damaged.state.participants.warrior?.actionBudget['main-action']?.used).toBe(1);
+    // …and the condition half rides partOf: one printed cost, one debit.
+    const conditioned = dispatchChecked(damaged.state, {
+      intentId: nextId('bury-condition'),
+      kind: 'apply-condition',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        conditionId: BLEEDING,
+        ending: { kind: 'save-ends' },
+        source: { participantId: 'warrior', effectArtifactId: BURY_THE_POINT },
+        assertedAbilityUse: {
+          actorParticipantId: 'warrior',
+          abilityArtifactId: BURY_THE_POINT,
+          actionCost: 'main-action',
+          partOf: damageIntentId,
+        },
+      },
+    });
+    expect(conditioned.state.participants.warrior?.actionBudget['main-action']?.used).toBe(1);
+    expect(conditioned.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    expect(
+      conditioned.state.participants.hero?.conditions.some(
+        (instance) => instance.conditionId === BLEEDING,
+      ),
+    ).toBe(true);
+    expect(conditioned.state.participants.warrior?.abilityUses[BURY_THE_POINT]?.encounter).toBe(2);
+  });
+});

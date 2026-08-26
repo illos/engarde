@@ -72,10 +72,39 @@ export function applyIntent(
       if (!target) {
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
-      return applyConditionInstance(
-        state,
+      const asserted = intent.payload.assertedAbilityUse;
+      if (asserted !== null && !state.participants[asserted.actorParticipantId]) {
+        return {
+          state,
+          log: [refusal(intent, `unknown participant ${asserted.actorParticipantId}`)],
+        };
+      }
+      // Asserted-band economy parity (R-0029/R-0030): a manual tier
+      // assertion is still a use of the ability — it debits through the one
+      // home like the rolled path (silent grant consumption, warn-and-apply
+      // violations), and opens NO resolution entry (nothing rolled).
+      let preState = state;
+      const preLog: LogEntry[] = [];
+      if (asserted !== null && state.turnState !== null) {
+        const debited = debitActionCost(
+          preState,
+          {
+            cost: asserted.actionCost,
+            payerId: asserted.actorParticipantId,
+            abilityKey: asserted.abilityArtifactId,
+            usesPerRound: asserted.usesPerRound,
+            partOf: asserted.partOf ?? null,
+          },
+          lifecycleContext,
+        );
+        preState = debited.state;
+        preLog.push(...debited.log);
+      }
+      const liveTarget = preState.participants[intent.payload.target] ?? target;
+      const applied = applyConditionInstance(
+        preState,
         {
-          target,
+          target: liveTarget,
           instance: {
             // Deterministic identity: derived from the (host-unique) intent
             // id, never from ambient randomness.
@@ -88,6 +117,7 @@ export function applyIntent(
         },
         lifecycleContext,
       );
+      return { state: applied.state, log: [...preLog, ...applied.log] };
     }
     case 'remove-condition': {
       const target = state.participants[intent.payload.target];
@@ -174,13 +204,58 @@ export function applyIntent(
       if (!target) {
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
+      const asserted = intent.payload.assertedAbilityUse;
+      if (asserted !== null && !state.participants[asserted.actorParticipantId]) {
+        return {
+          state,
+          log: [refusal(intent, `unknown participant ${asserted.actorParticipantId}`)],
+        };
+      }
+      // The minionKillVictims structural gate, hoisted above the economy
+      // debit so a refusal never follows a mutation (refusal-with-change
+      // holds by construction).
+      const targetIsLivingSquadMember = state.squads.some((candidate) =>
+        candidate.memberIds.includes(intent.payload.target),
+      );
+      if (!targetIsLivingSquadMember && intent.payload.minionKillVictims.length > 0) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `${intent.payload.target} is not a living member of a seeded squad — minionKillVictims applies only to squad-pooled damage`,
+            ),
+          ],
+        };
+      }
+      // Asserted-band economy parity (R-0029/R-0030): a manual tier
+      // assertion is still a use of the ability — it debits through the one
+      // home like the rolled path, and opens NO resolution entry.
+      let economyState = state;
+      const economyLog: LogEntry[] = [];
+      if (asserted !== null && state.turnState !== null) {
+        const debited = debitActionCost(
+          economyState,
+          {
+            cost: asserted.actionCost,
+            payerId: asserted.actorParticipantId,
+            abilityKey: asserted.abilityArtifactId,
+            usesPerRound: asserted.usesPerRound,
+            partOf: asserted.partOf ?? null,
+          },
+          lifecycleContext,
+        );
+        economyState = debited.state;
+        economyLog.push(...debited.log);
+      }
+      const liveTarget = economyState.participants[intent.payload.target] ?? target;
       // A living squad member's damage decrements the shared pool — the ONE
       // home for squad vitality [R-0024]; the dispatch-asserted `area` flag
       // is the manual half of the R-0025 discriminator.
       const pendingContributions = new Map<string, PendingSquadContribution[]>();
       const squad = collectSquadContribution(
-        state,
-        target,
+        economyState,
+        liveTarget,
         {
           targetId: intent.payload.target,
           damage: intent.payload.amount,
@@ -197,7 +272,7 @@ export function applyIntent(
         // same area effect damaged other squad members, they must be
         // batched into one dispatch or the adjustment multiply-applies —
         // one application per dispatch instead of one per instance.
-        const squadStats = squadMemberStats(state, squad);
+        const squadStats = squadMemberStats(economyState, squad);
         if (
           intent.payload.area &&
           squadStats !== null &&
@@ -218,7 +293,7 @@ export function applyIntent(
           });
         }
         const flushed = flushSquadContributions(
-          state,
+          economyState,
           pendingContributions,
           {
             area: intent.payload.area,
@@ -227,24 +302,15 @@ export function applyIntent(
           },
           lifecycleContext,
         );
-        return { state: flushed.state, log: [...preLog, ...flushed.log] };
+        return { state: flushed.state, log: [...economyLog, ...preLog, ...flushed.log] };
       }
-      if (intent.payload.minionKillVictims.length > 0) {
-        return {
-          state,
-          log: [
-            refusal(
-              intent,
-              `${intent.payload.target} is not a living member of a seeded squad — minionKillVictims applies only to squad-pooled damage`,
-            ),
-          ],
-        };
-      }
-      const blocker = damageAutomationBlocker(target);
+      // (The minionKillVictims structural gate ran above the economy debit.)
+      const blocker = damageAutomationBlocker(liveTarget);
       if (blocker !== null) {
         return {
-          state,
+          state: economyState,
           log: [
+            ...economyLog,
             {
               kind: 'table-directive',
               intentId: intent.intentId,
@@ -263,12 +329,15 @@ export function applyIntent(
         };
       }
       const outcome = applyDamage(
-        target,
+        liveTarget,
         { amount: intent.payload.amount, type: intent.payload.damageType ?? null },
         { knockOut: intent.payload.knockOut, reason: intent.payload.reason },
         lifecycleContext,
       );
-      return { state: withParticipant(state, outcome.participant), log: outcome.log };
+      return {
+        state: withParticipant(economyState, outcome.participant),
+        log: [...economyLog, ...outcome.log],
+      };
     }
     case 'end-turn': {
       const turnId = intent.payload.participantId;
