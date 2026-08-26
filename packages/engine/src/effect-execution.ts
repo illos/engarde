@@ -2,13 +2,19 @@ import { targetCountOf } from './ability-execution.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type DamageOutcome,
+  MINION_CANON,
+  type PendingSquadContribution,
   applyDamage,
   damageAutomationBlocker,
+  flushSquadContributions,
   gainTemporaryStamina,
+  isMinion,
+  minionRegainRefusal,
   recoverySpendBlocker,
   regainAutomationBlocker,
   regainStamina,
   spendRecovery,
+  squadOf,
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
@@ -320,6 +326,26 @@ export function executeUseEffect(
         );
         return null;
       }
+      // R-0027: a minion accepting a Recovery spend is REFUSED per-binding —
+      // "minions … can't regain Stamina … during a battle"; no individual
+      // Stamina exists to receive it. Siblings proceed (the entry carries
+      // the perBinding marker the invariant suite recognizes).
+      const minionRefusal = minionRegainRefusal(target);
+      if (minionRefusal !== null) {
+        log.push(
+          entry(
+            context,
+            'refusal',
+            `${targetId} cannot spend a Recovery — ${minionRefusal}`,
+            refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
+            {
+              perBinding: true,
+              minionRecoverySpendRefused: { targetId, ruling: 'R-0027' },
+            },
+          ),
+        );
+        return null;
+      }
       const blocker = recoverySpendBlocker(target);
       if (blocker !== null) {
         log.push(
@@ -394,6 +420,25 @@ export function executeUseEffect(
       );
     }
     const regainState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
+      // R-0027 rule-mandated per-binding refusal: "minions can't regain
+      // Stamina, and can't gain temporary Stamina during a battle". Sibling
+      // bindings proceed.
+      const minionRefusal = minionRegainRefusal(target);
+      if (minionRefusal !== null) {
+        log.push(
+          entry(
+            context,
+            'refusal',
+            `${targetId} cannot ${resolution.kind === 'regain-stamina' ? `regain ${resolution.amount} Stamina` : `gain ${resolution.amount} temporary Stamina`} — ${minionRefusal}`,
+            refs(effect, [MINION_CANON.sharedPool]),
+            {
+              perBinding: true,
+              minionRegainRefused: { targetId, kind: resolution.kind, ruling: 'R-0027' },
+            },
+          ),
+        );
+        return null;
+      }
       const blocker = regainAutomationBlocker(target);
       if (blocker !== null) {
         log.push(
@@ -480,9 +525,25 @@ export function executeUseEffect(
 
   let nextState = state;
   if (effect.resolution.kind === 'damage') {
+    // Same-squad minion targets aggregate into ONE pool application per
+    // squad [R-0026]; the effect header's Area keyword is the printed
+    // discriminator for the per-minion cap [R-0025].
+    const isArea = effect.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+    const squadContributions = new Map<string, PendingSquadContribution[]>();
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
       if (!target) continue;
+      const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
+      if (squad) {
+        const list = squadContributions.get(squad.squadId) ?? [];
+        list.push({
+          targetId,
+          damage: effect.resolution.amount,
+          type: effect.resolution.damageType,
+        });
+        squadContributions.set(squad.squadId, list);
+        continue;
+      }
       const blocker = damageAutomationBlocker(target);
       if (blocker !== null) {
         log.push(
@@ -517,6 +578,18 @@ export function executeUseEffect(
           ...item,
           canonRefs: refs(effect, item.canonRefs),
         })),
+      );
+    }
+    if (squadContributions.size > 0) {
+      const flushed = flushSquadContributions(
+        nextState,
+        squadContributions,
+        { area: isArea, reason: `from ${effect.effectArtifactId} Effect` },
+        context,
+      );
+      nextState = flushed.state;
+      log.push(
+        ...flushed.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
       );
     }
     return { state: nextState, log };
@@ -760,33 +833,56 @@ function applyTestTier(
     const target = nextState.participants[targetId];
     if (!target) return nextState;
     const damageType = data.damage.typeOptions[0] ?? null;
-    const blocker = damageAutomationBlocker(target);
-    if (blocker !== null) {
-      log.push(
-        entry(
-          context,
-          'table-directive',
-          `${targetId} takes ${data.damage.amount}${damageType ? ` ${damageType}` : ''} damage — ${blocker}`,
-          refs(effect),
-          {
-            unautomatedDamage: { targetId, amount: data.damage.amount, damageType },
-          },
-        ),
-      );
-    } else {
-      const outcome = applyDamage(
-        target,
-        { amount: data.damage.amount, type: damageType },
+    // A squad member's test-tier damage routes to the pool. Each target's
+    // independent test roll is its own damage instance (own tier outcome),
+    // so it flushes alone — the once-per-squad weakness step applies per
+    // instance [R-0026]; the effect header's Area keyword still selects the
+    // per-minion cap [R-0025].
+    const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
+    if (squad) {
+      const isArea = effect.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+      const flushed = flushSquadContributions(
+        nextState,
+        new Map([[squad.squadId, [{ targetId, damage: data.damage.amount, type: damageType }]]]),
         {
-          knockOut,
-          reason: `${damageType ? `${damageType} ` : ''}damage from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+          area: isArea,
+          reason: `from ${effect.effectArtifactId} test (tier ${tierNumber})`,
         },
         context,
       );
-      nextState = withParticipant(nextState, outcome.participant);
+      nextState = flushed.state;
       log.push(
-        ...outcome.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
+        ...flushed.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
       );
+    } else {
+      const blocker = damageAutomationBlocker(target);
+      if (blocker !== null) {
+        log.push(
+          entry(
+            context,
+            'table-directive',
+            `${targetId} takes ${data.damage.amount}${damageType ? ` ${damageType}` : ''} damage — ${blocker}`,
+            refs(effect),
+            {
+              unautomatedDamage: { targetId, amount: data.damage.amount, damageType },
+            },
+          ),
+        );
+      } else {
+        const outcome = applyDamage(
+          target,
+          { amount: data.damage.amount, type: damageType },
+          {
+            knockOut,
+            reason: `${damageType ? `${damageType} ` : ''}damage from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+          },
+          context,
+        );
+        nextState = withParticipant(nextState, outcome.participant);
+        log.push(
+          ...outcome.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
+        );
+      }
     }
   }
   if (data.conditionIds.length === 0) return nextState;

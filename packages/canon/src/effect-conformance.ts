@@ -389,6 +389,10 @@ export function compileEffectPrograms(
         actionType: lastHeader?.actionType ?? null,
         targetsText: lastHeader?.targets ?? null,
         distanceText: lastHeader?.distance ?? null,
+        // Header keywords pass through like the ability form's — the Area
+        // keyword is the printed discriminator for the squad-pool area cap
+        // [chapter/monster-basics §Dropping Multiple Minions, R-0025].
+        keywords: lastHeader?.keywords ?? [],
         resolution,
       }),
     );

@@ -7,7 +7,16 @@ import {
   endOfTurnSweep,
   removeConditionInstance,
 } from './condition-lifecycle.js';
-import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
+import {
+  MINION_CANON,
+  applyDamage,
+  damageAutomationBlocker,
+  flushSquadContributions,
+  isMinion,
+  squadOf,
+  withParticipant,
+  withSquad,
+} from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { endEncounterGrantSweep, endOfTurnGrantSweep } from './grant-lifecycle.js';
@@ -122,6 +131,45 @@ export function applyIntent(
       if (!target) {
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
+      // A living squad member's damage decrements the shared pool — the ONE
+      // home for squad vitality [R-0024]; the dispatch-asserted `area` flag
+      // is the manual half of the R-0025 discriminator.
+      const squad = isMinion(target) ? squadOf(state, intent.payload.target) : undefined;
+      if (squad) {
+        const flushed = flushSquadContributions(
+          state,
+          new Map([
+            [
+              squad.squadId,
+              [
+                {
+                  targetId: intent.payload.target,
+                  damage: intent.payload.amount,
+                  type: intent.payload.damageType ?? null,
+                },
+              ],
+            ],
+          ]),
+          {
+            area: intent.payload.area,
+            namedVictims: intent.payload.minionKillVictims,
+            reason: `(${intent.payload.reason})`,
+          },
+          lifecycleContext,
+        );
+        return { state: flushed.state, log: flushed.log };
+      }
+      if (intent.payload.minionKillVictims.length > 0) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `${intent.payload.target} is not a living member of a seeded squad — minionKillVictims applies only to squad-pooled damage`,
+            ),
+          ],
+        };
+      }
       const blocker = damageAutomationBlocker(target);
       if (blocker !== null) {
         return {
@@ -231,6 +279,189 @@ export function applyIntent(
         nextState = { ...nextState, terrainFacts: [] };
       }
       return { state: nextState, log };
+    }
+    case 'resolve-pending-kills': {
+      // Identity assignment for pool-counted kills [R-0024]: "the minions
+      // nearest to those taken out suffer the same fate" is spatial, so the
+      // Director-or-damager names the victims. The 0-Stamina trigger receipt
+      // fired when each kill was counted — naming only assigns identity,
+      // never a second trigger [R-0027].
+      const squad = state.squads.find((candidate) => candidate.squadId === intent.payload.squadId);
+      if (!squad) {
+        return { state, log: [refusal(intent, `unknown squad ${intent.payload.squadId}`)] };
+      }
+      const victims = intent.payload.victimMemberIds;
+      if (new Set(victims).size !== victims.length) {
+        return { state, log: [refusal(intent, 'victimMemberIds must be distinct')] };
+      }
+      if (victims.length > squad.pendingKills) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `${victims.length} victims named but only ${squad.pendingKills} kill(s) await identity in ${squad.name}`,
+            ),
+          ],
+        };
+      }
+      const notLiving = victims.filter((victimId) => !squad.memberIds.includes(victimId));
+      if (notLiving.length > 0) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `${notLiving.join(', ')} ${notLiving.length === 1 ? 'is not a living member' : 'are not living members'} of ${squad.name}`,
+            ),
+          ],
+        };
+      }
+      const nextSquad = {
+        ...squad,
+        memberIds: squad.memberIds.filter((memberId) => !victims.includes(memberId)),
+        deadMemberIds: [...squad.deadMemberIds, ...victims],
+        pendingKills: squad.pendingKills - victims.length,
+      };
+      return {
+        state: withSquad(state, nextSquad),
+        log: [
+          {
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [MINION_CANON.droppingMultiple],
+            message: `${victims.join(', ')} identified as the pool's counted kill(s) in ${squad.name}${intent.payload.reason ? ` (${intent.payload.reason})` : ''} — the 0-Stamina trigger already fired when each kill was counted`,
+            data: {
+              squadDeaths: victims.map((memberId) => ({ squadId: squad.squadId, memberId })),
+              pendingKillsDeltas: [
+                {
+                  squadId: squad.squadId,
+                  from: squad.pendingKills,
+                  to: nextSquad.pendingKills,
+                },
+              ],
+            },
+          },
+        ],
+      };
+    }
+    case 'attach-captain': {
+      // R-0028: attachment is tracked state; Director authority (trust gates
+      // live in the host). Captain Stamina stays individual — no pool math.
+      const squad = state.squads.find((candidate) => candidate.squadId === intent.payload.squadId);
+      if (!squad) {
+        return { state, log: [refusal(intent, `unknown squad ${intent.payload.squadId}`)] };
+      }
+      const captain = state.participants[intent.payload.captainId];
+      if (!captain) {
+        return { state, log: [refusal(intent, `unknown participant ${intent.payload.captainId}`)] };
+      }
+      if (isMinion(captain)) {
+        // "Any non-Mount, non-minion creature … can be attached to that
+        // squad as a captain" [rule.monster/captain] — a minion captain is
+        // canon-incoherent state the schema/invariants cannot hold.
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `${captain.id} is a minion — only a non-minion creature can captain a squad`,
+            ),
+          ],
+        };
+      }
+      if (squad.captainId === captain.id) {
+        return {
+          state,
+          log: [
+            {
+              kind: 'informational',
+              intentId: intent.intentId,
+              actor: intent.actor,
+              canonRefs: [MINION_CANON.captain],
+              message: `${captain.id} already captains ${squad.name} — nothing to change`,
+              data: {},
+            },
+          ],
+        };
+      }
+      const log: LogEntry[] = [];
+      let nextState = state;
+      if (squad.captainId !== null) {
+        // "A squad of minions can have only one captain" — replacing is the
+        // Director exercising the printed rule; warn for visibility.
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [MINION_CANON.captain],
+          message: `${squad.name} already has captain ${squad.captainId} — replaced by ${captain.id} (a squad can have only one captain)`,
+          data: { replacedCaptainId: squad.captainId, squadId: squad.squadId },
+        });
+      }
+      // "a creature can't be captain to more than one squad of minions" —
+      // attaching moves them; warn and detach from the old squad.
+      const previousSquad = nextState.squads.find(
+        (candidate) => candidate.squadId !== squad.squadId && candidate.captainId === captain.id,
+      );
+      if (previousSquad) {
+        log.push({
+          kind: 'warning',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [MINION_CANON.captain],
+          message: `${captain.id} already captains ${previousSquad.name} — detached from it (a creature can't be captain to more than one squad)`,
+          data: { detachedFromSquadId: previousSquad.squadId },
+        });
+        log.push({
+          kind: 'mutation',
+          intentId: intent.intentId,
+          actor: intent.actor,
+          canonRefs: [MINION_CANON.captain],
+          message: `${captain.id} is no longer the captain of ${previousSquad.name}`,
+          data: {
+            captainDeltas: [{ squadId: previousSquad.squadId, from: captain.id, to: null }],
+          },
+        });
+        nextState = withSquad(nextState, { ...previousSquad, captainId: null });
+      }
+      log.push({
+        kind: 'mutation',
+        intentId: intent.intentId,
+        actor: intent.actor,
+        canonRefs: [MINION_CANON.captain],
+        message: `${captain.id} is attached to ${squad.name} as its captain — With-Captain benefits apply per the stat block (table-adjudicated); the captain's Stamina stays individual`,
+        data: {
+          captainDeltas: [{ squadId: squad.squadId, from: squad.captainId, to: captain.id }],
+        },
+      });
+      nextState = withSquad(nextState, { ...squad, captainId: captain.id });
+      return { state: nextState, log };
+    }
+    case 'detach-captain': {
+      const squad = state.squads.find((candidate) => candidate.squadId === intent.payload.squadId);
+      if (!squad) {
+        return { state, log: [refusal(intent, `unknown squad ${intent.payload.squadId}`)] };
+      }
+      if (squad.captainId === null) {
+        return { state, log: [refusal(intent, `${squad.name} has no captain attached`)] };
+      }
+      return {
+        state: withSquad(state, { ...squad, captainId: null }),
+        log: [
+          {
+            kind: 'mutation',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [MINION_CANON.captain],
+            message: `${squad.captainId} is detached from ${squad.name}${intent.payload.reason ? ` (${intent.payload.reason})` : ''} — a new allied creature can become captain at the start of the next round (no action required)`,
+            data: {
+              captainDeltas: [{ squadId: squad.squadId, from: squad.captainId, to: null }],
+            },
+          },
+        ],
+      };
     }
     case 'clear-terrain-fact': {
       const fact = state.terrainFacts.find(

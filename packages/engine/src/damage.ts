@@ -8,7 +8,14 @@ import {
   isWinded,
   recoveryValue,
 } from './health.js';
-import type { DamageType, EncounterState, LogEntry, ParticipantState } from './schemas.js';
+import type {
+  DamageType,
+  EncounterState,
+  LogEntry,
+  ParticipantState,
+  ParticipantStats,
+  SquadState,
+} from './schemas.js';
 
 /**
  * Damage / Stamina core — the ONE home for the damage pipeline and the
@@ -47,6 +54,19 @@ export interface DamageOutcome {
   log: LogEntry[];
 }
 
+/** Canon artifact ids the minion squad pool mechanism traces to
+ * (R-0023..R-0028, docs/minion-pool-design.md). */
+export const MINION_CANON = {
+  minion: 'mcdm.monsters.v1/rule.organization/minion',
+  squad: 'mcdm.monsters.v1/rule.monster/squad',
+  captain: 'mcdm.monsters.v1/rule.monster/captain',
+  sharedPool: 'mcdm.monsters.v1/chapter/monster-basics#shared-low-stamina',
+  droppingOne: 'mcdm.monsters.v1/chapter/monster-basics#dropping-one-minion',
+  droppingMultiple: 'mcdm.monsters.v1/chapter/monster-basics#dropping-multiple-minions',
+  areaEffects: 'mcdm.monsters.v1/chapter/monster-basics#minions-and-area-effects',
+  weaknessImmunity: 'mcdm.monsters.v1/chapter/monster-basics#minion-weakness-and-immunity',
+} as const;
+
 /** The ONE home for the Minion stat-block-organization predicate
  * [monsters chapter/monster-basics §Using Minions]. Case-insensitive over the
  * stored organization string; a participant without tracked stats is not a
@@ -55,16 +75,42 @@ export function isMinion(participant: ParticipantState): boolean {
   return participant.stats?.organization?.toLowerCase() === 'minion';
 }
 
-/** Why a participant's Stamina cannot be automated, if it can't. */
+/** The LIVING-membership lookup: the seeded squad whose `memberIds` carry
+ * this participant, if any. Dead members and never-seeded minions fall
+ * through to `damageAutomationBlocker`'s table routing. */
+export function squadOf(state: EncounterState, participantId: string): SquadState | undefined {
+  return state.squads.find((squad) => squad.memberIds.includes(participantId));
+}
+
+/** Any member's stats carry the squad's statblock (same-statblock membership
+ * is a seed-time refusal, R-0023) — the squad-level weakness/immunity rows
+ * live here [R-0026]. */
+export function squadMemberStats(
+  state: EncounterState,
+  squad: SquadState,
+): ParticipantStats | null {
+  for (const memberId of [...squad.memberIds, ...squad.deadMemberIds]) {
+    const stats = state.participants[memberId]?.stats;
+    if (stats) return stats;
+  }
+  return null;
+}
+
+/** Why a participant's Stamina cannot be automated, if it can't. Callers on
+ * the damage path consult `squadOf` FIRST — a living squad member routes to
+ * the pool [R-0024], never here. */
 export function damageAutomationBlocker(participant: ParticipantState): string | null {
-  if (participant.stats === null || participant.stamina === null) {
+  if (participant.stats === null || (participant.stamina === null && !isMinion(participant))) {
     return 'no stats tracked for this participant — resolve at the table';
   }
   if (isMinion(participant)) {
-    // Minion squads share a Stamina pool with their own drop accounting;
-    // treating one as an individual would be a silent canon divergence
-    // [monsters chapter/monster-basics §Minions and Stamina].
-    return 'minion squads share a Stamina pool the engine does not yet mechanize — resolve at the table';
+    // Squad seeding is the automation boundary [R-0023]: pool math automates
+    // only for minions the Director seeded into a squad; treating a minion
+    // as an individual would be a silent canon divergence
+    // [monsters chapter/monster-basics §Shared Low Stamina].
+    return participant.stamina === null
+      ? 'this minion is no longer a living member of a seeded squad — resolve at the table'
+      : 'this minion is not seeded into a squad — squad Stamina pools automate only through seeding; resolve at the table';
   }
   return null;
 }
@@ -226,7 +272,7 @@ function reduceStamina(
       entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {}),
     );
     const applied = applyConditionInstance(
-      { schemaVersion: 4, participants: { [result.id]: result }, terrainFacts: [] },
+      { schemaVersion: 5, participants: { [result.id]: result }, terrainFacts: [], squads: [] },
       {
         target: result,
         instance: {
@@ -250,7 +296,7 @@ function reduceStamina(
   if (!deadBefore && wouldBeDead) {
     if (options.knockOut) {
       const applied = applyConditionInstance(
-        { schemaVersion: 4, participants: { [result.id]: result }, terrainFacts: [] },
+        { schemaVersion: 5, participants: { [result.id]: result }, terrainFacts: [], squads: [] },
         {
           target: result,
           instance: {
@@ -333,17 +379,317 @@ export function loseStamina(
   );
 }
 
-/** Why a participant's Stamina regain cannot be automated, if it can't.
- * Minions additionally CAN'T regain by rule — "minions can't be winded,
- * can't regain Stamina, and can't gain temporary Stamina during a battle"
- * [monsters chapter/monster-basics §Shared Low Stamina, R-0019c] — but the
- * pool is also not mechanized, so both regain paths route to the table. */
+/** One bound target's share of a damage instance against a squad — the
+ * post-individual-modifier damage dealt to that member. */
+export interface SquadDamageContribution {
+  targetId: string;
+  damage: number;
+}
+
+export interface SquadDamageOptions {
+  /** Area source — Area-keyword ability or dispatch-asserted area flag (the
+   * printed discriminator, R-0025): each contribution feeds the pool at
+   * most the per-minion Stamina. */
+  area: boolean;
+  /** null = untyped [rule.damage/damage-type]. */
+  type: DamageType | null;
+  /** Damager-named extra victims beyond the damaged targets [R-0024]. */
+  namedVictims?: readonly string[];
+  /** Human-facing attribution for the log line. */
+  reason: string;
+}
+
+export interface SquadDamageOutcome {
+  squad: SquadState;
+  log: LogEntry[];
+}
+
+/**
+ * The ONE home for squad-pool damage (R-0024..R-0027) — the squad analog of
+ * `applyDamage`. Pipeline order is ruled, not incidental:
+ *
+ * 1. Per contribution: an area source caps each bound minion's feed at
+ *    min(damage, perMinionStamina) [R-0025, the printed 15-not-18
+ *    Incinerate example]; any other source feeds the full damage [R-0024].
+ * 2. Sum the (capped) contributions.
+ * 3. Apply the squad's damage weakness/immunity ONCE to the sum, as the
+ *    LAST step — reusing the individual pipeline's semantics (weakness
+ *    first, immunity last, highest applicable of each) [R-0026, "the last
+ *    things applied"]. The adjustment MAY push kills beyond the bound
+ *    count, even for area damage ("can drop (or save!) multiple minions
+ *    from any source of damage, including area effects").
+ * 4. Decrement the pool by the final sum, flooring at 0; the receipt
+ *    records the full pre-floor reduction and the discarded excess
+ *    [R-0024 "Yes, then discard"] — carryover between kill thresholds
+ *    otherwise stays in the pool (nothing rounds away).
+ * 5. Kill accounting: kills this instance =
+ *    floor((max − newPool)/perMinion) − floor((max − oldPool)/perMinion).
+ *    The bound damaged targets die first (dispatch order — the damager's
+ *    printed choice rides target order), then named victims, then the
+ *    remainder becomes pendingKills with a table directive ("the minions
+ *    nearest to those taken out suffer the same fate"). Every death counts
+ *    as being reduced to 0 Stamina for triggering effects [R-0027].
+ */
+export function applySquadDamage(
+  squad: SquadState,
+  stats: ParticipantStats,
+  contributions: readonly SquadDamageContribution[],
+  options: SquadDamageOptions,
+  context: LifecycleContext,
+): SquadDamageOutcome {
+  const per = squad.perMinionStamina;
+  const capped = contributions.map((contribution) => ({
+    targetId: contribution.targetId,
+    damage: contribution.damage,
+    // R-0025: "such area effects can kill only those minions who are in the
+    // area" — structural via the per-contribution cap.
+    counted: options.area ? Math.min(contribution.damage, per) : contribution.damage,
+  }));
+  const cappedSum = capped.reduce((sum, contribution) => sum + contribution.counted, 0);
+  // R-0026: one squad-level weakness/immunity step on the sum, last.
+  const breakdown = runDamagePipeline(stats, { amount: cappedSum, type: options.type });
+  const finalSum = breakdown.afterImmunity;
+
+  const oldPool = squad.pool.current;
+  const preFloor = oldPool - finalSum;
+  const newPool = Math.max(0, preFloor);
+  const discarded = newPool - preFloor;
+  const kills =
+    Math.floor((squad.pool.max - newPool) / per) - Math.floor((squad.pool.max - oldPool) / per);
+
+  const log: LogEntry[] = [
+    entry(
+      context,
+      'mutation',
+      `${squad.name} takes ${finalSum} pool damage ${options.reason}${
+        discarded > 0 ? ` (${discarded} past the last pool point is discarded)` : ''
+      }`,
+      [
+        MINION_CANON.sharedPool,
+        ...(options.area ? [MINION_CANON.areaEffects] : []),
+        ...(breakdown.weaknessApplied || breakdown.immunityApplied
+          ? [MINION_CANON.weaknessImmunity]
+          : []),
+        ...(breakdown.weaknessApplied ? [HEALTH_CANON.damageWeakness] : []),
+        ...(breakdown.immunityApplied ? [HEALTH_CANON.damageImmunity] : []),
+      ],
+      {
+        squadDamage: {
+          squadId: squad.squadId,
+          area: options.area,
+          damageType: options.type,
+          contributions: capped,
+          cappedSum,
+          weaknessApplied: breakdown.weaknessApplied,
+          immunityApplied: breakdown.immunityApplied,
+          /** The full damage, pre-floor — R-0024's receipt requirement. */
+          fullPoolReduction: finalSum,
+          overflowDiscarded: discarded,
+          kills,
+        },
+        squadPoolDeltas: [{ squadId: squad.squadId, from: oldPool, to: newPool }],
+      },
+    ),
+  ];
+
+  // ── kill accounting [R-0024/R-0027] ─────────────────────────────────────
+  const memberIds = [...squad.memberIds];
+  const deadMemberIds = [...squad.deadMemberIds];
+  const assigned: string[] = [];
+  let remaining = kills;
+  const die = (memberId: string, how: string): void => {
+    const index = memberIds.indexOf(memberId);
+    if (index === -1) return;
+    memberIds.splice(index, 1);
+    deadMemberIds.push(memberId);
+    assigned.push(memberId);
+    remaining -= 1;
+    log.push(
+      entry(
+        context,
+        'mutation',
+        `${memberId} dies (${how}) — a minion taken out of the fight counts as being reduced to 0 Stamina for triggering effects`,
+        [MINION_CANON.droppingOne],
+        {
+          squadDeaths: [{ squadId: squad.squadId, memberId }],
+          zeroStaminaTrigger: { participantId: memberId, ruling: 'R-0027' },
+        },
+      ),
+    );
+  };
+  // "the minion who took the damage that reduced the pool dies" first.
+  for (const contribution of capped) {
+    if (remaining <= 0) break;
+    if (assigned.includes(contribution.targetId)) continue;
+    die(contribution.targetId, 'took the damage that reduced the pool');
+  }
+  // Then the damager's named victims [R-0024].
+  for (const victimId of options.namedVictims ?? []) {
+    if (remaining <= 0) {
+      log.push(
+        entry(
+          context,
+          'warning',
+          `${victimId} was named as a victim but this instance counts no further kill — not applied`,
+          [MINION_CANON.droppingOne],
+          { ignoredNamedVictim: { squadId: squad.squadId, victimId } },
+        ),
+      );
+      continue;
+    }
+    if (!memberIds.includes(victimId)) {
+      log.push(
+        entry(
+          context,
+          'warning',
+          `${victimId} is not a living member of ${squad.name} — named victim skipped`,
+          [MINION_CANON.droppingOne],
+          { ignoredNamedVictim: { squadId: squad.squadId, victimId } },
+        ),
+      );
+      continue;
+    }
+    die(victimId, 'named by the damager');
+  }
+  // The unnamed remainder is a pending-identity kill: "the minions nearest
+  // to those taken out suffer the same fate" is spatial, so the table names
+  // them via resolve-pending-kills [R-0024].
+  let pendingKills = squad.pendingKills;
+  if (remaining > 0) {
+    log.push(
+      entry(
+        context,
+        'mutation',
+        `${remaining} further kill(s) counted by the pool await victim identity`,
+        [MINION_CANON.droppingMultiple],
+        {
+          pendingKillsDeltas: [
+            { squadId: squad.squadId, from: pendingKills, to: pendingKills + remaining },
+          ],
+        },
+      ),
+    );
+    log.push(
+      entry(
+        context,
+        'table-directive',
+        `name ${remaining} more victim(s) in ${squad.name} — "the minions nearest to those taken out suffer the same fate" — then dispatch resolve-pending-kills`,
+        [MINION_CANON.droppingMultiple],
+        { pendingKillIdentity: { squadId: squad.squadId, count: remaining } },
+      ),
+    );
+    pendingKills += remaining;
+  }
+  if (newPool === 0 && oldPool > 0) {
+    log.push(
+      entry(
+        context,
+        'informational',
+        `${squad.name}'s Stamina pool is exhausted`,
+        [MINION_CANON.sharedPool],
+        {},
+      ),
+    );
+  }
+
+  return {
+    squad: {
+      ...squad,
+      pool: { ...squad.pool, current: newPool },
+      memberIds,
+      deadMemberIds,
+      pendingKills,
+    },
+    log,
+  };
+}
+
+/** Helper for reducers: swap one squad into the state. */
+export function withSquad(state: EncounterState, squad: SquadState): EncounterState {
+  return {
+    ...state,
+    squads: state.squads.map((candidate) =>
+      candidate.squadId === squad.squadId ? squad : candidate,
+    ),
+  };
+}
+
+/** One collected (not yet applied) squad contribution on a dispatch path. */
+export interface PendingSquadContribution {
+  targetId: string;
+  damage: number;
+  type: DamageType | null;
+}
+
+/**
+ * Shared dispatch-path flush: every executor that damages participants
+ * collects same-squad contributions into ONE map and flushes them through a
+ * single `applySquadDamage` call per squad — required by R-0026's
+ * once-per-squad weakness/immunity step. Insertion order of the map (first
+ * bound member) fixes squad order; contribution order is dispatch order.
+ */
+export function flushSquadContributions(
+  state: EncounterState,
+  pending: ReadonlyMap<string, PendingSquadContribution[]>,
+  options: { area: boolean; namedVictims?: readonly string[]; reason: string },
+  context: LifecycleContext,
+): { state: EncounterState; log: LogEntry[] } {
+  let nextState = state;
+  const log: LogEntry[] = [];
+  for (const [squadId, contributions] of pending) {
+    const squad = nextState.squads.find((candidate) => candidate.squadId === squadId);
+    if (!squad || contributions.length === 0) continue;
+    const stats = squadMemberStats(nextState, squad);
+    if (!stats) continue; // membership reconciliation is an invariant; unreachable on seeded state
+    const types = new Set(contributions.map((contribution) => contribution.type));
+    const type = types.size === 1 ? (contributions[0]?.type ?? null) : null;
+    if (types.size > 1) {
+      log.push(
+        entry(
+          context,
+          'warning',
+          `one damage instance against ${squad.name} mixes damage types — the once-per-squad weakness/immunity step [R-0026] applies as untyped`,
+          [MINION_CANON.weaknessImmunity],
+          { mixedTypes: [...types].map((item) => item ?? 'untyped') },
+        ),
+      );
+    }
+    const outcome = applySquadDamage(
+      squad,
+      stats,
+      contributions.map(({ targetId, damage }) => ({ targetId, damage })),
+      { area: options.area, type, namedVictims: options.namedVictims, reason: options.reason },
+      context,
+    );
+    nextState = withSquad(nextState, outcome.squad);
+    log.push(...outcome.log);
+  }
+  return { state: nextState, log };
+}
+
+/**
+ * The R-0027 rule-mandated refusal, if one applies: "Because minion Stamina
+ * is tracked as a pool, minions can't be winded, can't regain Stamina, and
+ * can't gain temporary Stamina during a battle" [chapter/monster-basics
+ * §Shared Low Stamina]. A refusal (not warn-and-apply) because no individual
+ * Stamina exists to receive the change — canon-incoherent over-state; and
+ * PER-BINDING: sibling targets of the same effect still resolve. Callers
+ * consult this BEFORE `regainAutomationBlocker` (a squad member's null
+ * stamina would otherwise misread as untracked stats).
+ */
+export function minionRegainRefusal(participant: ParticipantState): string | null {
+  if (isMinion(participant)) {
+    return "minions can't regain Stamina and can't gain temporary Stamina during a battle — their Stamina is tracked as a squad pool";
+  }
+  return null;
+}
+
+/** Why a participant's Stamina regain cannot be automated, if it can't —
+ * the table-routing (not-automatable) half; the rule-mandated minion refusal
+ * is `minionRegainRefusal` [R-0027] and is consulted first. */
 export function regainAutomationBlocker(participant: ParticipantState): string | null {
   if (participant.stats === null || participant.stamina === null) {
     return 'no stats tracked for this participant — resolve at the table';
-  }
-  if (isMinion(participant)) {
-    return 'minions cannot regain Stamina or gain temporary Stamina during a battle, and squad pools are not mechanized — resolve at the table';
   }
   return null;
 }
@@ -351,7 +697,8 @@ export function regainAutomationBlocker(participant: ParticipantState): string |
 /** Why a participant cannot be offered an automated Recovery spend, if they
  * can't. Director-controlled non-minions are NOT blocked — they convert to
  * the one-third-maximum regain [rule.health/stamina §No Recoveries,
- * R-0019b]. */
+ * R-0019b]. Minions are refused outright by `minionRegainRefusal` [R-0027],
+ * which callers consult first. */
 export function recoverySpendBlocker(participant: ParticipantState): string | null {
   const regainBlocker = regainAutomationBlocker(participant);
   if (regainBlocker !== null) return regainBlocker;

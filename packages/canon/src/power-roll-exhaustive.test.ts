@@ -157,8 +157,9 @@ function diceForTier(ability: AbilityEffectData, tier: Tier): [number, number] {
 
 function freshState(): EncounterState {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     terrainFacts: [],
+    squads: [],
     participants: {
       actor: {
         id: 'actor',

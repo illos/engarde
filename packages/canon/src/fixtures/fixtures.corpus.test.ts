@@ -6,7 +6,9 @@ import { ingestStructuredRecord } from '../extract.js';
 import { statblockStats } from '../statblock-stats.js';
 import { BLOOD_FOR_BLOOD } from './blood-for-blood.verbatim.js';
 import { DEVIL_ADJUDICATOR } from './devil-adjudicator.verbatim.js';
+import { GOBLIN_SPINECLEAVER } from './goblin-spinecleaver.verbatim.js';
 import { GOBLIN_WARRIOR } from './goblin-warrior.verbatim.js';
+import { INCINERATE } from './incinerate.verbatim.js';
 import { SKITTERLING } from './skitterling.verbatim.js';
 
 /**
@@ -76,6 +78,45 @@ describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpu
     );
     expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(
       DEVIL_ADJUDICATOR.statsJson,
+    );
+  });
+
+  it('goblin-spinecleaver (text AND statsJson) is byte-identical to the corpus cut', async () => {
+    const markdownPath = 'en/books/monsters/md/monster/goblin/statblock/goblin-spinecleaver.md';
+    const jsonPath = markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+    const bundle = ingestStructuredRecord({
+      markdownPath,
+      markdown: await readFile(resolve(sourceRoot ?? '', markdownPath)),
+      jsonPath,
+      json: await readFile(resolve(sourceRoot ?? '', jsonPath)),
+    });
+    const artifact = bundle.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact');
+    expect(artifact.id).toBe(GOBLIN_SPINECLEAVER.artifactId);
+    expect(artifact.text).toBe(GOBLIN_SPINECLEAVER.text);
+    expect(createHash('sha256').update(GOBLIN_SPINECLEAVER.text, 'utf8').digest('hex')).toBe(
+      GOBLIN_SPINECLEAVER.textSha256,
+    );
+    expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(
+      GOBLIN_SPINECLEAVER.statsJson,
+    );
+  });
+
+  it('incinerate is byte-identical to the corpus cut', async () => {
+    const markdownPath = 'en/books/heroes/md/feature/ability/talent/level-1/incinerate.md';
+    const jsonPath = markdownPath.replace('/md/', '/json/').replace(/\.md$/, '.json');
+    const bundle = ingestStructuredRecord({
+      markdownPath,
+      markdown: await readFile(resolve(sourceRoot ?? '', markdownPath)),
+      jsonPath,
+      json: await readFile(resolve(sourceRoot ?? '', jsonPath)),
+    });
+    const artifact = bundle.records.find((record) => record.recordKind === 'artifact');
+    if (!artifact || artifact.recordKind !== 'artifact') throw new Error('no artifact');
+    expect(artifact.id).toBe(INCINERATE.artifactId);
+    expect(artifact.text).toBe(INCINERATE.text);
+    expect(createHash('sha256').update(INCINERATE.text, 'utf8').digest('hex')).toBe(
+      INCINERATE.textSha256,
     );
   });
 

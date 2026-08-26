@@ -42,6 +42,7 @@ function baseEffect(resolution: EffectProgramData['resolution']): EffectProgramD
     actionType: 'Main action',
     targetsText: 'One creature',
     distanceText: null,
+    keywords: [],
     resolution,
   };
 }
@@ -252,6 +253,7 @@ function testEffect(): EffectProgramData {
     actionType: 'Main action',
     targetsText: 'One creature',
     distanceText: null,
+    keywords: [],
     resolution: {
       kind: 'test',
       characteristic: 'presence',

@@ -5,6 +5,7 @@ import {
   EncounterStateV1Schema,
   EncounterStateV2Schema,
   EncounterStateV3Schema,
+  EncounterStateV4Schema,
 } from './schemas.js';
 
 /**
@@ -26,21 +27,30 @@ import {
  * v3 encounter tracked Recoveries or terrain, so the lossless upgrade is
  * null / null / [] — supplied by the schema defaults; the migration
  * re-stamps the version.
+ *
+ * v4 → v5: the encounter gains the `squads` slot (minion squad Stamina
+ * pools, R-0023..R-0028). No v4 encounter could hold a seeded squad (every
+ * minion routed to the table), so the lossless upgrade is `squads: []` —
+ * supplied by the schema default; the migration re-stamps the version.
  */
 export function upgradeEncounterState(stored: unknown): EncounterState {
-  const v4 = EncounterStateSchema.safeParse(stored);
-  if (v4.success) return v4.data;
+  const v5 = EncounterStateSchema.safeParse(stored);
+  if (v5.success) return v5.data;
+  const v4 = EncounterStateV4Schema.safeParse(stored);
+  if (v4.success) {
+    return EncounterStateSchema.parse({ ...v4.data, schemaVersion: 5 });
+  }
   const v3 = EncounterStateV3Schema.safeParse(stored);
   if (v3.success) {
-    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 4 });
+    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 5 });
   }
   const v2 = EncounterStateV2Schema.safeParse(stored);
   if (v2.success) {
-    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 4 });
+    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 5 });
   }
   const v1: EncounterStateV1 = EncounterStateV1Schema.parse(stored);
   return EncounterStateSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     participants: Object.fromEntries(
       Object.entries(v1.participants).map(([id, participant]) => [
         id,

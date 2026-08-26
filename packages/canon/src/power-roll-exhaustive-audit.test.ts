@@ -99,8 +99,9 @@ function characteristicStats(): ParticipantStats {
 function state(): EncounterState {
   const stats = characteristicStats();
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     terrainFacts: [],
+    squads: [],
     participants: {
       actor: {
         id: 'actor',

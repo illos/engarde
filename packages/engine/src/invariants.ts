@@ -46,7 +46,15 @@ export interface InvariantViolation {
     | 'stamina-above-maximum'
     | 'duplicate-terrain-fact-id'
     | 'unattributed-terrain-change'
-    | 'phantom-terrain-claim';
+    | 'phantom-terrain-claim'
+    | 'duplicate-squad-id'
+    | 'squad-pool-out-of-bounds'
+    | 'squad-accounting-mismatch'
+    | 'squad-membership-mismatch'
+    | 'unattributed-squad-change'
+    | 'phantom-squad-claim'
+    | 'squad-member-stamina-tracked'
+    | 'squad-weakness-multiply-applied';
   detail: string;
 }
 
@@ -419,6 +427,270 @@ export function checkInvariants(
     }
   }
 
+  // ── Squad-pool reconciliation (v5, R-0023..R-0028) ─────────────────────
+  // Structural coherence: the printed pool formula, the standing R-0024
+  // kill-accounting invariant, two-way membership, and null member stamina;
+  // then state↔log reconciliation over pool, deaths, pendingKills, and
+  // captains — every delta claimed, every claim real.
+  {
+    const seenSquadIds = new Set<string>();
+    const memberHome = new Map<string, string>();
+    for (const squad of result.state.squads) {
+      if (seenSquadIds.has(squad.squadId)) {
+        violations.push({ code: 'duplicate-squad-id', detail: squad.squadId });
+      }
+      seenSquadIds.add(squad.squadId);
+      const per = squad.perMinionStamina;
+      const total = squad.memberIds.length + squad.deadMemberIds.length;
+      if (squad.pool.max !== per * total) {
+        violations.push({
+          code: 'squad-accounting-mismatch',
+          detail: `${squad.squadId}: pool.max ${squad.pool.max} ≠ ${per} × ${total} members [R-0023]`,
+        });
+      }
+      if (squad.pool.current < 0 || squad.pool.current > squad.pool.max) {
+        violations.push({
+          code: 'squad-pool-out-of-bounds',
+          detail: `${squad.squadId}: ${squad.pool.current}/${squad.pool.max}`,
+        });
+      }
+      const counted = Math.floor((squad.pool.max - squad.pool.current) / per);
+      if (squad.deadMemberIds.length + squad.pendingKills !== counted) {
+        violations.push({
+          code: 'squad-accounting-mismatch',
+          detail: `${squad.squadId}: ${squad.deadMemberIds.length} dead + ${squad.pendingKills} pending ≠ floor((max − pool)/perMinion) = ${counted} [R-0024]`,
+        });
+      }
+      for (const memberId of [...squad.memberIds, ...squad.deadMemberIds]) {
+        const owner = memberHome.get(memberId);
+        if (owner !== undefined) {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${memberId} appears in squads ${owner} and ${squad.squadId}`,
+          });
+        }
+        memberHome.set(memberId, squad.squadId);
+        const member = result.state.participants[memberId];
+        if (!member) {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${squad.squadId} carries unknown participant ${memberId}`,
+          });
+          continue;
+        }
+        if (member.stats === null) {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${memberId} is a squad member without stats`,
+          });
+        }
+        if (member.stamina !== null) {
+          violations.push({
+            code: 'squad-member-stamina-tracked',
+            detail: `${memberId} carries individual stamina — the squad pool is the one home [R-0023]`,
+          });
+        }
+      }
+      if (squad.captainId !== null) {
+        const captain = result.state.participants[squad.captainId];
+        if (!captain) {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${squad.squadId} captain ${squad.captainId} is unknown`,
+          });
+        } else if (captain.stats?.organization?.toLowerCase() === 'minion') {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${squad.squadId} captain ${squad.captainId} is a minion [rule.monster/captain]`,
+          });
+        }
+      }
+    }
+    // Every stats-tracked, stamina-null participant must be a squad member
+    // (the v5 schema relaxation exists ONLY for them).
+    for (const participant of Object.values(result.state.participants)) {
+      if (
+        participant.stats !== null &&
+        participant.stamina === null &&
+        !memberHome.has(participant.id)
+      ) {
+        violations.push({
+          code: 'squad-membership-mismatch',
+          detail: `${participant.id} tracks stats without stamina but is in no squad`,
+        });
+      }
+    }
+
+    // State↔log reconciliation. The squad SET and each squad's total member
+    // roster are dispatch-constant (seeding happens at encounter build).
+    const beforeSquads = new Map(before.squads.map((squad) => [squad.squadId, squad]));
+    const afterSquads = new Map(result.state.squads.map((squad) => [squad.squadId, squad]));
+    if ([...beforeSquads.keys()].sort().join(',') !== [...afterSquads.keys()].sort().join(',')) {
+      violations.push({
+        code: 'squad-membership-mismatch',
+        detail: `squad set changed: ${[...beforeSquads.keys()].join(',')} -> ${[...afterSquads.keys()].join(',')}`,
+      });
+    }
+
+    interface SquadNumberClaim {
+      squadId: string;
+      from: number;
+      to: number;
+    }
+    interface CaptainClaim {
+      squadId: string;
+      from: string | null;
+      to: string | null;
+    }
+    const poolClaims = new Map<string, SquadNumberClaim[]>();
+    const pendingClaims = new Map<string, SquadNumberClaim[]>();
+    const captainClaims = new Map<string, CaptainClaim[]>();
+    const deathClaims = new Map<string, string[]>();
+    for (const entry of mutations) {
+      for (const [field, store] of [
+        ['squadPoolDeltas', poolClaims],
+        ['pendingKillsDeltas', pendingClaims],
+      ] as const) {
+        const rows = entry.data[field];
+        if (!Array.isArray(rows)) continue;
+        for (const row of rows) {
+          const claim = row as SquadNumberClaim;
+          if (typeof claim?.squadId !== 'string') continue;
+          const list = store.get(claim.squadId) ?? [];
+          list.push(claim);
+          store.set(claim.squadId, list);
+        }
+      }
+      const captains = entry.data.captainDeltas;
+      if (Array.isArray(captains)) {
+        for (const row of captains) {
+          const claim = row as CaptainClaim;
+          if (typeof claim?.squadId !== 'string') continue;
+          const list = captainClaims.get(claim.squadId) ?? [];
+          list.push(claim);
+          captainClaims.set(claim.squadId, list);
+        }
+      }
+      const deaths = entry.data.squadDeaths;
+      if (Array.isArray(deaths)) {
+        for (const row of deaths) {
+          const claim = row as { squadId?: unknown; memberId?: unknown };
+          if (typeof claim?.squadId !== 'string' || typeof claim.memberId !== 'string') continue;
+          const list = deathClaims.get(claim.squadId) ?? [];
+          list.push(claim.memberId);
+          deathClaims.set(claim.squadId, list);
+        }
+      }
+    }
+    for (const [squadId, afterSquad] of afterSquads) {
+      const beforeSquad = beforeSquads.get(squadId);
+      if (!beforeSquad) continue; // squad-set change already flagged
+      const beforeRoster = [...beforeSquad.memberIds, ...beforeSquad.deadMemberIds].sort();
+      const afterRoster = [...afterSquad.memberIds, ...afterSquad.deadMemberIds].sort();
+      if (beforeRoster.join(',') !== afterRoster.join(',')) {
+        violations.push({
+          code: 'squad-membership-mismatch',
+          detail: `${squadId}: total roster changed mid-encounter`,
+        });
+      }
+      // Pool walk.
+      let pool = beforeSquad.pool.current;
+      for (const claim of poolClaims.get(squadId) ?? []) {
+        if (claim.from !== pool) {
+          violations.push({
+            code: 'phantom-squad-claim',
+            detail: `${squadId}: pool claim starts at ${claim.from}, state was ${pool}`,
+          });
+        }
+        pool = claim.to;
+      }
+      if (pool !== afterSquad.pool.current) {
+        violations.push({
+          code: 'unattributed-squad-change',
+          detail: `${squadId}: pool ended at ${afterSquad.pool.current}; claims walk to ${pool}`,
+        });
+      }
+      // pendingKills walk.
+      let pendingKills = beforeSquad.pendingKills;
+      for (const claim of pendingClaims.get(squadId) ?? []) {
+        if (claim.from !== pendingKills) {
+          violations.push({
+            code: 'phantom-squad-claim',
+            detail: `${squadId}: pendingKills claim starts at ${claim.from}, state was ${pendingKills}`,
+          });
+        }
+        pendingKills = claim.to;
+      }
+      if (pendingKills !== afterSquad.pendingKills) {
+        violations.push({
+          code: 'unattributed-squad-change',
+          detail: `${squadId}: pendingKills ended at ${afterSquad.pendingKills}; claims walk to ${pendingKills}`,
+        });
+      }
+      // Captain walk.
+      let captain = beforeSquad.captainId;
+      for (const claim of captainClaims.get(squadId) ?? []) {
+        if (claim.from !== captain) {
+          violations.push({
+            code: 'phantom-squad-claim',
+            detail: `${squadId}: captain claim starts at ${String(claim.from)}, state was ${String(captain)}`,
+          });
+        }
+        captain = claim.to;
+      }
+      if (captain !== afterSquad.captainId) {
+        violations.push({
+          code: 'unattributed-squad-change',
+          detail: `${squadId}: captain ended at ${String(afterSquad.captainId)}; claims walk to ${String(captain)}`,
+        });
+      }
+      // Death claims: exactly the live→dead transitions, each claimed once.
+      const died = afterSquad.deadMemberIds.filter(
+        (memberId) => !beforeSquad.deadMemberIds.includes(memberId),
+      );
+      const claimedDeaths = deathClaims.get(squadId) ?? [];
+      for (const memberId of died) {
+        if (!claimedDeaths.includes(memberId)) {
+          violations.push({
+            code: 'unattributed-squad-change',
+            detail: `${squadId}: ${memberId} died with no claim`,
+          });
+        }
+      }
+      for (const memberId of claimedDeaths) {
+        if (!died.includes(memberId)) {
+          violations.push({
+            code: 'phantom-squad-claim',
+            detail: `${squadId}: claims death of ${memberId} but the state shows no such change`,
+          });
+        }
+      }
+    }
+
+    // R-0026: the squad-level weakness/immunity step applies at most once
+    // per squad per damage instance. Every instance emits exactly one
+    // squadDamage receipt; only a test resolution (independent per-target
+    // rolls) may carry several instances in one dispatch.
+    const receiptCounts = new Map<string, number>();
+    for (const entry of result.log) {
+      const receipt = entry.data.squadDamage as { squadId?: unknown } | undefined;
+      if (typeof receipt?.squadId !== 'string') continue;
+      receiptCounts.set(receipt.squadId, (receiptCounts.get(receipt.squadId) ?? 0) + 1);
+    }
+    const multiInstanceDispatch =
+      intent.kind === 'use-effect' && intent.payload.effect.resolution.kind === 'test';
+    if (!multiInstanceDispatch) {
+      for (const [squadId, count] of receiptCounts) {
+        if (count > 1) {
+          violations.push({
+            code: 'squad-weakness-multiply-applied',
+            detail: `${squadId}: ${count} squad damage applications in one instance — weakness/immunity must apply once [R-0026]`,
+          });
+        }
+      }
+    }
+  }
+
   // ── power-roll breakdown recompute (design SE-8) ────────────────────────
   // Re-derive the resolution from the logged inputs; any total/tier drift is
   // a violation. The roll path is self-auditing on every dispatch.
@@ -523,7 +795,10 @@ export function checkInvariants(
     }
     // A refused dispatch legitimately mutates nothing and emits no
     // directive — its receipt travels on the refusal entry itself.
-    const refused = result.log.some((entry) => entry.kind === 'refusal');
+    // (Per-binding refusals don't refuse the dispatch.)
+    const refused = result.log.some(
+      (entry) => entry.kind === 'refusal' && entry.data.perBinding !== true,
+    );
     if (intent.payload.effect.resolution.kind === 'table' && !refused) {
       const directive = result.log.find((entry) => entry.data.manualEffect !== undefined);
       const manual = directive?.data.manualEffect as { sourceText?: unknown } | undefined;
@@ -591,8 +866,11 @@ export function checkInvariants(
     }
   }
 
-  // A refused dispatch must leave the world untouched.
-  if (result.log.some((entry) => entry.kind === 'refusal')) {
+  // A refused DISPATCH must leave the world untouched. A PER-BINDING refusal
+  // (data.perBinding, the R-0027 minion exemptions) voids only its own
+  // binding — sibling bindings legitimately mutate, so those entries are
+  // exempt here.
+  if (result.log.some((entry) => entry.kind === 'refusal' && entry.data.perBinding !== true)) {
     if (JSON.stringify(result.state) !== JSON.stringify(before)) {
       violations.push({ code: 'refusal-with-change', detail: 'refusal entry but state changed' });
     }

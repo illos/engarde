@@ -21,7 +21,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
     };
     const lifted = upgradeEncounterState(v1);
-    expect(lifted.schemaVersion).toBe(4);
+    expect(lifted.schemaVersion).toBe(5);
     const fury = lifted.participants.fury;
     if (!fury) throw new Error('fury missing after upgrade');
     expect(fury.kind).toBe('director-creature');
@@ -48,18 +48,20 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v2);
     expect(lifted).toEqual({
-      schemaVersion: 4,
+      schemaVersion: 5,
       terrainFacts: [],
+      squads: [],
       participants: {
         goblin: { ...v2.participants.goblin, grants: [] },
       },
     });
   });
 
-  it('passes a v3 state through unchanged', () => {
+  it('passes a v5 state through unchanged', () => {
     const v3 = {
-      schemaVersion: 4,
+      schemaVersion: 5,
       terrainFacts: [],
+      squads: [],
       participants: {
         goblin: {
           id: 'goblin',
@@ -84,7 +86,32 @@ describe('upgradeEncounterState (design SE-2)', () => {
     expect(upgradeEncounterState(v3)).toEqual(v3);
   });
 
+  it('lifts a stored v4 state by adding the empty squads slot (R-0023..R-0028 substrate)', () => {
+    const v4 = {
+      schemaVersion: 4,
+      terrainFacts: [],
+      participants: {
+        goblin: {
+          id: 'goblin',
+          conditions: [],
+          sourceRecordId: null,
+          kind: 'director-creature',
+          stats: null,
+          stamina: null,
+          grants: [],
+        },
+      },
+    };
+    const lifted = upgradeEncounterState(v4);
+    expect(lifted).toEqual({
+      schemaVersion: 5,
+      terrainFacts: [],
+      squads: [],
+      participants: v4.participants,
+    });
+  });
+
   it('rejects garbage', () => {
-    expect(() => upgradeEncounterState({ schemaVersion: 4 })).toThrow();
+    expect(() => upgradeEncounterState({ schemaVersion: 5 })).toThrow();
   });
 });

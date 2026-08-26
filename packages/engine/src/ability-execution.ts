@@ -1,5 +1,13 @@
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
-import { applyDamage, damageAutomationBlocker, withParticipant } from './damage.js';
+import {
+  type PendingSquadContribution,
+  applyDamage,
+  damageAutomationBlocker,
+  flushSquadContributions,
+  isMinion,
+  squadOf,
+  withParticipant,
+} from './damage.js';
 import type { RandomSource } from './determinism.js';
 import {
   GRANT_CANON,
@@ -446,6 +454,11 @@ export function executeUseAbility(
   }
 
   // ── damage phase: all targets first [rule.dice/ability-roll] ───────────
+  // Same-squad minion targets aggregate into ONE pool application per squad
+  // (required by R-0026's once-per-squad weakness/immunity step); the Area
+  // keyword is the printed discriminator for the per-minion cap [R-0025].
+  const isArea = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+  const squadContributions = new Map<string, PendingSquadContribution[]>();
   const defaultedTiersLogged = new Set<Tier>();
   for (const targetId of payload.targets) {
     const tierNumber = tierNumberFor(targetId);
@@ -478,6 +491,13 @@ export function executeUseAbility(
         .filter((item) => item.target === undefined || item.target === targetId)
         .reduce((sum, item) => sum + item.value, 0);
       const amount = tierData.damage.amount + damageBinding.value + extra;
+      const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
+      if (squad) {
+        const list = squadContributions.get(squad.squadId) ?? [];
+        list.push({ targetId, damage: amount, type: damageType });
+        squadContributions.set(squad.squadId, list);
+        continue;
+      }
       const blocker = damageAutomationBlocker(target);
       if (blocker !== null) {
         log.push(
@@ -503,6 +523,16 @@ export function executeUseAbility(
       nextState = withParticipant(nextState, outcome.participant);
       log.push(...outcome.log);
     }
+  }
+  if (squadContributions.size > 0) {
+    const flushed = flushSquadContributions(
+      nextState,
+      squadContributions,
+      { area: isArea, reason: `from ${actor.id}'s ability` },
+      context,
+    );
+    nextState = flushed.state;
+    log.push(...flushed.log);
   }
 
   // ── effect phase: per target, in presented order ────────────────────────

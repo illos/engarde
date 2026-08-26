@@ -59,6 +59,7 @@ function program(
     actionType: 'Main action',
     targetsText: 'One creature',
     distanceText: null,
+    keywords: [],
     resolution,
     ...overrides,
   };
@@ -192,7 +193,11 @@ describe('spend-recovery resolution [R-0018, R-0019]', () => {
     });
   });
 
-  it('a minion routes to a table receipt [R-0019c]', () => {
+  it('a minion is refused per-binding — upgraded from R-0019c table routing [R-0027]', () => {
+    // "minions … can't regain Stamina … during a battle" [chapter/
+    // monster-basics §Shared Low Stamina]: with the pool mechanism shipped,
+    // the old "pool not mechanized" table routing becomes the printed
+    // rule-mandated refusal.
     const before = damaged(encounter(), 'minion', 3);
     const result = dispatch(
       before,
@@ -201,7 +206,10 @@ describe('spend-recovery resolution [R-0018, R-0019]', () => {
     expect(result.state.participants.minion?.stamina?.current).toBe(3);
     expect(
       result.log.some(
-        (entry) => entry.kind === 'table-directive' && entry.data.unautomatedRecoverySpend,
+        (entry) =>
+          entry.kind === 'refusal' &&
+          entry.data.perBinding === true &&
+          entry.data.minionRecoverySpendRefused !== undefined,
       ),
     ).toBe(true);
   });
@@ -372,11 +380,18 @@ describe('regain-stamina resolution [R-0017, R-0020]', () => {
     expect(result.state.participants.ally?.stamina?.temporary).toBe(3);
   });
 
-  it('routes a minion target to a table receipt [R-0019c]', () => {
+  it('refuses a minion target per-binding — upgraded from R-0019c table routing [R-0027]', () => {
     const before = damaged(encounter(), 'minion', 2);
     const result = dispatch(before, useEffect(regain, ['minion']));
     expect(result.state.participants.minion?.stamina?.current).toBe(2);
-    expect(result.log.some((entry) => entry.data.unautomatedRegain !== undefined)).toBe(true);
+    expect(
+      result.log.some(
+        (entry) =>
+          entry.kind === 'refusal' &&
+          entry.data.perBinding === true &&
+          entry.data.minionRegainRefused !== undefined,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -500,7 +515,7 @@ describe('migration v3 → v4', () => {
       },
     };
     const lifted = upgradeEncounterState(v3);
-    expect(lifted.schemaVersion).toBe(4);
+    expect(lifted.schemaVersion).toBe(5);
     expect(lifted.terrainFacts).toEqual([]);
     expect(lifted.participants.goblin?.stamina).toEqual({
       current: 12,

@@ -72,6 +72,7 @@ const CLAWS_GRANT_EFFECT: EffectProgramData = {
   actionType: 'Main action',
   targetsText: 'One creature per minion',
   distanceText: null,
+  keywords: [],
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'bane',
@@ -93,6 +94,7 @@ const GHOST_MARK_EFFECT: EffectProgramData = {
   actionType: 'Main action',
   targetsText: 'Two creatures or objects',
   distanceText: null,
+  keywords: [],
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'edge',
@@ -124,6 +126,7 @@ const RAIDERS_AWE_EFFECT: EffectProgramData = {
   actionType: 'Main action',
   targetsText: 'One creature',
   distanceText: null,
+  keywords: [],
   resolution: {
     kind: 'next-roll-grant',
     polarity: 'bane',
@@ -146,6 +149,7 @@ function testEffect(): EffectProgramData {
     actionType: 'Maneuver',
     targetsText: 'One creature',
     distanceText: null,
+    keywords: [],
     resolution: {
       kind: 'test',
       characteristic: 'presence',

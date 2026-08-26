@@ -24,6 +24,11 @@ import { z } from 'zod';
  * R-0017..R-0022): adds stored `recoveriesMax` / tracked `recoveries`
  * (the potencies precedent — class-determined, never derived) and the
  * encounter-level `terrainFacts` slot with the clear-terrain-fact intent.
+ * schemaVersion 5 (minion squad pools, docs/minion-pool-design.md,
+ * R-0023..R-0028): adds the encounter-level `squads` slot — shared minion
+ * Stamina pools [chapter/monster-basics §Shared Low Stamina] — plus the
+ * resolve-pending-kills / attach-captain / detach-captain intents and the
+ * apply-damage `area` / `minionKillVictims` fields.
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -154,9 +159,10 @@ export const ParticipantStatsSchema = z.object({
   immunities: z.array(DamageImmunitySchema),
   weaknesses: z.array(DamageWeaknessSchema),
   potencies: PotencyValuesSchema.nullable(),
-  /** Stat-block organization (e.g. 'Minion'). Minion squads share a Stamina
-   * pool the engine cannot yet represent — damage against a Minion routes to
-   * a not-automated receipt [monsters chapter/monster-basics §Minions]. */
+  /** Stat-block organization (e.g. 'Minion'). Minions seeded into a squad
+   * damage their squad's shared Stamina pool (v5, R-0023..R-0025); a minion
+   * outside any seeded squad routes to a not-automated receipt — seeding is
+   * the automation boundary [monsters chapter/monster-basics §Minions]. */
   organization: z.string().nullable(),
   /** "Each hero has a number of Recoveries determined by their class"
    * [rule.health/recoveries] — STORED like potencies, never derived. Null =
@@ -198,8 +204,13 @@ const participantShape = {
 
 export const ParticipantStateSchema = z
   .object(participantShape)
-  .refine((participant) => (participant.stats === null) === (participant.stamina === null), {
-    message: 'stamina is tracked exactly when stats are known (stats ⇔ stamina)',
+  // v5 relaxation (R-0023): a SQUAD MEMBER carries stats (characteristics,
+  // weakness/immunity feed the squad pipeline) with `stamina: null` — the
+  // squad pool is the ONE home for its vitality. Tracked stamina still
+  // requires stats; the invariant oracle enforces that every stats-tracked,
+  // stamina-null participant is a seeded squad member.
+  .refine((participant) => participant.stamina === null || participant.stats !== null, {
+    message: 'tracked stamina requires tracked stats',
   })
   .refine(
     (participant) =>
@@ -234,15 +245,69 @@ export const TerrainFactSchema = z.object({
 
 export type TerrainFact = z.infer<typeof TerrainFactSchema>;
 
+/**
+ * One minion squad's shared Stamina pool (v5, R-0023..R-0028,
+ * docs/minion-pool-design.md). Members stay individual participants (they
+ * occupy space, are targeted, take conditions per-member); the squad is
+ * encounter-level state — the terrainFacts precedent. The pool is the ONE
+ * home for squad vitality: every member's `stamina` is null.
+ * `pool.max == perMinionStamina × memberCount` is the printed init formula
+ * ("initial Stamina equal to each individual minion's Stamina multiplied by
+ * the number of minions in the squad" [chapter/monster-basics §Shared Low
+ * Stamina]); `kills == floor((pool.max − pool.current) / perMinionStamina)`
+ * is the standing R-0024 invariant.
+ */
+export const SquadStateSchema = z
+  .object({
+    squadId: z.string().min(1),
+    /** Display label; statblock identity is the members' sourceRecordId. */
+    name: z.string().min(1),
+    /** The one per-minion Stamina the printed pool formula requires — a
+     * mixed-statblock squad is refused at seeding [R-0023]. */
+    perMinionStamina: z.number().int().positive(),
+    pool: z.object({
+      current: z.number().int().min(0),
+      max: z.number().int().positive(),
+    }),
+    /** Living members, in seeded order. */
+    memberIds: z.array(ParticipantIdSchema),
+    /** Members taken out of the fight (dead for this encounter, R-0027). */
+    deadMemberIds: z.array(ParticipantIdSchema),
+    /** Kills counted by the pool whose victim identity awaits the table's
+     * "nearest" adjudication [R-0024]; resolved by resolve-pending-kills. */
+    pendingKills: z.number().int().min(0),
+    /** Attached captain (R-0028); Stamina stays individual, never pooled. */
+    captainId: ParticipantIdSchema.nullable(),
+  })
+  .refine((squad) => squad.pool.current <= squad.pool.max, {
+    message: 'squad pool current may not exceed its maximum',
+  });
+
+export type SquadState = z.infer<typeof SquadStateSchema>;
+
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
   /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
    * literals valid while migration stamps the version. */
   terrainFacts: z.array(TerrainFactSchema).default([]),
+  /** Minion squad Stamina pools (v5, R-0023..R-0028). Default keeps
+   * v4-shaped literals valid while migration stamps the version. */
+  squads: z.array(SquadStateSchema).default([]),
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The flat-resource stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — `squads` defaults to
+ * [] — so only the version literal distinguishes the wrapper. */
+export const EncounterStateV4Schema = z.object({
+  schemaVersion: z.literal(4),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  terrainFacts: z.array(TerrainFactSchema).default([]),
+});
+
+export type EncounterStateV4 = z.infer<typeof EncounterStateV4Schema>;
 
 /** The next-roll-grant stored shape, retained for migration (migrate.ts).
  * Participant bodies parse through the current schema — `recoveries` /
@@ -505,6 +570,12 @@ export const EffectProgramDataSchema = z.object({
    * it as the area's only available description [R-0022]. Default keeps
    * pre-v4 program literals valid. */
   distanceText: z.string().nullable().default(null),
+  /** Verbatim header keywords, passed through like the ability form's — the
+   * Area keyword is the printed discriminator for the squad-pool area cap
+   * ("any source except an area effect (including abilities with the Area
+   * keyword)" [chapter/monster-basics §Dropping Multiple Minions, R-0025]).
+   * Default keeps pre-v5 program literals valid. */
+  keywords: z.array(z.string().min(1)).default([]),
   resolution: EffectResolutionSchema,
 });
 
@@ -687,6 +758,48 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       damageType: DamageTypeSchema.optional(),
       reason: z.string().min(1),
       knockOut: z.boolean().default(false),
+      /** Dispatch-asserted area effect — the manual-damage half of the
+       * R-0025 discriminator (hazards and other non-ability area sources
+       * carry no Area keyword). */
+      area: z.boolean().default(false),
+      /** Named extra victims when one instance kills beyond the damaged
+       * target — the damager's printed choice; unnamed remainder becomes
+       * pendingKills with a table directive [R-0024]. */
+      minionKillVictims: z.array(ParticipantIdSchema).default([]),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('resolve-pending-kills'),
+    payload: z.object({
+      /** Director-or-damager adjudication of "the minions nearest to those
+       * taken out suffer the same fate" [chapter/monster-basics §Dropping
+       * Multiple Minions, R-0024] — trust gates live in the host. Naming
+       * assigns IDENTITY only; the 0-Stamina trigger receipt fired when the
+       * kill was counted, never again here [R-0027]. */
+      squadId: z.string().min(1),
+      victimMemberIds: z.array(ParticipantIdSchema).min(1),
+      reason: z.string().min(1).optional(),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('attach-captain'),
+    payload: z.object({
+      /** Director authority (trust gates live in the host). Attaching over
+       * an existing captain, or a captain already attached elsewhere, warns
+       * and replaces/moves — the Director exercising the printed one-captain
+       * rule [rule.monster/captain, R-0028]. */
+      squadId: z.string().min(1),
+      captainId: ParticipantIdSchema,
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('detach-captain'),
+    payload: z.object({
+      squadId: z.string().min(1),
+      reason: z.string().min(1).optional(),
     }),
   }),
   z.object({

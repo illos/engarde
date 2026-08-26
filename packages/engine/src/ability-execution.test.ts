@@ -108,8 +108,9 @@ const BANDIT_STATS: ParticipantStats = {
 
 function state(): EncounterState {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     terrainFacts: [],
+    squads: [],
     participants: {
       conduit: {
         id: 'conduit',

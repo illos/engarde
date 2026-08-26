@@ -126,8 +126,9 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
 
   function freshState(): EncounterState {
     return {
-      schemaVersion: 4,
+      schemaVersion: 5,
       terrainFacts: [],
+      squads: [],
       participants: {
         warrior: {
           id: 'warrior',
