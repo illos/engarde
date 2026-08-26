@@ -1,3 +1,4 @@
+import { BASE_TURN_BUDGET } from './action-economy.js';
 import type { ApplyResult } from './apply-intent.js';
 import { POWER_ROLL_DIE, type PowerRollResolution, resolvePowerRoll } from './power-roll.js';
 import {
@@ -809,16 +810,25 @@ export function checkInvariants(
             },
           ),
         );
-        // Receipt-aware capacity: printed budget is one of each own-turn
-        // action [rule.combat/turn]; `granted` counters extend it.
-        if (
-          afterCell.used > beforeCell.used &&
-          afterCell.used > 1 + afterCell.granted &&
-          !hasReceiptFor(participant.id)
-        ) {
+        // Receipt-aware capacity, strictly delta-gated: printed budget is
+        // one of each own-turn action [rule.combat/turn]; `granted`
+        // counters extend it. Only NEWLY-ADDED overage needs a receipt in
+        // this dispatch's log — historical overage was receipted when it
+        // arose, and a grant-covered spend adds zero overage (used and
+        // granted rise together), so the grant-after-overage sequence is
+        // legal state [R-0030].
+        const budgetOverageBefore = Math.max(
+          0,
+          beforeCell.used - (BASE_TURN_BUDGET + beforeCell.granted),
+        );
+        const budgetOverageAfter = Math.max(
+          0,
+          afterCell.used - (BASE_TURN_BUDGET + afterCell.granted),
+        );
+        if (budgetOverageAfter > budgetOverageBefore && !hasReceiptFor(participant.id)) {
           violations.push({
             code: 'budget-over-capacity-unreceipted',
-            detail: `${participant.id}/${cost}: used ${afterCell.used} of ${1 + afterCell.granted} with no rule-violation receipt [R-0030]`,
+            detail: `${participant.id}/${cost}: used ${afterCell.used} of ${BASE_TURN_BUDGET + afterCell.granted} adds overage with no rule-violation receipt [R-0030]`,
           });
         }
       }
@@ -855,14 +865,18 @@ export function checkInvariants(
           },
         ),
       );
-      if (
-        participant.triggeredThisRound > beforeTriggered &&
-        participant.triggeredThisRound > participant.traits.triggeredActionLimit &&
-        !hasReceiptFor(participant.id)
-      ) {
+      // Strictly delta-gated like the budget check: only newly-added
+      // overage beyond the trait limit needs a receipt in this dispatch's
+      // log [R-0030] — the same grant-after-overage corner, closed the
+      // same way across all three receipt-aware checks.
+      const triggeredLimit = participant.traits.triggeredActionLimit;
+      const triggeredLimitBefore = beforeParticipant?.traits.triggeredActionLimit ?? triggeredLimit;
+      const triggeredOverageBefore = Math.max(0, beforeTriggered - triggeredLimitBefore);
+      const triggeredOverageAfter = Math.max(0, participant.triggeredThisRound - triggeredLimit);
+      if (triggeredOverageAfter > triggeredOverageBefore && !hasReceiptFor(participant.id)) {
         violations.push({
           code: 'triggered-over-limit-unreceipted',
-          detail: `${participant.id}: ${participant.triggeredThisRound} triggered actions of limit ${participant.traits.triggeredActionLimit} with no rule-violation receipt [R-0030]`,
+          detail: `${participant.id}: ${participant.triggeredThisRound} triggered actions of limit ${triggeredLimit} adds overage with no rule-violation receipt [R-0030]`,
         });
       }
 
@@ -1002,11 +1016,15 @@ export function checkInvariants(
             }),
           }),
         );
-        // Receipt-aware allowance: beyond the trait allowance needs either
-        // a rule-violation receipt or a consumed turn grant (silent printed
-        // escape) in this dispatch [R-0030].
+        // Receipt-aware allowance, strictly delta-gated like the budget
+        // and triggered checks: only newly-added overage beyond the trait
+        // allowance needs either a rule-violation receipt or a consumed
+        // turn grant (silent printed escape) in this dispatch [R-0030].
         const allowance = result.state.participants[turnId]?.traits.turnAllowance ?? 1;
-        if (afterCount > beforeCount && afterCount > allowance) {
+        const allowanceBefore = before.participants[turnId]?.traits.turnAllowance ?? allowance;
+        const turnsOverageBefore = Math.max(0, beforeCount - allowanceBefore);
+        const turnsOverageAfter = Math.max(0, afterCount - allowance);
+        if (turnsOverageAfter > turnsOverageBefore) {
           const beforeTurnGrantIds = new Set(
             (before.participants[turnId]?.grants ?? [])
               .filter((grant) => grant.kind === 'turn')
@@ -1021,7 +1039,7 @@ export function checkInvariants(
           if (!grantConsumed && !hasReceiptFor(turnId)) {
             violations.push({
               code: 'turns-over-allowance-unreceipted',
-              detail: `${turnId}: ${afterCount} turns of allowance ${allowance} with neither a rule-violation receipt nor a consumed turn grant [R-0030]`,
+              detail: `${turnId}: ${afterCount} turns of allowance ${allowance} adds overage with neither a rule-violation receipt nor a consumed turn grant [R-0030]`,
             });
           }
         }

@@ -986,3 +986,101 @@ describe('operator-paid fixture instructions (R-0029)', () => {
     expect(directive?.kind).toBe('table-directive');
   });
 });
+
+describe('receipt-aware capacity is strictly delta-gated (grant-after-overage corner)', () => {
+  it('accepts a grant-covered spend after receipted historical overage: used 3 of 2, no new receipt needed', () => {
+    let state = beginCombat(baseEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
+    // Dispatch 0: the printed budget's one main action.
+    state = dispatchChecked(state, useAbility('hero', spearChargeBy('hero', 'warrior'))).state;
+    // Dispatch 1: over-budget — warns and applies, RECEIPTED (used 2 of 1).
+    const over = dispatchChecked(state, useAbility('hero', spearChargeBy('hero', 'warrior')));
+    expect(
+      over.log.some(
+        (entry) =>
+          entry.kind === 'warning' &&
+          (entry.data.ruleViolation as { kind?: string })?.kind === 'over-budget',
+      ),
+    ).toBe(true);
+    expect(over.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 2,
+      granted: 0,
+    });
+    // Dispatch 2: the Director grants an additional main action.
+    const granted = dispatchChecked(
+      over.state,
+      director('add-grant', {
+        target: 'hero',
+        grant: {
+          kind: 'action',
+          cost: 'main-action',
+          escapes: { ignoresDazed: false, ignoresSurprised: false, offTurn: false },
+          source: { participantId: 'hero' },
+          expiry: null,
+        },
+      }),
+    );
+    // Dispatch 3: the grant-covered spend adds ZERO overage (used and
+    // granted rise together) — silent per R-0030, and the delta-gated
+    // oracle accepts the historical, already-receipted overage. This is
+    // the exact three-dispatch sequence from the CLI host lane's repro:
+    // dispatchChecked would reject it under the total-vs-capacity check.
+    const covered = dispatchChecked(
+      granted.state,
+      useAbility('hero', spearChargeBy('hero', 'warrior')),
+    );
+    expect(covered.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
+    expect(covered.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 3,
+      granted: 1,
+    });
+  });
+
+  it('still flags NEW unreceipted overage as corruption', () => {
+    const state = beginCombat(baseEncounter(), 'heroes');
+    const hero = state.participants.hero;
+    if (!hero) throw new Error('hero missing');
+    // Fabricated result: used jumps 0→2 with walk-clean claims but NO
+    // rule-violation receipt — one unit of new overage, uncovered.
+    const intent: Intent = {
+      intentId: 'fabricated-1',
+      kind: 'advance-round',
+      actor: { kind: 'director' },
+      payload: {},
+    };
+    const result = {
+      state: {
+        ...state,
+        participants: {
+          ...state.participants,
+          hero: { ...hero, actionBudget: { 'main-action': { used: 2, granted: 0 } } },
+        },
+      },
+      log: [
+        {
+          kind: 'mutation' as const,
+          intentId: 'fabricated-1',
+          actor: { kind: 'director' as const },
+          canonRefs: ['mcdm.heroes.v1/rule.combat/turn'],
+          message: 'fabricated unreceipted overage (oracle regression case)',
+          data: {
+            actionBudgetDeltas: [
+              {
+                participantId: 'hero',
+                cost: 'main-action',
+                usedFrom: 0,
+                usedTo: 2,
+                grantedFrom: 0,
+                grantedTo: 0,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const violations = checkInvariants(state, intent, result);
+    expect(violations.map((violation) => violation.code)).toContain(
+      'budget-over-capacity-unreceipted',
+    );
+  });
+});
