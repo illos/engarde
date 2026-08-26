@@ -290,8 +290,12 @@ surprised"; Medley: two slots) — scoped out, see §4.
 - Encounter-level `villainActions`: `{usedThisRound: bool,
   usedByAbility: string[]}` (three-per-creature, once each, ≤1/round).
 - Encounter-level `resolutionStack`: ordered entries
-  `{resolutionId, actorId, payloadHash, rollReceipt, phase,
-  modifications[]}` per R-0032. Invariants check stack coherence
+  `{resolutionId, actorId: participantId | squadId, payloadHash,
+  rollReceipt, phase, modifications[]}` per R-0032. `actorId` is widened
+  like `activeTurnId` (rev 2.1, squad-attack red-team): squad signature
+  attacks open squad-owned entries, and end-turn force-commit already
+  names squad turns as ending actors — participant-only would force a
+  v6→v7 migration one family later. Invariants check stack coherence
   (LIFO discipline with named-insertion exceptions, hash presence,
   entries resolved by encounter end — warn, not corruption, on
   boundary-crossing entries: Breaking Point is printed-legal).
