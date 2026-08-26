@@ -1,4 +1,4 @@
-# Reaction effects at the interception points — design (rev 2, 2026-08-26)
+# Reaction effects at the interception points — design (rev 2.1, 2026-08-26)
 
 Rev 1 was red-teamed by three independent lanes (canon fidelity, substrate
 scalability against the landed action-economy code, rules-lawyer corpus
@@ -36,9 +36,8 @@ Grounding inputs, all at accepted pin
   modification fold in `commitResolutionEntry` already applying
   damage-halve / retarget / tier-adjust / downgrade / potency-adjust,
   R-0031 section-scoped classification with applied-default residue).
-  **Pending-audit-commit constraints** (in the audit session's working
-  tree, NOT yet landed — the build leg re-syncs on their landing
-  hashes): `tierOutcomeToIntents` gains an `assertedAbilityUse` binding
+  **Audit-fix constraints, landed as engarde 76c8921** (were in flight
+  when rev 1 froze; rev 2 committed against the landed batch): `tierOutcomeToIntents` gains an `assertedAbilityUse` binding
   param (asserted reactions ride it); a runtime table-directive fires
   for action-cost residue (this family's residue directive matches its
   shape); `ActionGrant.cost` constrained to budget costs (granting
@@ -246,8 +245,7 @@ PDF-verbatim where flagged; the ruling cards record all quotes durably.
   default placement automate; the effect text rides the receipt
   verbatim as a table directive matching the action-cost residue shape
   (pending-audit-commit). The 10 grammar-compilable units execute
-  through the shipped pipeline riding `assertedAbilityUse` (same
-  pending marker). Grammar expansion is a NAMED future arc with the
+  through the shipped pipeline riding `assertedAbilityUse` (landed, 76c8921). Grammar expansion is a NAMED future arc with the
   survey as its frozen work-list. **The escape surface is named:**
   residue effects that mutate engine-owned structured state cannot
   land through table corrections — each maps to a named forward-dep
@@ -333,7 +331,7 @@ PDF-verbatim where flagged; the ruling cards record all quotes durably.
 - **Spend/Malice riders** (24 units) — heroic-resource and malice
   families; verbatim on receipts meanwhile.
 - **Granting triggered actions** — deferred to the malice family
-  (`ActionGrant.cost` budget-constrained, pending-audit-commit).
+  (`ActionGrant.cost` budget-constrained, landed 76c8921).
 - **Replacement automation** (Breaking Point, Tempting Offer's
   in-family variant, giant zombie…) — named point + full-verbatim
   directives; unchanged deferral.
