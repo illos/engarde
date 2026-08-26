@@ -6,6 +6,7 @@ import { BASE_TURN_BUDGET } from '@engarde/engine';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../primitives';
+import { AddGrantSection } from './AddGrantSection';
 import { RecordSearch, type SearchHits } from './RecordSearch';
 import { ResolutionsSection } from './ResolutionsSection';
 import { SquadsSection } from './SquadsSection';
@@ -178,11 +179,31 @@ function ActiveEncounter({
   const [holdOpen, setHoldOpen] = useState(false);
   // Triggered-action flow [R-0029/R-0030]: the per-card affordance picks the
   // acting participant; the shared form below picks the printed ability.
+  // Free/per-round-cap derive server-side from the compiled header [I-6d];
+  // the cost-mode select is the asserted-case manual override only.
   const [triggeredActorId, setTriggeredActorId] = useState('');
   const [triggeredRecord, setTriggeredRecord] = useState<SearchHits[number] | null>(null);
   const [triggeredAbilitySlug, setTriggeredAbilitySlug] = useState('');
-  const [triggeredFree, setTriggeredFree] = useState(false);
+  const [triggeredCostMode, setTriggeredCostMode] = useState<'' | 'free' | 'counts'>('');
+  // Trigger reference [I-6e]: a receipt-visible occurrence (a prior
+  // dispatch's intent id from the log) wins; asserted text is the fallback.
+  const [triggerOccurrenceId, setTriggerOccurrenceId] = useState('');
   const [triggerText, setTriggerText] = useState('');
+  const log = useQuery(api.encounters.listLog, {
+    campaignId,
+    encounterId: encounter.encounterId,
+  });
+  // Recent qualifying occurrences: engine-receipted rows carrying an
+  // intentId, deduped to one option per dispatch, most recent first.
+  const recentOccurrences = (() => {
+    const seen = new Map<string, string>();
+    for (const entry of log ?? []) {
+      if (typeof entry.intentId === 'string' && !seen.has(entry.intentId)) {
+        seen.set(entry.intentId, entry.message);
+      }
+    }
+    return [...seen.entries()].slice(-8).reverse();
+  })();
   const first = encounter.participants[0]?.id ?? '';
   const second = encounter.participants[1]?.id ?? first;
   const [actorId, setActorId] = useState(first);
@@ -240,6 +261,12 @@ function ActiveEncounter({
         participantIds={new Set(encounter.participants.map((participant) => participant.id))}
         viewerIsDirector={encounter.viewerIsDirector}
       />
+
+      {encounter.viewerIsDirector ? (
+        // Director grant form [I-6f]: without it a web-only table cannot
+        // suppress the dazed Solo-Action warn — R-0030's promise.
+        <AddGrantSection campaignId={campaignId} participants={encounter.participants} />
+      ) : null}
 
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">
         {encounter.participants.map((participant) => (
@@ -317,6 +344,7 @@ function ActiveEncounter({
             <ParticipantEconomy
               participant={participant}
               inCombat={encounter.turnState !== null}
+              activeTurnId={encounter.turnState?.activeTurnId ?? null}
               viewerIsDirector={encounter.viewerIsDirector}
               busy={busy}
               onConvert={(to) =>
@@ -900,15 +928,35 @@ function ActiveEncounter({
             >
               {participantOptions}
             </select>
-            <label className="flex items-center gap-1 text-xs text-text-mute">
-              <input
-                type="checkbox"
-                aria-label="Free triggered action"
-                checked={triggeredFree}
-                onChange={(event) => setTriggeredFree(event.target.checked)}
-              />
-              free (bypasses the round counter)
-            </label>
+            {/* Free/per-round-cap derive from the compiled header on the
+                server [I-6d]; overriding is the asserted-case escape. */}
+            <select
+              aria-label="Triggered cost override"
+              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              value={triggeredCostMode}
+              onChange={(event) =>
+                setTriggeredCostMode(event.target.value as '' | 'free' | 'counts')
+              }
+            >
+              <option value="">cost from the printed header</option>
+              <option value="free">assert free (bypasses the round counter)</option>
+              <option value="counts">assert counts against the round limit</option>
+            </select>
+            {/* Occurrence receipts from the log [I-6e]: reference a prior
+                dispatch as the trigger; asserted text stays the fallback. */}
+            <select
+              aria-label="Trigger occurrence"
+              className="h-11 max-w-72 border border-line bg-ink-1 px-2 text-sm"
+              value={triggerOccurrenceId}
+              onChange={(event) => setTriggerOccurrenceId(event.target.value)}
+            >
+              <option value="">no occurrence — assert the trigger below</option>
+              {recentOccurrences.map(([intentId, message]) => (
+                <option key={intentId} value={intentId}>
+                  {intentId} · {message.length > 60 ? `${message.slice(0, 60)}…` : message}
+                </option>
+              ))}
+            </select>
             <input
               value={triggerText}
               onChange={(event) => setTriggerText(event.target.value)}
@@ -931,8 +979,16 @@ function ActiveEncounter({
                       suffix.length > 0
                         ? `${triggeredRecord.artifactId}#${suffix}`
                         : triggeredRecord.artifactId,
-                    ...(triggeredFree ? { free: true } : {}),
-                    ...(text.length > 0 ? { triggerText: text } : {}),
+                    ...(triggeredCostMode === 'free'
+                      ? { free: true }
+                      : triggeredCostMode === 'counts'
+                        ? { free: false }
+                        : {}),
+                    ...(triggerOccurrenceId !== ''
+                      ? { triggerIntentId: triggerOccurrenceId }
+                      : text.length > 0
+                        ? { triggerText: text }
+                        : {}),
                   }),
                 );
               }}
@@ -952,11 +1008,17 @@ function ActiveEncounter({
 /** Per-card action-economy block [R-0029/R-0030, design §3]: budget chips
  * (used vs printed-1-plus-granted per cost), the per-round triggered
  * counter, pending action/turn grants with their escape flags, and the
- * Director's convert-action affordance ("You can also turn your main action
- * into a move action or a maneuver"). Economy state exists only in combat. */
+ * convert-action affordance ("You can also turn your main action into a
+ * move action or a maneuver"). The conversion is the acting participant's
+ * OWN printed choice [I-5]: the Director sees it on every card
+ * (adjudication); a player sees it on the ACTIVE participant's card — this
+ * substrate binds no user to a participant, so active-turn is the honest
+ * client-side proxy for "my character, on my turn" while the backend stays
+ * member-reachable with attribution. Economy state exists only in combat. */
 function ParticipantEconomy({
   participant,
   inCombat,
+  activeTurnId,
   viewerIsDirector,
   busy,
   onConvert,
@@ -964,12 +1026,14 @@ function ParticipantEconomy({
 }: {
   participant: ParticipantView;
   inCombat: boolean;
+  activeTurnId: string | null;
   viewerIsDirector: boolean;
   busy: boolean;
   onConvert: (to: 'maneuver' | 'move-action') => void;
   onTriggeredAction: () => void;
 }) {
   if (!inCombat) return null;
+  const showConvert = viewerIsDirector || participant.id === activeTurnId;
   const chip = (cost: 'main-action' | 'maneuver' | 'move-action', label: string) => {
     const cell = participant.actionBudget[cost] ?? { used: 0, granted: 0 };
     return (
@@ -1044,7 +1108,7 @@ function ParticipantEconomy({
         >
           Triggered action
         </Button>
-        {viewerIsDirector ? (
+        {showConvert ? (
           <>
             <Button
               size="sm"

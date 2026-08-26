@@ -349,6 +349,10 @@ export default defineSchema({
     // stamina delta claims) — the receipts the UI and replay read
     // (power-roll-design SE-3). Engine-owned shape, not mirrored here.
     data: v.optional(v.any()),
+    // The engine dispatch this row receipts (LogEntry.intentId) — the
+    // occurrence handle a use-triggered-action trigger references [I-6e].
+    // Absent on host-level rows and on rows written before this column.
+    intentId: v.optional(v.string()),
     actorUserId: v.id('users'),
     actorName: v.string(),
     occurredAt: v.number(),

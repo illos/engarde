@@ -66,6 +66,9 @@ const economyIdle = {
   actionBudget: {},
   triggeredThisRound: 0,
   triggeredActionLimit: 1,
+  turnAllowance: 1,
+  noConsecutiveTurns: false,
+  subActorOf: null,
   abilityUses: {},
 };
 
@@ -176,6 +179,7 @@ function logRow(overrides: Record<string, unknown>) {
     canonRefs: [],
     engineActorLabel: null,
     data: null,
+    intentId: null,
     actorName: 'owner',
     occurredAt: 0,
     ...overrides,
@@ -204,11 +208,11 @@ describe('TurnRail', () => {
     expect(screen.getByText('Round 2')).toBeTruthy();
     expect(screen.getByText('heroes went first')).toBeTruthy();
     expect(screen.getByText('director')).toBeTruthy(); // alternation pointer
-    // Active-turn marker plus per-actor turns-taken chips (squad occupies
-    // one slot; members never appear as turn takers).
-    expect(screen.getByLabelText('fury — turns taken 1 — active')).toBeTruthy();
-    expect(screen.getByLabelText('goblin-monarch — turns taken 1')).toBeTruthy();
-    expect(screen.getByLabelText('goblin spinecleavers — turns taken 0')).toBeTruthy();
+    // Active-turn marker plus per-actor taken-vs-allowance chips [I-6c]
+    // (squad occupies one slot; members never appear as turn takers).
+    expect(screen.getByLabelText('fury — turns taken 1 of 1 — active')).toBeTruthy();
+    expect(screen.getByLabelText('goblin-monarch — turns taken 1 of 1')).toBeTruthy();
+    expect(screen.getByLabelText('goblin spinecleavers — turns taken 0 of 1')).toBeTruthy();
     expect(screen.queryByLabelText(/sc1 — turns taken/)).toBeNull();
     // Villain economy: per-round flag + which of the printed actions is
     // spent this encounter.
@@ -225,6 +229,33 @@ describe('TurnRail', () => {
       'fury',
       'goblin-monarch',
     ]);
+  });
+
+  test('a multi-turn actor renders taken vs allowance — two solo turns are never styled as a violation [I-6c]', () => {
+    // Seeded scheduling traits from the view: a two-allowance actor (the
+    // solo shape) and a sub-actor that must not appear as a turn taker.
+    setScene({
+      ...combatView,
+      participants: [
+        { ...monarch, turnAllowance: 2 },
+        { ...fury, subActorOf: 'goblin-monarch' },
+      ],
+      squads: [],
+      turnState: {
+        ...combatView.turnState,
+        activeTurnId: null,
+        turnsTaken: { 'goblin-monarch': 2 },
+      },
+    });
+    render(<EncounterPanel campaignId={campaignId} />);
+    const chip = screen.getByLabelText('goblin-monarch — turns taken 2 of 2');
+    expect(chip).toBeTruthy();
+    // Spent-within-allowance renders muted, NOT in the warn accent tone.
+    expect(chip.className).not.toContain('text-accent');
+    // The sub-actor never appears as a turn taker of its own [I-6c].
+    expect(screen.queryByLabelText(/fury — turns taken/)).toBeNull();
+    const picker = screen.getByLabelText('Turn to start') as HTMLSelectElement;
+    expect(Array.from(picker.options).map((option) => option.value)).toEqual(['goblin-monarch']);
   });
 
   test('begin combat: Director form dispatches with the asserted d10; players see status only', () => {
@@ -351,7 +382,7 @@ describe('ParticipantEconomy', () => {
     expect(screen.getByText(/\(ignores dazed · off-turn\)/)).toBeTruthy();
   });
 
-  test('convert-action affordance is Director-side and dispatches; hidden from players', async () => {
+  test('convert-action: Director sees it on every card; a player sees it on the ACTIVE participant and dispatches [I-5]', async () => {
     setScene({ ...combatView, participants: [fury, monarch], squads: [] });
     render(<EncounterPanel campaignId={campaignId} />);
     fireEvent.click(screen.getByLabelText('Convert main action to maneuver for fury'));
@@ -367,6 +398,10 @@ describe('ParticipantEconomy', () => {
       participantId: 'fury',
       to: 'move-action',
     });
+    // Director adjudication reaches non-active cards too.
+    expect(
+      screen.getByLabelText('Convert main action to maneuver for goblin-monarch'),
+    ).toBeTruthy();
 
     cleanup();
     setScene(
@@ -374,7 +409,18 @@ describe('ParticipantEconomy', () => {
       'player',
     );
     render(<EncounterPanel campaignId={campaignId} />);
-    expect(screen.queryByLabelText('Convert main action to maneuver for fury')).toBeNull();
+    // The conversion is the actor's OWN choice [I-5]: with fury's turn
+    // active, a player gets the affordance on fury's card and dispatches.
+    fireEvent.click(screen.getByLabelText('Convert main action to maneuver for fury'));
+    expect(spyFor(api.encounters.convertAction)).toHaveBeenLastCalledWith({
+      campaignId,
+      participantId: 'fury',
+      to: 'maneuver',
+    });
+    // Non-active cards stay affordance-free for players.
+    expect(
+      screen.queryByLabelText('Convert main action to maneuver for goblin-monarch'),
+    ).toBeNull();
     // Budget chips stay visible to everyone.
     expect(screen.getByLabelText('fury main-action 0/1')).toBeTruthy();
   });
@@ -405,11 +451,166 @@ describe('ParticipantEconomy', () => {
       target: { value: 'meat-shield' },
     });
     fireEvent.click(screen.getByText('Use triggered action'));
+    // Default dispatch ships NO free/perRoundCap — the host derives both
+    // from the compiled header [I-6d]; the select is the asserted override.
     expect(spyFor(api.encounters.useTriggeredAction)).toHaveBeenCalledWith({
       campaignId,
       participantId: 'goblin-monarch',
       abilityArtifactId: `${MONARCH}#meat-shield`,
     });
+  });
+
+  test('triggered cost override and occurrence reference: asserted free wins; a picked log occurrence rides triggerIntentId [I-6d/I-6e]', async () => {
+    setScene({ ...combatView, participants: [fury, monarch], squads: [] });
+    setQuery(api.encounters.listLog, [
+      logRow({
+        intentId: 'd3-lash',
+        message: 'fury uses lash on goblin-monarch',
+        kind: 'informational',
+      }),
+      // A second row of the SAME dispatch dedupes to one option.
+      logRow({ intentId: 'd3-lash', message: 'goblin-monarch takes 4 damage' }),
+      logRow({ message: 'a host table card with no dispatch behind it', kind: 'table-card' }),
+    ]);
+    setQuery(api.encounters.searchRecords, [
+      {
+        artifactId: MONARCH,
+        slug: 'goblin-monarch',
+        parsedTiers: ['≤11', '12-16', '17+'],
+        residueSpans: 2,
+        effects: [],
+        autoRollable: false,
+        hasStats: true,
+      },
+    ]);
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText('Search triggered actions'), {
+      target: { value: 'monarch' },
+    });
+    fireEvent.click(screen.getByText('Pick triggered'));
+    // The occurrence picker offers the receipted dispatch exactly once.
+    const occurrencePicker = screen.getByLabelText('Trigger occurrence') as HTMLSelectElement;
+    expect(Array.from(occurrencePicker.options).map((option) => option.value)).toEqual([
+      '',
+      'd3-lash',
+    ]);
+    fireEvent.change(occurrencePicker, { target: { value: 'd3-lash' } });
+    fireEvent.change(screen.getByLabelText('Triggered cost override'), {
+      target: { value: 'free' },
+    });
+    fireEvent.click(screen.getByText('Use triggered action'));
+    expect(spyFor(api.encounters.useTriggeredAction)).toHaveBeenCalledWith({
+      campaignId,
+      participantId: 'fury',
+      abilityArtifactId: MONARCH,
+      free: true,
+      triggerIntentId: 'd3-lash',
+    });
+    await act(() => Promise.resolve());
+    // Back to no occurrence: asserted text is the fallback reference.
+    fireEvent.change(occurrencePicker, { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Triggered cost override'), {
+      target: { value: '' },
+    });
+    fireEvent.change(screen.getByLabelText('Asserted trigger'), {
+      target: { value: 'a creature strikes them' },
+    });
+    fireEvent.click(screen.getByText('Use triggered action'));
+    expect(spyFor(api.encounters.useTriggeredAction)).toHaveBeenLastCalledWith({
+      campaignId,
+      participantId: 'fury',
+      abilityArtifactId: MONARCH,
+      triggerText: 'a creature strikes them',
+    });
+  });
+});
+
+describe('AddGrantSection [I-6f]', () => {
+  test('Director dispatches an escape-flagged action grant with a budget-only cost menu [M-2, R-0030]', () => {
+    setScene({ ...combatView, participants: [fury, monarch], squads: [] });
+    render(<EncounterPanel campaignId={campaignId} />);
+    // The cost menu is the engine's budget enum — never the wide vocabulary
+    // (a dead grant is unrepresentable from this form) [M-2].
+    const costPicker = screen.getByLabelText('Granted action cost') as HTMLSelectElement;
+    expect(Array.from(costPicker.options).map((option) => option.value)).toEqual([
+      'main-action',
+      'maneuver',
+      'move-action',
+    ]);
+    // Escape-flagged Solo-Action shape: the dazed spend must not warn —
+    // R-0030's promise, now reachable from a web-only table.
+    fireEvent.change(screen.getByLabelText('Grant target'), {
+      target: { value: 'goblin-monarch' },
+    });
+    fireEvent.click(screen.getByLabelText('Grant ignores dazed'));
+    fireEvent.click(screen.getByLabelText('Grant usable off-turn'));
+    fireEvent.change(screen.getByLabelText('Grant source artifact id'), {
+      target: { value: `${MONARCH}#solo-action` },
+    });
+    fireEvent.click(screen.getByText('Add grant'));
+    expect(spyFor(api.encounters.addGrant)).toHaveBeenCalledWith({
+      campaignId,
+      targetParticipantId: 'goblin-monarch',
+      grant: {
+        kind: 'action',
+        cost: 'main-action',
+        magnitude: 1,
+        escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+        expiry: null,
+      },
+      sourceArtifactId: `${MONARCH}#solo-action`,
+    });
+  });
+
+  test('turn and next-roll kinds dispatch their shapes; the form is Director-only', async () => {
+    setScene({ ...combatView, participants: [fury, monarch], squads: [] });
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText('Grant kind'), { target: { value: 'turn' } });
+    fireEvent.change(screen.getByLabelText('Turn grant mode'), {
+      target: { value: 'insertion' },
+    });
+    fireEvent.click(screen.getByLabelText('No consecutive turns'));
+    fireEvent.click(screen.getByText('Add grant'));
+    expect(spyFor(api.encounters.addGrant)).toHaveBeenCalledWith({
+      campaignId,
+      targetParticipantId: 'fury',
+      grant: {
+        kind: 'turn',
+        mode: 'insertion',
+        magnitude: 1,
+        constraint: 'no-consecutive',
+        expiry: null,
+      },
+    });
+    await act(() => Promise.resolve());
+    fireEvent.change(screen.getByLabelText('Grant kind'), { target: { value: 'next-roll' } });
+    fireEvent.change(screen.getByLabelText('Next-roll polarity'), {
+      target: { value: 'double-bane' },
+    });
+    fireEvent.change(screen.getByLabelText('Next-roll direction'), {
+      target: { value: 'inbound' },
+    });
+    fireEvent.click(screen.getByLabelText("Until end of target's next turn"));
+    fireEvent.click(screen.getByText('Add grant'));
+    expect(spyFor(api.encounters.addGrant)).toHaveBeenLastCalledWith({
+      campaignId,
+      targetParticipantId: 'fury',
+      grant: {
+        kind: 'next-roll',
+        polarity: 'double-bane',
+        scope: 'strike',
+        direction: 'inbound',
+        window: 'end-of-targets-next-turn',
+      },
+    });
+
+    cleanup();
+    setScene(
+      { ...combatView, viewerIsDirector: false, participants: [fury, monarch], squads: [] },
+      'player',
+    );
+    render(<EncounterPanel campaignId={campaignId} />);
+    expect(screen.queryByText('Grant (Director)')).toBeNull();
   });
 });
 

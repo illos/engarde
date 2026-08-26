@@ -1,12 +1,16 @@
+import { annotateHeaderCosts } from '@engarde/canon/action-cost';
 import {
   compileAbility,
   compileEffectPrograms,
+  groupPowerRollClusters,
   tierOutcomeToIntents,
 } from '@engarde/canon/effect-conformance';
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
 import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
   type ActionGrant,
+  type AssertedAbilityUse,
+  BUDGET_ACTION_COSTS,
   type DamageType,
   type DriverSquadSeed,
   type EncounterState,
@@ -31,7 +35,7 @@ import {
   squadSeedWarnings,
   upgradeEncounterState,
 } from '@engarde/engine';
-import { ConvexError, v } from 'convex/values';
+import { ConvexError, type Infer, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { type MutationCtx, type QueryCtx, mutation, query } from './_generated/server';
 import { gameRoleFor, requireActiveMember, requireCurrentDirector } from './authz';
@@ -76,6 +80,19 @@ const actionCostView = v.union(
   v.literal('no-action'),
   v.literal('villain-action'),
 );
+
+/** The three per-turn budget counters — the only costs an `action` grant
+ * can extend (a grant of any other cost would be dead: the consumption
+ * filter matches only these). Mirrors the engine's one-home
+ * BUDGET_ACTION_COSTS enum [M-2]; the pin below fails the compile if the
+ * engine enum ever widens without this validator following. */
+const budgetActionCostView = v.union(
+  v.literal('main-action'),
+  v.literal('maneuver'),
+  v.literal('move-action'),
+);
+const _budgetCostDriftPin: readonly Infer<typeof budgetActionCostView>[] = BUDGET_ACTION_COSTS;
+void _budgetCostDriftPin;
 
 const grantExpiryView = v.union(v.literal('end-of-round'), v.null());
 
@@ -203,6 +220,14 @@ const encounterView = v.union(
          * the counter and the seeded per-participant limit (Ajax's 3). */
         triggeredThisRound: v.number(),
         triggeredActionLimit: v.number(),
+        /** Seeded turn-scheduling traits (v6, design §3): how many turns
+         * this participant takes per round (a solo's 2 must never read as a
+         * violation), whether consecutive turns are constrained, and the
+         * sub-actor binding (a sub-actor acts inside its operator's turn —
+         * never a turn taker of its own). */
+        turnAllowance: v.number(),
+        noConsecutiveTurns: v.boolean(),
+        subActorOf: v.union(v.string(), v.null()),
         /** Per-ability usage counters keyed by ability artifact id (the
          * printed once-per-round cap family warns through these). */
         abilityUses: v.record(
@@ -384,6 +409,10 @@ interface LogRowInput {
   engineActorLabel?: string;
   /** Engine LogEntry.data — persisted verbatim (power-roll-design SE-3). */
   data?: Record<string, unknown>;
+  /** The engine dispatch this row receipts (LogEntry.intentId) — the
+   * occurrence handle a triggered action can reference [I-6e]. Host-level
+   * rows (table cards, NOT-AUTOMATED notes) carry none. */
+  intentId?: string;
 }
 
 function engineActorLabel(actor: LogEntry['actor']): string {
@@ -408,6 +437,7 @@ async function appendLog(
       canonRefs: row.canonRefs,
       engineActorLabel: row.engineActorLabel,
       data: row.data,
+      intentId: row.intentId,
       actorUserId: actor.userId,
       actorName: actor.name,
       occurredAt: Date.now(),
@@ -461,6 +491,7 @@ async function runIntents(
         canonRefs: entry.canonRefs,
         engineActorLabel: engineActorLabel(entry.actor),
         data: entry.data,
+        intentId: entry.intentId,
       });
     }
   }
@@ -581,6 +612,9 @@ export const getActive = query({
         actionBudget: participant.actionBudget,
         triggeredThisRound: participant.triggeredThisRound,
         triggeredActionLimit: participant.traits.triggeredActionLimit,
+        turnAllowance: participant.traits.turnAllowance,
+        noConsecutiveTurns: participant.traits.noConsecutiveTurns,
+        subActorOf: participant.traits.subActorOf,
         abilityUses: participant.abilityUses,
       })),
       turnState:
@@ -653,6 +687,10 @@ export const listLog = query({
       canonRefs: v.array(v.string()),
       engineActorLabel: v.union(v.string(), v.null()),
       data: v.union(v.any(), v.null()),
+      /** The engine dispatch this row receipts — the occurrence handle a
+       * use-triggered-action trigger can reference [I-6e]; null for
+       * host-level rows. */
+      intentId: v.union(v.string(), v.null()),
       actorName: v.string(),
       occurredAt: v.number(),
     }),
@@ -675,6 +713,7 @@ export const listLog = query({
       canonRefs: row.canonRefs,
       engineActorLabel: row.engineActorLabel ?? null,
       data: row.data ?? null,
+      intentId: row.intentId ?? null,
       actorName: row.actorName,
       occurredAt: row.occurredAt,
     }));
@@ -959,6 +998,32 @@ export const useAbility = mutation({
       );
       if (!tier || tier.kind !== 'tier-outcome')
         throw new ConvexError(`No parsed tier outcome at ${args.band} in ${record.slug}`);
+      // Asserted-band economy parity [B-2, R-0029/R-0030]: an asserted tier
+      // is still a USE of the ability, so the dispatch carries the compiled
+      // header's cost through the tierOutcomeToIntents binding seam. The
+      // owning header comes from the one cluster-ownership home
+      // (groupPowerRollClusters) + annotateHeaderCosts on the SAME parse; a
+      // tier with no owning header or an unresolved cost carries NO debit —
+      // honest residue, never a guessed one.
+      const owningCluster = groupPowerRollClusters(parse).find((cluster) =>
+        Object.values(cluster.tiers).some((clause) => clause === tier),
+      );
+      const annotation = owningCluster?.header
+        ? annotateHeaderCosts(parse, args.artifactId).get(owningCluster.header)
+        : undefined;
+      const assertedBase: AssertedAbilityUse | null =
+        annotation && annotation.actionCost !== null
+          ? {
+              actorParticipantId: args.actorParticipantId,
+              abilityArtifactId: args.artifactId,
+              actionCost: annotation.actionCost,
+              usesPerRound: annotation.usesPerRound,
+            }
+          : null;
+      // One ability use, one debit: the first target's first intent pays;
+      // every other target's intents share it via partOf (the rolled path's
+      // composition semantics).
+      const firstIntentId = `d${encounter.dispatchCount + 1}-${record.slug}-t0-0`;
       const intents: Intent[] = [];
       const unexecuted: LogRowInput[] = [];
       for (const [index, targetId] of args.targetParticipantIds.entries()) {
@@ -967,6 +1032,12 @@ export const useAbility = mutation({
           actorParticipantId: args.actorParticipantId,
           targetParticipantId: targetId,
           effectArtifactId: args.artifactId,
+          assertedAbilityUse:
+            assertedBase === null
+              ? null
+              : index === 0
+                ? assertedBase
+                : { ...assertedBase, partOf: firstIntentId },
         });
         intents.push(...execution.intents);
         unexecuted.push(
@@ -1417,10 +1488,11 @@ export const detachCaptain = mutation({
 
 // ─── action economy + two-phase commit (v6, R-0029..R-0033) ─────────────────
 // Turn-rail mutations are the Director's (the encounter-start authority
-// pattern): begin-combat, start-turn, advance-round, convert-action,
-// add-grant, use-villain-action. Play mutations stay member-reachable with
-// attribution (permissive play, receipts always): use-ability,
-// use-triggered-action, modify-resolution, commit-resolution.
+// pattern): begin-combat, start-turn, advance-round, add-grant,
+// use-villain-action. Play mutations stay member-reachable with attribution
+// (permissive play, receipts always): use-ability, use-triggered-action,
+// convert-action (the conversion is the acting participant's own printed
+// choice [I-5]), modify-resolution, commit-resolution.
 
 export const beginCombat = mutation({
   args: {
@@ -1517,7 +1589,11 @@ export const advanceRound = mutation({
 
 /** "You can also turn your main action into a move action or a maneuver"
  * [rule.combat/turn] — debits the main action through the one home, then
- * grants the target cost. */
+ * grants the target cost. The conversion is the acting participant's OWN
+ * printed choice, so this stays member-reachable with attribution (the
+ * useAbility posture; DEC-0007: game power, not campaign admin) — the
+ * engine actor is the participant, both attributions land on the log, and
+ * economy violations warn-and-apply [I-5, R-0030]. */
 export const convertAction = mutation({
   args: {
     campaignId: v.id('campaigns'),
@@ -1526,7 +1602,7 @@ export const convertAction = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const { profile } = await requireActiveMember(ctx, args.campaignId);
     const encounter = await requireLiveEncounter(ctx, args.campaignId);
     await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
       {
@@ -1563,7 +1639,10 @@ export const addGrant = mutation({
       }),
       v.object({
         kind: v.literal('action'),
-        cost: actionCostView,
+        /** Budget costs only [M-2] — a dead grant (a cost the consumption
+         * filter could never match) is unrepresentable at this boundary,
+         * matching the engine's ActionGrantSchema. */
+        cost: budgetActionCostView,
         magnitude: v.optional(v.number()),
         escapes: v.optional(
           v.object({
@@ -1630,6 +1709,8 @@ export const useTriggeredAction = mutation({
      * optionally `#`-suffixed with the ability slug for abilities living
      * inside a statblock record. */
     abilityArtifactId: v.string(),
+    /** Manual override for asserted cases; absent = derived from the
+     * compiled header annotation on the loaded record [I-6d]. */
     free: v.optional(v.boolean()),
     /** A receipt-visible trigger occurrence (a prior dispatch's intent id)
      * — wins over an asserted-text trigger when both are given. */
@@ -1637,9 +1718,9 @@ export const useTriggeredAction = mutation({
     /** A table-asserted trigger (Ride's triggerless free-trigger
      * dispatches without an occurrence). */
     triggerText: v.optional(v.string()),
-    /** The compiled printed once-per-round cap, when the ability carries
-     * one (Keeper of Order = 1). Feeds the R-0030 warn machinery only —
-     * never state legality. */
+    /** Manual once-per-round-cap override; absent = the compiled printed
+     * cap from the header annotation (Keeper of Order = 1) [I-6d]. Feeds
+     * the R-0030 warn machinery only — never state legality. */
     perRoundCap: v.optional(v.number()),
   },
   returns: v.null(),
@@ -1651,6 +1732,22 @@ export const useTriggeredAction = mutation({
     const baseArtifactId = args.abilityArtifactId.split('#')[0] ?? args.abilityArtifactId;
     const record = await loadRecord(ctx, baseArtifactId);
     if (!record) throw new ConvexError(`Unknown canon record: ${baseArtifactId}`);
+    // Compiled header annotation [R-0029/R-0031, I-6d]: the printed cost
+    // decides free-triggered on its own; the once-per-round cap rides
+    // along. Resolved HERE from the record this mutation already loads (the
+    // CLI-proven derivation — smaller than shipping the annotation through
+    // the search payload); explicit args stay the asserted-case override.
+    // No annotation = table-asserted dispatch, exactly as before.
+    const annotation =
+      args.free === undefined || args.perRoundCap === undefined
+        ? [...annotateHeaderCosts(parseEffectText(record.text), baseArtifactId).values()].find(
+            (candidate) =>
+              candidate.actionCost === 'triggered-action' ||
+              candidate.actionCost === 'free-triggered-action',
+          )
+        : undefined;
+    const free = args.free ?? annotation?.actionCost === 'free-triggered-action';
+    const perRoundCap = args.perRoundCap ?? annotation?.usesPerRound ?? null;
     try {
       await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
         {
@@ -1660,14 +1757,14 @@ export const useTriggeredAction = mutation({
           payload: {
             participantId: args.participantId,
             abilityArtifactId: args.abilityArtifactId,
-            free: args.free ?? false,
+            free,
             trigger:
               args.triggerIntentId !== undefined
                 ? { kind: 'occurrence', intentId: args.triggerIntentId }
                 : args.triggerText !== undefined
                   ? { kind: 'asserted', text: args.triggerText }
                   : null,
-            perRoundCap: args.perRoundCap ?? null,
+            perRoundCap,
           },
         },
       ]);

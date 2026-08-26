@@ -402,6 +402,45 @@ describe('two-phase combat with real corpus abilities (verbatim fixtures)', () =
     expect(session.transcript().violationCount).toBe(0);
   });
 
+  it('asserted-band use debits the compiled header cost through the one home [B-2]', () => {
+    const session = combatSession();
+    session.execute('combat director roll 4');
+    session.execute('turn adjudicator');
+    // Infernal Injunction asserted at ≤11 ("10 fire damage; I < 1
+    // frightened (save ends)") — a manual tier assertion is still a USE of
+    // the printed Main-action ability, so the compiled header's cost rides
+    // the binding seam and the main action debits exactly like the rolled
+    // path (damage stays a NOT-AUTOMATED receipt on this path).
+    const used = session.execute('use devil-adjudicator t1 adjudicator warrior').output;
+    expect(used).toContain('NOT AUTOMATED (damage)');
+    const status = session.execute('status').output;
+    expect(status).toContain('budget: main 1/1');
+    expect(status).toContain('frightened (save-ends)');
+    // A second asserted use is over-budget: warn-and-apply [R-0030].
+    const again = session.execute('use devil-adjudicator t1 adjudicator warrior').output;
+    expect(again).toContain('!! WARNING:');
+    expect(again).toContain('exceeds their turn budget for a main-action');
+    expect(session.transcript().violationCount).toBe(0);
+  });
+
+  it('squad endturn advice never suggests per-member turns (double-runs the end-of-turn sweeps) [M-4]', () => {
+    const spinecleaverStats = ParticipantStatsSchema.parse(
+      JSON.parse(GOBLIN_SPINECLEAVER.statsJson),
+    );
+    const session = createPlaySession({
+      actors: ['sc1', 'sc2'].map((id) => ({
+        id,
+        recordId: GOBLIN_SPINECLEAVER.artifactId,
+        stats: spinecleaverStats,
+      })),
+      records: new Map([[GOBLIN_SPINECLEAVER.artifactId, GOBLIN_SPINECLEAVER.text]]),
+      squads: [{ squadId: 'squad-sc', name: 'spinecleavers', memberIds: ['sc1', 'sc2'] }],
+    });
+    const advice = session.execute('endturn squad-sc bleeding=5').output;
+    expect(advice).toContain('omit them and the squad turn auto-rolls every member save');
+    expect(advice).not.toContain('end each member separately');
+  });
+
   it('triggered actions ride the compiled header: cost, cap, and interception point [R-0031]', () => {
     const session = combatSession();
     session.execute('combat director roll 4');

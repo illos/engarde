@@ -22,6 +22,7 @@ import { annotateHeaderCosts } from './action-cost.js';
 import {
   compileAbilities,
   compileEffectPrograms,
+  groupPowerRollClusters,
   tierOutcomeToIntents,
 } from './effect-conformance.js';
 import { type GrammarParse, auditGrammarConservation, parseEffectText } from './effect-grammar.js';
@@ -494,16 +495,54 @@ export function createPlaySession(options: {
           `note: ${atBand.length} parsed tier lines at ${band}; dispatching the first only`,
         );
       }
+      // Asserted-band economy parity [B-2, R-0029/R-0030]: an asserted tier
+      // is still a USE of the ability — the compiled header's cost rides
+      // the tierOutcomeToIntents binding seam. The owning header comes from
+      // the one cluster-ownership home (groupPowerRollClusters) +
+      // annotateHeaderCosts on the same parse; a tier with no owning header
+      // or an unresolved cost carries NO debit — honest residue, never a
+      // guessed one.
+      const owningCluster = groupPowerRollClusters(parse).find((cluster) =>
+        Object.values(cluster.tiers).some((clause) => clause === chosen),
+      );
+      const annotation = owningCluster?.header
+        ? annotateHeaderCosts(parse, record.id).get(owningCluster.header)
+        : undefined;
       const execution = tierOutcomeToIntents(chosen.data, {
         intentIdPrefix: shortName(record.id),
         actorParticipantId: actor.id,
         targetParticipantId: target.id,
         effectArtifactId: record.id,
+        assertedAbilityUse:
+          annotation && annotation.actionCost !== null
+            ? {
+                actorParticipantId: actor.id,
+                abilityArtifactId: record.id,
+                actionCost: annotation.actionCost,
+                usesPerRound: annotation.usesPerRound,
+              }
+            : null,
       });
-      // Re-stamp compiler intent ids into the session's sequence.
+      // Re-stamp compiler intent ids into the session's sequence, keeping
+      // the shared-debit partOf reference pointed at the first STAMPED id
+      // (one ability use, one debit — the rolled path's composition).
       const stamped = execution.intents.map((intent) => ({ ...intent, intentId: nextIntentId() }));
-      if (stamped.length === 0) lines.push('  (no engine-executable parts at this tier yet)');
-      lines.push(...dispatchAll(stamped));
+      const primaryId = stamped[0]?.intentId;
+      const aligned = stamped.map((intent, index) => {
+        if (index === 0 || primaryId === undefined || intent.kind !== 'apply-condition')
+          return intent;
+        const asserted = intent.payload.assertedAbilityUse;
+        if (asserted === null || asserted === undefined) return intent;
+        return {
+          ...intent,
+          payload: {
+            ...intent.payload,
+            assertedAbilityUse: { ...asserted, partOf: primaryId },
+          },
+        };
+      });
+      if (aligned.length === 0) lines.push('  (no engine-executable parts at this tier yet)');
+      lines.push(...dispatchAll(aligned));
       for (const item of execution.unexecuted) {
         lines.push(`  NOT AUTOMATED (${item.part}): ${item.detail}`);
       }
@@ -615,7 +654,10 @@ export function createPlaySession(options: {
     if ('error' in entity) return entity.error;
     const rolls: Record<string, number> = {};
     if (entity.squad && rollTokens.length > 0) {
-      return 'saving-throw roll tokens apply to a participant endturn, not a squad turn — omit them (auto-roll) or end each member separately';
+      // M-4: never advise per-member endturn — that double-runs the
+      // end-of-turn sweeps (a second saving throw per turn). Auto-roll is
+      // the one squad path; member-addressed saves are an accepted cut.
+      return 'saving-throw roll tokens apply to a participant endturn, not a squad turn — omit them and the squad turn auto-rolls every member save';
     }
     for (const token of rollTokens) {
       const [query, rollText] = token.split('=');

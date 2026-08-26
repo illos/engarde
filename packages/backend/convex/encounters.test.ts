@@ -14,6 +14,7 @@ import {
   GOBLIN_MONARCH,
   HEALING_GRACE,
   KOBOLD_SIGNIFER,
+  SPIKE_TRAP,
   WAR_DOG_AEROCITE,
 } from './verbatimFixtures';
 
@@ -106,6 +107,12 @@ async function seedRecords(t: Harness) {
         text: GOBLIN_MONARCH.text,
         textSha256: GOBLIN_MONARCH.textSha256,
         statsJson: GOBLIN_MONARCH.statsJson,
+      },
+      {
+        artifactId: SPIKE_TRAP.artifactId,
+        slug: SPIKE_TRAP.slug,
+        text: SPIKE_TRAP.text,
+        textSha256: SPIKE_TRAP.textSha256,
       },
       {
         artifactId: WODE_SENTRY,
@@ -1749,5 +1756,212 @@ describe('action economy host', () => {
     expect(
       log.some((entry) => entry.kind === 'warning' && entry.message.includes('Acting Together')),
     ).toBe(true);
+  });
+
+  test('asserted-band use debits the economy from the compiled header; extra targets share the one debit [B-2]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'adjudicator', recordId: DEVIL_ADJUDICATOR.artifactId }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'adjudicator',
+    });
+    // Infernal Injunction, asserted tier ≤11 ("10 fire damage; I < 1
+    // frightened (save ends)"): the manual tier assertion is still a USE of
+    // the printed Main-action ability, so the dispatch carries the compiled
+    // header's cost through the binding seam and debits main-action ONCE —
+    // the second target's condition shares the debit via partOf.
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: DEVIL_ADJUDICATOR.artifactId,
+      band: '≤11',
+      actorParticipantId: 'adjudicator',
+      targetParticipantIds: ['warrior-a', 'warrior-b'],
+    });
+    const after = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const adjudicator = after?.participants.find((p) => p.id === 'adjudicator');
+    expect(adjudicator?.actionBudget['main-action']).toMatchObject({ used: 1 });
+    expect(adjudicator?.abilityUses[DEVIL_ADJUDICATOR.artifactId]).toMatchObject({ round: 2 });
+    for (const targetId of ['warrior-a', 'warrior-b']) {
+      expect(
+        after?.participants
+          .find((p) => p.id === targetId)
+          ?.conditions.some((condition) => condition.conditionSlug === 'frightened'),
+      ).toBe(true);
+    }
+    if (!after) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: after.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    // The shared-debit receipt on the second target's dispatch.
+    expect(
+      log.some((entry) => entry.message.includes("consumes the parent's already-debited action")),
+    ).toBe(true);
+    // Asserted-band economy parity holds ALSO for a second asserted use:
+    // over-budget warns-and-applies exactly like the rolled path [R-0030].
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: DEVIL_ADJUDICATOR.artifactId,
+      band: '≤11',
+      actorParticipantId: 'adjudicator',
+      targetParticipantIds: ['warrior-a'],
+    });
+    const log2 = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: after.encounterId,
+    });
+    expect(
+      log2.some(
+        (entry) =>
+          entry.kind === 'warning' &&
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind ===
+            'over-budget',
+      ),
+    ).toBe(true);
+  });
+
+  test("convert-action is the acting participant's own choice: a member dispatches it; the log receipts land [I-5]", async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    // The MEMBER (not the Director) converts: self-reachable per the trust
+    // model — the conversion is the actor's own printed choice.
+    await table.member.client.mutation(api.encounters.convertAction, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+      to: 'maneuver',
+    });
+    const after = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const warrior = after?.participants.find((p) => p.id === 'warrior-a');
+    expect(warrior?.actionBudget['main-action']).toMatchObject({ used: 1 });
+    expect(warrior?.actionBudget.maneuver).toMatchObject({ granted: 1 });
+    // getActive exposes the seeded scheduling traits [I-6c].
+    expect(warrior?.turnAllowance).toBe(1);
+    expect(warrior?.noConsecutiveTurns).toBe(false);
+    expect(warrior?.subActorOf).toBeNull();
+    if (!after) throw new Error('no active encounter');
+    // listLog rows expose the engine dispatch id [I-6e] — the occurrence
+    // handle web triggers reference.
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: after.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(log.some((entry) => entry.intentId?.includes('convert-action'))).toBe(true);
+  });
+
+  test('triggered dispatch derives free and per-round cap from the compiled header; explicit args override [I-6d]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'trap', recordId: SPIKE_TRAP.artifactId }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    // Spike Trap's compiled header cost is **Free triggered action** — with
+    // NO free arg the host derives it, so the round counter is bypassed and
+    // the free receipt lands (the CLI-proven derivation, now on this host).
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'trap',
+      abilityArtifactId: SPIKE_TRAP.artifactId,
+      triggerText: "A creature or object of the appropriate size enters the trap's area.",
+    });
+    const derived = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(derived?.participants.find((p) => p.id === 'trap')?.triggeredThisRound).toBe(0);
+    // Manual override for asserted cases: free:false forces the counter.
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'trap',
+      abilityArtifactId: SPIKE_TRAP.artifactId,
+      free: false,
+      triggerText: "A creature or object of the appropriate size enters the trap's area.",
+    });
+    const overridden = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(overridden?.participants.find((p) => p.id === 'trap')?.triggeredThisRound).toBe(1);
+    if (!overridden) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: overridden.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(
+      log.some((entry) =>
+        entry.message.includes("doesn't count against your limit of one triggered action"),
+      ),
+    ).toBe(true);
+  });
+
+  test('addGrant rejects a non-budget action cost at the boundary; a budget grant lands [M-2]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    // The narrow validator makes a dead grant (a cost the consumption
+    // filter could never match) unrepresentable at this boundary.
+    await expect(
+      table.owner.client.mutation(api.encounters.addGrant, {
+        campaignId: table.campaignId,
+        targetParticipantId: 'warrior-a',
+        // Deliberately out-of-vocabulary: the narrow type refuses it at
+        // compile time, so the runtime probe casts through never.
+        grant: { kind: 'action', cost: 'villain-action' as never },
+      }),
+    ).rejects.toThrow();
+    await table.owner.client.mutation(api.encounters.addGrant, {
+      campaignId: table.campaignId,
+      targetParticipantId: 'warrior-a',
+      grant: {
+        kind: 'action',
+        cost: 'main-action',
+        escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+      },
+    });
+    const after = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(after?.participants.find((p) => p.id === 'warrior-a')?.actionGrants).toEqual([
+      expect.objectContaining({
+        cost: 'main-action',
+        escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+      }),
+    ]);
   });
 });

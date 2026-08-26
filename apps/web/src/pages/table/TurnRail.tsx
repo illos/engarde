@@ -51,16 +51,24 @@ export function TurnRail({
 
   // A squad occupies one turn slot; its members never take own turns
   // [R-0033] — eligible turn actors are the squads plus every participant
-  // outside a squad. The engine stays the authority (R-0030 violations
-  // warn-and-apply); this only shapes the picker.
+  // outside a squad, minus sub-actors (a sub-actor acts inside its
+  // operator's turn, never a turn taker of its own). The engine stays the
+  // authority (R-0030 violations warn-and-apply); this only shapes the
+  // picker. Allowance comes from the seeded trait [I-6c] so a two-turn
+  // solo's second turn never reads as a violation; a squad's slot is one.
   const squadMemberIds = new Set(
     encounter.squads.flatMap((squad) => [...squad.livingMemberIds, ...squad.deadMemberIds]),
   );
   const turnActors = [
-    ...encounter.squads.map((squad) => ({ id: squad.squadId, label: squad.name })),
+    ...encounter.squads.map((squad) => ({ id: squad.squadId, label: squad.name, allowance: 1 })),
     ...encounter.participants
       .filter((participant) => !squadMemberIds.has(participant.id))
-      .map((participant) => ({ id: participant.id, label: participant.id })),
+      .filter((participant) => participant.subActorOf === null)
+      .map((participant) => ({
+        id: participant.id,
+        label: participant.id,
+        allowance: participant.turnAllowance,
+      })),
   ];
 
   // Engine receipts the rail surfaces verbatim: the begin-combat line (which
@@ -168,19 +176,27 @@ export function TurnRail({
             {turnActors.map((actor) => {
               const taken = turnState.turnsTaken[actor.id] ?? 0;
               const active = turnState.activeTurnId === actor.id;
+              // Taken-vs-allowance [I-6c]: the seeded turnAllowance is the
+              // denominator, so a solo's printed two turns render 2/2 —
+              // spent, never a violation. Only PAST-allowance renders in
+              // the warn tone (the engine's R-0030 warn stays the loud
+              // channel; this mirrors it, never re-derives).
+              const overAllowance = taken > actor.allowance;
               return (
                 <li
                   key={actor.id}
-                  aria-label={`${actor.label} — turns taken ${taken}${active ? ' — active' : ''}`}
+                  aria-label={`${actor.label} — turns taken ${taken} of ${actor.allowance}${active ? ' — active' : ''}`}
                   className={`border px-2 py-1 font-mono text-xs ${
                     active
                       ? 'border-accent text-accent'
-                      : taken > 0
-                        ? 'border-line-soft bg-ink-1 text-text-mute'
-                        : 'border-line-soft bg-ink-1'
+                      : overAllowance
+                        ? 'border-accent bg-ink-1 text-accent'
+                        : taken >= actor.allowance
+                          ? 'border-line-soft bg-ink-1 text-text-mute'
+                          : 'border-line-soft bg-ink-1'
                   }`}
                 >
-                  {actor.label} · {taken}
+                  {actor.label} · {taken}/{actor.allowance}
                 </li>
               );
             })}

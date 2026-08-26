@@ -72,3 +72,18 @@ export const GOBLIN_MONARCH = {
   statsJson:
     '{"staminaMax":80,"characteristics":{"might":0,"agility":3,"reason":1,"intuition":0,"presence":3},"immunities":[],"weaknesses":[],"potencies":null,"recoveriesMax":null,"organization":"Leader","withCaptain":null,"unparsedRows":[]}',
 } as const;
+
+/**
+ * Source en/books/monsters/md/dynamic-terrain/fieldworks/spike-trap.md,
+ * artifact mcdm.monsters.v1/dynamic-terrain.fieldworks/spike-trap,
+ * text sha256 7eb728bcb1ef…. Carries the Spike Trap ability whose
+ * compiled header cost is **Free triggered action** — the I-6d fixture
+ * proving the web/host triggered dispatch derives free from the compiled
+ * header instead of a manual checkbox.
+ */
+export const SPIKE_TRAP = {
+  artifactId: 'mcdm.monsters.v1/dynamic-terrain.fieldworks/spike-trap',
+  slug: 'spike-trap',
+  textSha256: '7eb728bcb1ef153cee94fba3e9e8e5e6b1daca2e8a79616cf727600c22772cdb',
+  text: "\nA pit dug into the ground is filled with spikes, and camouflaged to avoid detection.\n\n- **EV:** 3\n- **Stamina:** 6\n- **Size:** One or more squares\n- **Typical Space:** 2 x 2-square area\n\n> 🌀 **Deactivate**\n>\n> As a maneuver, a creature [adjacent](scc.v1:mcdm.heroes.v1/rule.combat/adjacent) to a spike trap can make an **Agility test**.\n>\n> - **≤11:** The creature triggers the trap and is affected as if in its area.\n> - **12-16:** The trap is deactivated but the creature is [slowed](scc.v1:mcdm.heroes.v1/condition/slowed) (EoT).\n> - **17+:** The trap is deactivated and doesn't trigger.\n\n> ❕ **Activate**\n>\n> The spike trap is calibrated to be triggered by creatures or objects of a particular size or larger. The trap triggers when a creature or object of the appropriate size enters its area.\n>\n> **Effect:** The **Spike Trap** ability.\n\n> ❗️ **Spike Trap**\n>\n> | **Area, Weapon** |                **Free [triggered action](scc.v1:mcdm.heroes.v1/rule.combat/triggered-action)** |\n> |------------------|-----------------------------------------:|\n> | **📏 Melee 0**   | **🎯 The triggering creature or object** |\n>\n> **Trigger:** A creature or object of the appropriate size enters the trap's area.\n>\n> **Power Roll + 2:**\n>\n> - **≤11:** 3 damage; the target [shifts](scc.v1:mcdm.heroes.v1/movement/shifting) 1 square away from the trap\n> - **12-16:** 4 damage; the target falls into the pit; A < 0 [prone](scc.v1:mcdm.heroes.v1/condition/prone)\n> - **17+:** 6 damage; the target falls into the pit; A < 1 [prone](scc.v1:mcdm.heroes.v1/condition/prone); [restrained](scc.v1:mcdm.heroes.v1/condition/restrained) ([save](scc.v1:mcdm.heroes.v1/rule.general/saving-throw) ends)\n>\n> **Effect:** The target ends their movement when they enter the trap's area. The pit is typically 2 squares deep. The trap must be manually reset.\n\n> ⭐️ **Hidden**\n>\n> The spike trap is hidden until triggered or detected.\n",
+} as const;

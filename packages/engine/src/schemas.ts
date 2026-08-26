@@ -161,11 +161,11 @@ export const ActionGrantSchema = z.object({
   kind: z.literal('action'),
   grantId: z.string().min(1),
   /** Budget costs only — a dead grant (a cost the consumption filter could
-   * never match) is unrepresentable in parsed state. The pipe keeps the
-   * INPUT type at the wide ActionCost vocabulary so existing host
-   * validators keep compiling until the host batch narrows them; parse
-   * rejects any non-budget cost at the engine boundary either way. */
-  cost: ActionCostSchema.pipe(BudgetActionCostSchema),
+   * never match) is unrepresentable in parsed state. Plain narrow enum:
+   * the host batch (backend addGrant validator + web addGrant form) now
+   * carries the same BUDGET_ACTION_COSTS vocabulary end to end, so the
+   * transitional wide-input pipe is gone [M-2]. */
+  cost: BudgetActionCostSchema,
   magnitude: z.number().int().positive().default(1),
   escapes: GrantEscapesSchema.default({
     ignoresDazed: false,

@@ -9,6 +9,7 @@ import {
   GOBLIN_MONARCH,
   HEALING_GRACE,
   KOBOLD_SIGNIFER,
+  SPIKE_TRAP,
   WAR_DOG_AEROCITE,
 } from '../convex/verbatimFixtures';
 
@@ -84,6 +85,15 @@ describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpu
     );
     expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(
       WAR_DOG_AEROCITE.statsJson,
+    );
+  });
+
+  it('spike-trap is byte-identical to the corpus cut', async () => {
+    const artifact = await recut('en/books/monsters/md/dynamic-terrain/fieldworks/spike-trap.md');
+    expect(artifact.id).toBe(SPIKE_TRAP.artifactId);
+    expect(artifact.text).toBe(SPIKE_TRAP.text);
+    expect(createHash('sha256').update(SPIKE_TRAP.text, 'utf8').digest('hex')).toBe(
+      SPIKE_TRAP.textSha256,
     );
   });
 });

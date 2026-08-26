@@ -72,6 +72,9 @@ const economyIdle = {
   actionBudget: {},
   triggeredThisRound: 0,
   triggeredActionLimit: 1,
+  turnAllowance: 1,
+  noConsecutiveTurns: false,
+  subActorOf: null,
   abilityUses: {},
 };
 
