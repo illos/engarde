@@ -5,7 +5,12 @@ import { resolve } from 'node:path';
 import { ingestStructuredRecord } from '@engarde/canon';
 import { statblockStats } from '@engarde/canon/statblock-stats';
 import { describe, expect, it } from 'vitest';
-import { HEALING_GRACE, KOBOLD_SIGNIFER, WAR_DOG_AEROCITE } from '../convex/verbatimFixtures';
+import {
+  GOBLIN_MONARCH,
+  HEALING_GRACE,
+  KOBOLD_SIGNIFER,
+  WAR_DOG_AEROCITE,
+} from '../convex/verbatimFixtures';
 
 /**
  * The drift guard for the backend's committed verbatim fixtures (the
@@ -56,6 +61,16 @@ describe.skipIf(!sourceRoot)('committed verbatim fixtures match the pinned corpu
     expect(createHash('sha256').update(HEALING_GRACE.text, 'utf8').digest('hex')).toBe(
       HEALING_GRACE.textSha256,
     );
+  });
+
+  it('goblin-monarch (text AND statsJson) is byte-identical to the corpus cut', async () => {
+    const artifact = await recut('en/books/monsters/md/monster/goblin/statblock/goblin-monarch.md');
+    expect(artifact.id).toBe(GOBLIN_MONARCH.artifactId);
+    expect(artifact.text).toBe(GOBLIN_MONARCH.text);
+    expect(createHash('sha256').update(GOBLIN_MONARCH.text, 'utf8').digest('hex')).toBe(
+      GOBLIN_MONARCH.textSha256,
+    );
+    expect(JSON.stringify(statblockStats(artifact.structuredData))).toBe(GOBLIN_MONARCH.statsJson);
   });
 
   it('war-dog-aerocite (text AND statsJson) is byte-identical to the corpus cut', async () => {

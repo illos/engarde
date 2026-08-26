@@ -6,6 +6,7 @@ import {
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
 import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
+  type ActionGrant,
   type DamageType,
   type DriverSquadSeed,
   type EncounterState,
@@ -14,6 +15,9 @@ import {
   type LogEntry,
   type ParticipantStats,
   ParticipantStatsSchema,
+  type ResolutionModification,
+  type TurnGrant,
+  type UseAbilityPayloadInput,
   applyIntent,
   checkInvariants,
   createSeededRandomSource,
@@ -22,6 +26,7 @@ import {
   isDying,
   isMinion,
   isWinded,
+  openResolutionsOwnedBy,
   squadMemberStats,
   squadSeedWarnings,
   upgradeEncounterState,
@@ -56,6 +61,47 @@ const endingView = v.union(
   v.literal('end-of-encounter'),
   v.literal('end-of-targets-next-turn'),
   v.literal('external'),
+);
+
+const sideView = v.union(v.literal('heroes'), v.literal('director'));
+
+/** The closed action-cost vocabulary [R-0029] — mirrors the engine enum. */
+const actionCostView = v.union(
+  v.literal('main-action'),
+  v.literal('maneuver'),
+  v.literal('move-action'),
+  v.literal('triggered-action'),
+  v.literal('free-triggered-action'),
+  v.literal('free-maneuver'),
+  v.literal('no-action'),
+  v.literal('villain-action'),
+);
+
+const grantExpiryView = v.union(v.literal('end-of-round'), v.null());
+
+/** The R-0032 modification vocabulary, mirrored for the view (optional
+ * engine members lift to null). */
+const modificationView = v.union(
+  v.object({ kind: v.literal('downgrade'), toTier: v.union(v.literal(1), v.literal(2)) }),
+  v.object({ kind: v.literal('tier-adjust'), delta: v.number(), reason: v.string() }),
+  v.object({
+    kind: v.literal('potency-adjust'),
+    delta: v.number(),
+    target: v.union(v.string(), v.null()),
+    reason: v.string(),
+  }),
+  v.object({
+    kind: v.literal('retarget'),
+    from: v.string(),
+    to: v.string(),
+    reason: v.string(),
+  }),
+  v.object({
+    kind: v.literal('damage-halve'),
+    target: v.union(v.string(), v.null()),
+    rounding: v.union(v.literal('down'), v.literal('up')),
+    reason: v.string(),
+  }),
 );
 
 const encounterView = v.union(
@@ -119,6 +165,90 @@ const encounterView = v.union(
             sourceRecordSlug: v.union(v.string(), v.null()),
           }),
         ),
+        /** Pending extra-action grants (v6, R-0030): consumed silently by
+         * the one debit home; escapes suppress the matching violation
+         * warnings (crit's grant works "even if you are dazed"). */
+        actionGrants: v.array(
+          v.object({
+            grantId: v.string(),
+            cost: actionCostView,
+            magnitude: v.number(),
+            escapes: v.object({
+              ignoresDazed: v.boolean(),
+              ignoresSurprised: v.boolean(),
+              offTurn: v.boolean(),
+            }),
+            expiry: grantExpiryView,
+            sourceParticipantId: v.union(v.string(), v.null()),
+            sourceRecordSlug: v.union(v.string(), v.null()),
+          }),
+        ),
+        /** Pending whole-turn scheduling grants (v6, design §3). */
+        turnGrants: v.array(
+          v.object({
+            grantId: v.string(),
+            mode: v.union(v.literal('allowance'), v.literal('insertion')),
+            magnitude: v.number(),
+            constraint: v.union(v.literal('no-consecutive'), v.null()),
+            expiry: grantExpiryView,
+            sourceParticipantId: v.union(v.string(), v.null()),
+            sourceRecordSlug: v.union(v.string(), v.null()),
+          }),
+        ),
+        /** Per-turn action budget cells keyed by the R-0029 cost enum
+         * (used/granted counters; capacity = printed 1 + granted). Empty
+         * until combat begins. */
+        actionBudget: v.record(v.string(), v.object({ used: v.number(), granted: v.number() })),
+        /** "You can use one triggered action per round" [Heroes p.267] —
+         * the counter and the seeded per-participant limit (Ajax's 3). */
+        triggeredThisRound: v.number(),
+        triggeredActionLimit: v.number(),
+        /** Per-ability usage counters keyed by ability artifact id (the
+         * printed once-per-round cap family warns through these). */
+        abilityUses: v.record(
+          v.string(),
+          v.object({ round: v.number(), turn: v.number(), encounter: v.number() }),
+        ),
+      }),
+    ),
+    /** Combat turn structure (v6, design §3). Null until begin-combat. */
+    turnState: v.union(
+      v.null(),
+      v.object({
+        round: v.number(),
+        firstSide: sideView,
+        sideToChoose: sideView,
+        activeTurnId: v.union(v.string(), v.null()),
+        lastTurnId: v.union(v.string(), v.null()),
+        /** Turn COUNT per participant/squad id (solos take 2, Ajax 3). */
+        turnsTaken: v.record(v.string(), v.number()),
+      }),
+    ),
+    /** Encounter-level villain-action economy (v6): three per creature,
+     * once each, no more than one per round even across creatures. */
+    villainActions: v.object({
+      usedThisRound: v.boolean(),
+      usedByAbility: v.array(v.string()),
+    }),
+    /** OPEN resolution-stack entries [R-0032] — enough for the client's
+     * open-roll card: who rolled what, the roll receipt summary, and the
+     * recorded modification list (applied in dispatch order at commit). */
+    resolutions: v.array(
+      v.object({
+        resolutionId: v.string(),
+        /** A participant id or a squad id (the activeTurnId widening). */
+        actorId: v.string(),
+        abilityArtifactId: v.string(),
+        abilitySlug: v.string(),
+        actionCost: v.union(actionCostView, v.null()),
+        phase: v.union(v.literal('rolled'), v.literal('committed')),
+        roll: v.object({
+          dice: v.array(v.number()),
+          natural: v.number(),
+          total: v.number(),
+          tier: v.number(),
+        }),
+        modifications: v.array(modificationView),
       }),
     ),
     /** Recorded terrain alterations [R-0022]: attributed facts, displayed at
@@ -156,6 +286,52 @@ const encounterView = v.union(
 
 function slugOf(artifactId: string): string {
   return artifactId.split('/').pop() ?? artifactId;
+}
+
+/** Attribution pair shared by every grant-view mapping. */
+function sourceView(source: { participantId?: string; effectArtifactId?: string }): {
+  sourceParticipantId: string | null;
+  sourceRecordSlug: string | null;
+} {
+  return {
+    sourceParticipantId: source.participantId ?? null,
+    sourceRecordSlug: source.effectArtifactId ? slugOf(source.effectArtifactId) : null,
+  };
+}
+
+/** Lift an engine modification to the view shape (optional target → null). */
+function modificationToView(modification: ResolutionModification) {
+  switch (modification.kind) {
+    case 'downgrade':
+      return { kind: 'downgrade' as const, toTier: modification.toTier };
+    case 'tier-adjust':
+      return {
+        kind: 'tier-adjust' as const,
+        delta: modification.delta,
+        reason: modification.reason,
+      };
+    case 'potency-adjust':
+      return {
+        kind: 'potency-adjust' as const,
+        delta: modification.delta,
+        target: modification.target ?? null,
+        reason: modification.reason,
+      };
+    case 'retarget':
+      return {
+        kind: 'retarget' as const,
+        from: modification.from,
+        to: modification.to,
+        reason: modification.reason,
+      };
+    case 'damage-halve':
+      return {
+        kind: 'damage-halve' as const,
+        target: modification.target ?? null,
+        rounding: modification.rounding,
+        reason: modification.reason,
+      };
+  }
 }
 
 type DatabaseCtx = QueryCtx | MutationCtx;
@@ -306,6 +482,25 @@ async function runIntents(
   return { violations: allViolations };
 }
 
+/** Drop pending-commit payloads whose resolution is no longer OPEN — after
+ * a commit, an end-turn force-commit, or a begin-combat stack clear. The
+ * store's invariant: its keys are a subset of the open resolution ids. */
+async function pruneOpenPayloads(ctx: MutationCtx, encounterId: Id<'encounters'>): Promise<void> {
+  const fresh = await ctx.db.get(encounterId);
+  if (!fresh) return;
+  const stored = (fresh.openPayloads ?? {}) as Record<string, unknown>;
+  if (Object.keys(stored).length === 0) return;
+  const open = new Set(
+    upgradeEncounterState(fresh.state)
+      .resolutionStack.filter((entry) => entry.phase === 'rolled')
+      .map((entry) => entry.resolutionId),
+  );
+  const kept = Object.fromEntries(Object.entries(stored).filter(([id]) => open.has(id)));
+  if (Object.keys(kept).length !== Object.keys(stored).length) {
+    await ctx.db.patch(encounterId, { openPayloads: kept });
+  }
+}
+
 export const getActive = query({
   args: { campaignId: v.id('campaigns') },
   returns: encounterView,
@@ -348,9 +543,8 @@ export const getActive = query({
             ? slugOf(instance.source.effectArtifactId)
             : null,
         })),
-        // The view surfaces next-roll grants as before; the v6 action/turn
-        // grant kinds surface with the host leg of the action-economy arc
-        // (design §3) — filtered here, never mislabeled.
+        // Next-roll grants keep their v3 shape; the v6 action/turn grant
+        // kinds surface in their own lists — split by kind, never mislabeled.
         grants: participant.grants
           .filter(
             (grant): grant is Extract<typeof grant, { kind: 'next-roll' }> =>
@@ -362,12 +556,65 @@ export const getActive = query({
             scope: grant.scope,
             direction: grant.direction,
             window: grant.window,
-            sourceParticipantId: grant.source.participantId ?? null,
-            sourceRecordSlug: grant.source.effectArtifactId
-              ? slugOf(grant.source.effectArtifactId)
-              : null,
+            ...sourceView(grant.source),
           })),
+        actionGrants: participant.grants
+          .filter((grant): grant is ActionGrant => grant.kind === 'action')
+          .map((grant) => ({
+            grantId: grant.grantId,
+            cost: grant.cost,
+            magnitude: grant.magnitude,
+            escapes: grant.escapes,
+            expiry: grant.expiry,
+            ...sourceView(grant.source),
+          })),
+        turnGrants: participant.grants
+          .filter((grant): grant is TurnGrant => grant.kind === 'turn')
+          .map((grant) => ({
+            grantId: grant.grantId,
+            mode: grant.mode,
+            magnitude: grant.magnitude,
+            constraint: grant.constraint,
+            expiry: grant.expiry,
+            ...sourceView(grant.source),
+          })),
+        actionBudget: participant.actionBudget,
+        triggeredThisRound: participant.triggeredThisRound,
+        triggeredActionLimit: participant.traits.triggeredActionLimit,
+        abilityUses: participant.abilityUses,
       })),
+      turnState:
+        state.turnState === null
+          ? null
+          : {
+              round: state.turnState.round,
+              firstSide: state.turnState.firstSide,
+              sideToChoose: state.turnState.sideToChoose,
+              activeTurnId: state.turnState.activeTurnId,
+              lastTurnId: state.turnState.lastTurnId,
+              turnsTaken: state.turnState.turnsTaken,
+            },
+      villainActions: {
+        usedThisRound: state.villainActions.usedThisRound,
+        usedByAbility: state.villainActions.usedByAbility,
+      },
+      resolutions: state.resolutionStack
+        .filter((entry) => entry.phase === 'rolled')
+        .map((entry) => ({
+          resolutionId: entry.resolutionId,
+          actorId: entry.actorId,
+          abilityArtifactId: entry.abilityArtifactId,
+          abilitySlug: slugOf(entry.abilityArtifactId),
+          actionCost: entry.actionCost,
+          phase: entry.phase,
+          roll: {
+            dice: [...entry.rollReceipt.dice],
+            natural: entry.rollReceipt.natural,
+            total: entry.rollReceipt.total,
+            tier: entry.rollReceipt.tier,
+          },
+          modifications: entry.modifications.map(modificationToView),
+        })),
       terrainFacts: state.terrainFacts.map((fact) => ({
         factId: fact.factId,
         terrain: fact.terrain,
@@ -662,8 +909,25 @@ export const useAbility = mutation({
     banes: v.optional(v.number()),
     downgradeToTier: v.optional(v.number()),
     knockOut: v.optional(v.boolean()),
+    /** Composition reference [design §3]: the parent dispatch's intent id.
+     * The inner Charge-keyword ability consumes the parent's already-debited
+     * main action, never a second one. */
+    partOf: v.optional(v.string()),
+    /** `Main action (Adjacent creature)` [R-0029]: the dispatching adjacent
+     * operator who pays the budget debit on an operator-paid fixture
+     * ability. */
+    operatorId: v.optional(v.string()),
+    /** Two-phase commit [R-0032]: in combat a rolling dispatch opens a
+     * resolution entry, and this host PIPELINES the explicit commit in the
+     * same mutation for one-tap UX — the ENGINE never auto-commits. Pass
+     * `hold: true` to leave the entry open for reactions/modifications;
+     * commit it later via commitResolution (or let end-turn force-commit
+     * it). */
+    hold: v.optional(v.boolean()),
   },
-  returns: v.null(),
+  /** The opened resolutionId when this dispatch rolled in combat (whether
+   * pipelined-committed or held open); null otherwise. */
+  returns: v.union(v.null(), v.string()),
   handler: async (ctx, args) => {
     const { profile } = await requireActiveMember(ctx, args.campaignId);
     const encounter = await requireLiveEncounter(ctx, args.campaignId);
@@ -736,14 +1000,18 @@ export const useAbility = mutation({
       );
     if (args.dice !== undefined && args.dice.length !== 2)
       throw new ConvexError('Asserted dice must be exactly two d10 results');
-    const intent: Intent = {
-      intentId: `d${encounter.dispatchCount + 1}-${record.slug}`,
-      kind: 'use-ability',
-      actor: { kind: 'participant', participantId: args.actorParticipantId },
-      payload: {
+    // The payload is built ONCE and JSON-cleaned: commit must re-supply it
+    // byte-for-byte in canonical form so the engine's stored SHA-256
+    // verifies [R-0032] — the effect-boundary precedent, where executable
+    // data is always rebuilt server-side and never crosses the client.
+    const intentId = `d${encounter.dispatchCount + 1}-${record.slug}`;
+    const payload = JSON.parse(
+      JSON.stringify({
         actorParticipantId: args.actorParticipantId,
         ability: compiled.ability,
         targets: args.targetParticipantIds,
+        partOf: args.partOf,
+        operatorId: args.operatorId,
         dice: args.dice as [number, number] | undefined,
         characteristicChoice: args.characteristicChoice as never,
         damageCharacteristicChoice: args.damageCharacteristicChoice as never,
@@ -752,7 +1020,13 @@ export const useAbility = mutation({
         banes: args.banes ?? 0,
         downgradeToTier: args.downgradeToTier as 1 | 2 | undefined,
         knockOut: args.knockOut ?? false,
-      },
+      }),
+    ) as UseAbilityPayloadInput;
+    const intent: Intent = {
+      intentId,
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: args.actorParticipantId },
+      payload,
     };
     try {
       await runIntents(ctx, encounter, actor, [intent], {
@@ -772,7 +1046,43 @@ export const useAbility = mutation({
         `Invalid ability dispatch: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    return null;
+    // ── two-phase commit pipelining [R-0032, design §3] ────────────────────
+    // In combat the rolled dispatch opened a resolution entry (its id is
+    // this dispatch's intent id). Store the payload for re-supply, then
+    // commit in the same mutation unless the caller holds the entry open —
+    // the pipelining lives HERE in the host; the engine never auto-commits.
+    const afterRoll = await ctx.db.get(encounter._id);
+    if (!afterRoll) return null;
+    const opened = upgradeEncounterState(afterRoll.state).resolutionStack.find(
+      (entry) => entry.resolutionId === intentId && entry.phase === 'rolled',
+    );
+    if (!opened) return null;
+    await ctx.db.patch(encounter._id, {
+      openPayloads: {
+        ...((afterRoll.openPayloads ?? {}) as Record<string, unknown>),
+        [intentId]: payload,
+      },
+    });
+    if (args.hold === true) return intentId;
+    const forCommit = await ctx.db.get(encounter._id);
+    if (!forCommit) return intentId;
+    try {
+      await runIntents(ctx, forCommit, actor, [
+        {
+          intentId: `d${forCommit.dispatchCount + 1}-commit-${record.slug}`,
+          kind: 'commit-resolution',
+          actor: { kind: 'participant', participantId: args.actorParticipantId },
+          payload: { resolutionId: intentId, payload },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid resolution commit: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await pruneOpenPayloads(ctx, encounter._id);
+    return intentId;
   },
 });
 
@@ -848,6 +1158,8 @@ export const useEffect = mutation({
 export const endTurn = mutation({
   args: {
     campaignId: v.id('campaigns'),
+    /** The ending turn's id — a participant id, or a squad id (a squad
+     * occupies one turn slot [R-0033]). */
     participantId: v.string(),
     rolls: v.optional(v.record(v.string(), v.number())),
   },
@@ -855,14 +1167,39 @@ export const endTurn = mutation({
   handler: async (ctx, args) => {
     const { profile } = await requireActiveMember(ctx, args.campaignId);
     const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const state = upgradeEncounterState(encounter.state);
+    // end-turn FORCE-COMMITS the ending actor's open resolutions first
+    // [design §3, R-0032] — printed damage is never discarded. The engine
+    // requires each payload re-supplied; this host holds them in the
+    // pending-commit store, so the client never ships payload bytes.
+    const endingSquad = state.squads.find((squad) => squad.squadId === args.participantId);
+    const owned =
+      state.turnState === null
+        ? []
+        : openResolutionsOwnedBy(state, [
+            args.participantId,
+            ...(endingSquad ? endingSquad.memberIds : []),
+          ]);
+    const stored = (encounter.openPayloads ?? {}) as Record<string, UseAbilityPayloadInput>;
+    const commitPayloads: Record<string, UseAbilityPayloadInput> = {};
+    for (const entry of owned) {
+      const payload = stored[entry.resolutionId];
+      if (payload === undefined) {
+        throw new ConvexError(
+          `resolution ${entry.resolutionId} is open but this host holds no payload for it — commit or modify it explicitly before ending the turn`,
+        );
+      }
+      commitPayloads[entry.resolutionId] = payload;
+    }
     await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
       {
         intentId: `d${encounter.dispatchCount + 1}-end-turn`,
         kind: 'end-turn',
         actor: { kind: 'participant', participantId: args.participantId },
-        payload: { participantId: args.participantId, rolls: args.rolls },
+        payload: { participantId: args.participantId, rolls: args.rolls, commitPayloads },
       },
     ]);
+    await pruneOpenPayloads(ctx, encounter._id);
     return null;
   },
 });
@@ -1078,6 +1415,412 @@ export const detachCaptain = mutation({
   },
 });
 
+// ─── action economy + two-phase commit (v6, R-0029..R-0033) ─────────────────
+// Turn-rail mutations are the Director's (the encounter-start authority
+// pattern): begin-combat, start-turn, advance-round, convert-action,
+// add-grant, use-villain-action. Play mutations stay member-reachable with
+// attribution (permissive play, receipts always): use-ability,
+// use-triggered-action, modify-resolution, commit-resolution.
+
+export const beginCombat = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    /** The side taking the first turn — the table's outcome of the printed
+     * procedure [rule.combat/combat-round §Determine Who Goes First]. */
+    firstSide: sideView,
+    /** The automatic case: a side that is entirely surprised cedes first
+     * action. */
+    surprisedSide: v.optional(sideView),
+    /** Asserted d10 (manual entry wins); absent = server-rolled from the
+     * encounter's replayable seed — the established server-dice path. */
+    roll: v.optional(v.number()),
+    /** Who made the 1–5/6+ choice, when asserted; a deviation from the
+     * rolled assignment is warn-and-apply (R-0030). */
+    chosenBy: v.optional(v.union(v.literal('players'), v.literal('director'))),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-begin-combat`,
+          kind: 'begin-combat',
+          actor: { kind: 'director' },
+          payload: {
+            firstSide: args.firstSide,
+            surprisedSide: args.surprisedSide ?? null,
+            roll: args.roll as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | undefined,
+            chosenBy: args.chosenBy,
+          },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid begin-combat dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    // A mid-combat re-begin clears the resolution stack — drop held payloads.
+    await pruneOpenPayloads(ctx, encounter._id);
+    return null;
+  },
+});
+
+export const startTurn = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    /** A participant id or squad id (a squad occupies one turn slot,
+     * R-0033). R-0030 violations warn-and-apply. */
+    turnId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-start-turn`,
+        kind: 'start-turn',
+        actor: { kind: 'director' },
+        payload: { turnId: args.turnId },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Director-asserted round advance [design §3]: the engine warns listing
+ * living unspent turns, then runs the start-of-round sweeps (budget resets,
+ * triggered counters, villain per-round flag, grant expiries). */
+export const advanceRound = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    reason: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-advance-round`,
+        kind: 'advance-round',
+        actor: { kind: 'director' },
+        payload: { reason: args.reason },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** "You can also turn your main action into a move action or a maneuver"
+ * [rule.combat/turn] — debits the main action through the one home, then
+ * grants the target cost. */
+export const convertAction = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    participantId: v.string(),
+    to: v.union(v.literal('maneuver'), v.literal('move-action')),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-convert-action`,
+        kind: 'convert-action',
+        actor: { kind: 'participant', participantId: args.participantId },
+        payload: { participantId: args.participantId, to: args.to },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Director grant intent [design §3, R-0030]: escape-flagged action grants
+ * cover the Solo Action malice spends until the malice family lands; turn
+ * grants cover Director-asserted scheduling. Consumption is silent — printed
+ * escapes never produce spurious warnings. */
+export const addGrant = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    targetParticipantId: v.string(),
+    grant: v.union(
+      v.object({
+        kind: v.literal('next-roll'),
+        polarity: v.union(
+          v.literal('edge'),
+          v.literal('double-edge'),
+          v.literal('bane'),
+          v.literal('double-bane'),
+        ),
+        scope: v.union(v.literal('strike'), v.literal('power-roll')),
+        direction: v.union(v.literal('outbound'), v.literal('inbound')),
+        window: v.optional(v.union(v.literal('end-of-targets-next-turn'), v.null())),
+      }),
+      v.object({
+        kind: v.literal('action'),
+        cost: actionCostView,
+        magnitude: v.optional(v.number()),
+        escapes: v.optional(
+          v.object({
+            ignoresDazed: v.boolean(),
+            ignoresSurprised: v.boolean(),
+            offTurn: v.boolean(),
+          }),
+        ),
+        expiry: v.optional(grantExpiryView),
+      }),
+      v.object({
+        kind: v.literal('turn'),
+        mode: v.union(v.literal('allowance'), v.literal('insertion')),
+        magnitude: v.optional(v.number()),
+        constraint: v.optional(v.union(v.literal('no-consecutive'), v.null())),
+        expiry: v.optional(grantExpiryView),
+      }),
+    ),
+    /** Attribution: the participant and/or canon artifact the grant traces
+     * to (e.g. a malice Solo Action sheet), when known. */
+    sourceParticipantId: v.optional(v.string()),
+    sourceArtifactId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const source = {
+      participantId: args.sourceParticipantId,
+      effectArtifactId: args.sourceArtifactId,
+    };
+    const grant =
+      args.grant.kind === 'next-roll'
+        ? { ...args.grant, window: args.grant.window ?? null, source }
+        : { ...args.grant, source };
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-add-grant`,
+          kind: 'add-grant',
+          actor: { kind: 'director' },
+          payload: { target: args.targetParticipantId, grant },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid grant dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** "You can use one triggered action per round, either on your turn or
+ * another creature's turn, but only when the action's trigger occurs"
+ * [rule.combat/triggered-action]. Free triggered actions bypass the round
+ * counter but honor per-ability caps and both prevention couplings. */
+export const useTriggeredAction = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    participantId: v.string(),
+    /** The printed triggered ability exercised — a real corpus artifact id,
+     * optionally `#`-suffixed with the ability slug for abilities living
+     * inside a statblock record. */
+    abilityArtifactId: v.string(),
+    free: v.optional(v.boolean()),
+    /** A receipt-visible trigger occurrence (a prior dispatch's intent id)
+     * — wins over an asserted-text trigger when both are given. */
+    triggerIntentId: v.optional(v.string()),
+    /** A table-asserted trigger (Ride's triggerless free-trigger
+     * dispatches without an occurrence). */
+    triggerText: v.optional(v.string()),
+    /** The compiled printed once-per-round cap, when the ability carries
+     * one (Keeper of Order = 1). Feeds the R-0030 warn machinery only —
+     * never state legality. */
+    perRoundCap: v.optional(v.number()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireActiveMember(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    // The ability is a real corpus record, never invented (prime
+    // directive): verify the base artifact behind any `#ability` suffix.
+    const baseArtifactId = args.abilityArtifactId.split('#')[0] ?? args.abilityArtifactId;
+    const record = await loadRecord(ctx, baseArtifactId);
+    if (!record) throw new ConvexError(`Unknown canon record: ${baseArtifactId}`);
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-triggered-${slugOf(args.abilityArtifactId)}`,
+          kind: 'use-triggered-action',
+          actor: { kind: 'participant', participantId: args.participantId },
+          payload: {
+            participantId: args.participantId,
+            abilityArtifactId: args.abilityArtifactId,
+            free: args.free ?? false,
+            trigger:
+              args.triggerIntentId !== undefined
+                ? { kind: 'occurrence', intentId: args.triggerIntentId }
+                : args.triggerText !== undefined
+                  ? { kind: 'asserted', text: args.triggerText }
+                  : null,
+            perRoundCap: args.perRoundCap ?? null,
+          },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid triggered-action dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** The three printed villain-action constraints — always three, once each
+ * per encounter, no more than one per round even across creatures, at the
+ * end of another creature's turn — enforced as warns [R-0030]. */
+export const useVillainAction = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    participantId: v.string(),
+    abilityArtifactId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireCurrentDirector(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const baseArtifactId = args.abilityArtifactId.split('#')[0] ?? args.abilityArtifactId;
+    const record = await loadRecord(ctx, baseArtifactId);
+    if (!record) throw new ConvexError(`Unknown canon record: ${baseArtifactId}`);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-villain-${slugOf(args.abilityArtifactId)}`,
+        kind: 'use-villain-action',
+        actor: { kind: 'participant', participantId: args.participantId },
+        payload: {
+          participantId: args.participantId,
+          abilityArtifactId: args.abilityArtifactId,
+        },
+      },
+    ]);
+    return null;
+  },
+});
+
+/** Record a modification on an open resolution entry [R-0032]:
+ * modifications apply in dispatch order at commit; a post-commit
+ * modification is a warned table correction, never a reopen. */
+export const modifyResolution = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    resolutionId: v.string(),
+    modification: v.union(
+      /** "you can downgrade it to select the outcome of a lower tier"
+       * [rule.dice/power-roll]. */
+      v.object({ kind: v.literal('downgrade'), toTier: v.union(v.literal(1), v.literal(2)) }),
+      v.object({ kind: v.literal('tier-adjust'), delta: v.number(), reason: v.string() }),
+      v.object({
+        kind: v.literal('potency-adjust'),
+        delta: v.number(),
+        target: v.optional(v.string()),
+        reason: v.string(),
+      }),
+      v.object({
+        kind: v.literal('retarget'),
+        from: v.string(),
+        to: v.string(),
+        reason: v.string(),
+      }),
+      v.object({
+        kind: v.literal('damage-halve'),
+        target: v.optional(v.string()),
+        rounding: v.union(v.literal('down'), v.literal('up')),
+        reason: v.string(),
+      }),
+    ),
+    /** The participant acting (the removeCondition authority pattern): a
+     * non-director member must name one; the Director may act as such. */
+    asParticipantId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (!args.asParticipantId && gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Name the participant acting, or ask the Director');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-modify-${args.resolutionId}`,
+          kind: 'modify-resolution',
+          actor: args.asParticipantId
+            ? { kind: 'participant', participantId: args.asParticipantId }
+            : { kind: 'director' },
+          payload: { resolutionId: args.resolutionId, modification: args.modification },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid modification dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  },
+});
+
+/** Explicitly commit a HELD resolution [R-0032]: the host re-supplies the
+ * pending-commit payload it stored at roll time and the engine verifies its
+ * canonical SHA-256 against the entry, then executes against commit-time
+ * state. The one-tap path never comes here — useAbility pipelines its own
+ * commit unless the caller held the entry open. */
+export const commitResolution = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    resolutionId: v.string(),
+    /** The participant acting (the removeCondition authority pattern). */
+    asParticipantId: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile, membership } = await requireActiveMember(ctx, args.campaignId);
+    if (!args.asParticipantId && gameRoleFor(membership) !== 'director')
+      throw new ConvexError('Name the participant acting, or ask the Director');
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const stored = (encounter.openPayloads ?? {}) as Record<string, UseAbilityPayloadInput>;
+    const payload = stored[args.resolutionId];
+    if (payload === undefined) {
+      throw new ConvexError(
+        `No held payload for resolution ${args.resolutionId} — it is not open on this host (already committed, swept, or never opened here)`,
+      );
+    }
+    try {
+      await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+        {
+          intentId: `d${encounter.dispatchCount + 1}-commit-${args.resolutionId}`,
+          kind: 'commit-resolution',
+          actor: args.asParticipantId
+            ? { kind: 'participant', participantId: args.asParticipantId }
+            : { kind: 'director' },
+          payload: { resolutionId: args.resolutionId, payload },
+        },
+      ]);
+    } catch (error) {
+      if (error instanceof ConvexError) throw error;
+      throw new ConvexError(
+        `Invalid resolution commit: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    await pruneOpenPayloads(ctx, encounter._id);
+    return null;
+  },
+});
+
 export const endEncounter = mutation({
   args: {
     campaignId: v.id('campaigns'),
@@ -1095,7 +1838,7 @@ export const endEncounter = mutation({
         payload: { keepInstanceIds: args.keepInstanceIds ?? [] },
       },
     ]);
-    await ctx.db.patch(encounter._id, { status: 'ended', endedAt: Date.now() });
+    await ctx.db.patch(encounter._id, { status: 'ended', endedAt: Date.now(), openPayloads: {} });
     return null;
   },
 });

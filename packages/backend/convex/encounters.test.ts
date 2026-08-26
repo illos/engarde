@@ -10,7 +10,12 @@ import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import schema from './schema';
-import { HEALING_GRACE, KOBOLD_SIGNIFER, WAR_DOG_AEROCITE } from './verbatimFixtures';
+import {
+  GOBLIN_MONARCH,
+  HEALING_GRACE,
+  KOBOLD_SIGNIFER,
+  WAR_DOG_AEROCITE,
+} from './verbatimFixtures';
 
 const modules = import.meta.glob('./**/*.ts');
 
@@ -94,6 +99,13 @@ async function seedRecords(t: Harness) {
         text: WAR_DOG_AEROCITE.text,
         textSha256: WAR_DOG_AEROCITE.textSha256,
         statsJson: WAR_DOG_AEROCITE.statsJson,
+      },
+      {
+        artifactId: GOBLIN_MONARCH.artifactId,
+        slug: GOBLIN_MONARCH.slug,
+        text: GOBLIN_MONARCH.text,
+        textSha256: GOBLIN_MONARCH.textSha256,
+        statsJson: GOBLIN_MONARCH.statsJson,
       },
       {
         artifactId: WODE_SENTRY,
@@ -1164,4 +1176,578 @@ test('terrain facts surface in the view; clearing is Director adjudication', asy
   expect(
     log.some((entry) => entry.message.includes('terrain fact cleared: the paste is scraped away')),
   ).toBe(true);
+});
+
+// ─── action economy + two-phase commit host E2E (v6, R-0029..R-0033) ────────
+
+const WARRIORS = [
+  { id: 'warrior-a', recordId: GOBLIN_WARRIOR.artifactId },
+  { id: 'warrior-b', recordId: GOBLIN_WARRIOR.artifactId },
+];
+const MONARCH = GOBLIN_MONARCH.artifactId;
+/** Abilities inside the monarch's statblock record, addressed by the
+ * engine-test `#slug` convention. All three are printed on the fixture. */
+const MEAT_SHIELD = `${MONARCH}#meat-shield`;
+const WHAT_ARE_YOU_WAITING_FOR = `${MONARCH}#what-are-you-waiting-for`;
+const FOCUS_FIRE = `${MONARCH}#focus-fire`;
+/** Verbatim Meat Shield trigger line from the drift-guarded fixture. */
+const MEAT_SHIELD_TRIGGER = 'A creature targets the monarch with a strike.';
+
+describe('action economy host', () => {
+  test('full round walk: begin-combat is Director-gated and server-rolled; turns and round advance track', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await expect(
+      table.member.client.mutation(api.encounters.beginCombat, {
+        campaignId: table.campaignId,
+        firstSide: 'director',
+      }),
+    ).rejects.toThrow('Director access required');
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    const begun = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(begun?.turnState).toMatchObject({
+      round: 1,
+      firstSide: 'director',
+      activeTurnId: null,
+      lastTurnId: null,
+      turnsTaken: {},
+    });
+    expect(begun?.villainActions).toEqual({ usedThisRound: false, usedByAbility: [] });
+
+    await expect(
+      table.member.client.mutation(api.encounters.startTurn, {
+        campaignId: table.campaignId,
+        turnId: 'warrior-a',
+      }),
+    ).rejects.toThrow('Director access required');
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    // Pipelined one-tap dispatch: the roll opens a resolution entry and the
+    // HOST commits it in the same mutation [R-0032] — dice 4+5 → 11 → tier 1
+    // of Spear Charge (3 damage), applied at commit.
+    const resolutionId = await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [4, 5],
+    });
+    expect(typeof resolutionId).toBe('string');
+    const midTurn = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(midTurn?.resolutions).toEqual([]); // committed, not held
+    expect(midTurn?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(
+      12,
+    );
+    const warriorA = midTurn?.participants.find((p) => p.id === 'warrior-a');
+    expect(warriorA?.actionBudget['main-action']).toMatchObject({ used: 1 });
+    expect(midTurn?.turnState).toMatchObject({
+      activeTurnId: 'warrior-a',
+      turnsTaken: { 'warrior-a': 1 },
+    });
+
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-b',
+    });
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-b',
+    });
+    await expect(
+      table.member.client.mutation(api.encounters.advanceRound, {
+        campaignId: table.campaignId,
+      }),
+    ).rejects.toThrow('Director access required');
+    await table.owner.client.mutation(api.encounters.advanceRound, {
+      campaignId: table.campaignId,
+    });
+    const nextRound = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(nextRound?.turnState).toMatchObject({
+      round: 2,
+      activeTurnId: null,
+      turnsTaken: {},
+      lastTurnId: 'warrior-b', // survives the boundary (no-consecutive spans rounds)
+    });
+    expect(
+      nextRound?.participants.find((p) => p.id === 'warrior-a')?.actionBudget['main-action']
+        ?.used ?? 0,
+    ).toBe(0);
+    if (!nextRound) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: nextRound.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(log.some((entry) => entry.message.includes('combat begins — round 1'))).toBe(true);
+    expect(log.some((entry) => entry.message.includes('round 2 begins'))).toBe(true);
+  });
+
+  test('triggered action consumes the one-per-round counter; free triggered actions bypass it', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'monarch', recordId: MONARCH }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    await expect(
+      table.owner.client.mutation(api.encounters.useTriggeredAction, {
+        campaignId: table.campaignId,
+        participantId: 'monarch',
+        abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/not-a-record#nothing',
+      }),
+    ).rejects.toThrow('Unknown canon record');
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: MEAT_SHIELD,
+      triggerText: MEAT_SHIELD_TRIGGER,
+    });
+    const first = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const monarchFirst = first?.participants.find((p) => p.id === 'monarch');
+    expect(monarchFirst?.triggeredThisRound).toBe(1);
+    expect(monarchFirst?.triggeredActionLimit).toBe(1);
+    expect(monarchFirst?.abilityUses[MEAT_SHIELD]).toMatchObject({ round: 1 });
+
+    // The second triggered action this round breaches the printed limit —
+    // warn-and-apply [R-0030].
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: MEAT_SHIELD,
+      triggerText: MEAT_SHIELD_TRIGGER,
+    });
+    // A free triggered action bypasses the round counter.
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: MEAT_SHIELD,
+      free: true,
+      triggerText: MEAT_SHIELD_TRIGGER,
+    });
+    const after = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(after?.participants.find((p) => p.id === 'monarch')?.triggeredThisRound).toBe(2);
+    if (!after) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: after.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(
+      log.some(
+        (entry) =>
+          entry.kind === 'warning' &&
+          entry.message.includes('one triggered action per round') &&
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind ===
+            'triggered-limit',
+      ),
+    ).toBe(true);
+    expect(
+      log.some((entry) =>
+        entry.message.includes("doesn't count against your limit of one triggered action"),
+      ),
+    ).toBe(true);
+  });
+
+  test('critical hit grants an escape-flagged main action, consumed silently off-turn [R-0030]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    // Natural 20 on a main-action ability roll: the printed crit grant —
+    // "immediately take an additional main action after resolving the power
+    // roll, whether or not it's your turn and even if you are dazed" —
+    // compiles to an escape-flagged action grant.
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [10, 10],
+    });
+    const crit = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(crit?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(10);
+    expect(crit?.participants.find((p) => p.id === 'warrior-a')?.actionGrants).toEqual([
+      expect.objectContaining({
+        cost: 'main-action',
+        magnitude: 1,
+        escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+        expiry: null,
+        sourceParticipantId: 'warrior-a',
+        sourceRecordSlug: 'critical-hit',
+      }),
+    ]);
+
+    // Off-turn, over-budget use: the grant covers it SILENTLY — no off-turn
+    // violation warning (printed escapes never warn).
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-b',
+    });
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [4, 5],
+    });
+    const after = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(after?.participants.find((p) => p.id === 'warrior-a')?.actionGrants).toEqual([]);
+    expect(after?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(7);
+    if (!after) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: after.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(log.some((entry) => entry.message.includes('through a granted action'))).toBe(true);
+    expect(
+      log.some(
+        (entry) =>
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind ===
+          'off-turn',
+      ),
+    ).toBe(false);
+  });
+
+  test('villain actions: legal timing spends the round; own-turn reuse warns both constraints; round advance resets the flag', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'monarch', recordId: MONARCH }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+    });
+    await expect(
+      table.member.client.mutation(api.encounters.useVillainAction, {
+        campaignId: table.campaignId,
+        participantId: 'monarch',
+        abilityArtifactId: WHAT_ARE_YOU_WAITING_FOR,
+      }),
+    ).rejects.toThrow('Director access required');
+    // Legal timing: the end of another creature's turn — no villain warns.
+    await table.owner.client.mutation(api.encounters.useVillainAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: WHAT_ARE_YOU_WAITING_FOR,
+    });
+    const legal = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(legal?.villainActions).toEqual({
+      usedThisRound: true,
+      usedByAbility: [WHAT_ARE_YOU_WAITING_FOR],
+    });
+    if (!legal) throw new Error('no active encounter');
+    const legalLog = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: legal.encounterId,
+    });
+    expect(
+      legalLog.some((entry) =>
+        String(
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind ?? '',
+        ).startsWith('villain-'),
+      ),
+    ).toBe(false);
+
+    // A second villain action this round, during the monarch's own turn:
+    // both printed constraints warn-and-apply [R-0030].
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'monarch',
+    });
+    await table.owner.client.mutation(api.encounters.useVillainAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: FOCUS_FIRE,
+    });
+    const warned = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(warned?.villainActions.usedByAbility).toEqual([WHAT_ARE_YOU_WAITING_FOR, FOCUS_FIRE]);
+    if (!warned) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: warned.encounterId,
+    });
+    const violationKinds = log
+      .map(
+        (entry) =>
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind,
+      )
+      .filter((kind): kind is string => kind !== undefined);
+    expect(violationKinds).toContain('villain-once-per-round');
+    expect(violationKinds).toContain('villain-timing');
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+
+    // "no more than one villain action can be used per round" — the flag
+    // resets with the round; once-per-encounter spends survive.
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+    });
+    await table.owner.client.mutation(api.encounters.advanceRound, {
+      campaignId: table.campaignId,
+    });
+    const nextRound = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(nextRound?.villainActions).toEqual({
+      usedThisRound: false,
+      usedByAbility: [WHAT_ARE_YOU_WAITING_FOR, FOCUS_FIRE],
+    });
+  });
+
+  test('held-open resolution: hold → modify (downgrade) → commit; end-turn force-commits the rest [R-0032]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    // dice 8+9 → natural 17, +2 → 19 → tier 3 (5 damage) — held open, so
+    // nothing applies yet.
+    const resolutionId = await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [8, 9],
+      hold: true,
+    });
+    if (typeof resolutionId !== 'string') throw new Error('no resolution opened');
+    const held = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(held?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(15);
+    expect(held?.resolutions).toEqual([
+      {
+        resolutionId,
+        actorId: 'warrior-a',
+        abilityArtifactId: GOBLIN_WARRIOR.artifactId,
+        abilitySlug: 'goblin-warrior',
+        actionCost: 'main-action',
+        phase: 'rolled',
+        roll: { dice: [8, 9], natural: 17, total: 19, tier: 3 },
+        modifications: [],
+      },
+    ]);
+
+    // Modification authz follows the removeCondition pattern.
+    await expect(
+      table.member.client.mutation(api.encounters.modifyResolution, {
+        campaignId: table.campaignId,
+        resolutionId,
+        modification: { kind: 'downgrade', toTier: 2 },
+      }),
+    ).rejects.toThrow('Name the participant acting');
+    await table.owner.client.mutation(api.encounters.modifyResolution, {
+      campaignId: table.campaignId,
+      resolutionId,
+      modification: { kind: 'downgrade', toTier: 2 },
+      asParticipantId: 'warrior-a',
+    });
+    const modified = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(modified?.resolutions[0]?.modifications).toEqual([{ kind: 'downgrade', toTier: 2 }]);
+
+    // Commit re-supplies the stored payload; the engine hash-verifies and
+    // executes at the downgraded tier 2 (4 damage).
+    await table.owner.client.mutation(api.encounters.commitResolution, {
+      campaignId: table.campaignId,
+      resolutionId,
+      asParticipantId: 'warrior-a',
+    });
+    const committed = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(committed?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(
+      11,
+    );
+    expect(committed?.resolutions).toEqual([]);
+    await expect(
+      table.owner.client.mutation(api.encounters.commitResolution, {
+        campaignId: table.campaignId,
+        resolutionId,
+        asParticipantId: 'warrior-a',
+      }),
+    ).rejects.toThrow('No held payload');
+
+    // A second held roll is FORCE-committed by end-turn (printed damage is
+    // never discarded): dice 4+5 → tier 1 → 3 damage at the boundary.
+    await table.owner.client.mutation(api.encounters.useAbility, {
+      campaignId: table.campaignId,
+      artifactId: GOBLIN_WARRIOR.artifactId,
+      actorParticipantId: 'warrior-a',
+      targetParticipantIds: ['warrior-b'],
+      dice: [4, 5],
+      hold: true,
+    });
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+    });
+    const forced = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(forced?.participants.find((p) => p.id === 'warrior-b')?.vitals?.staminaCurrent).toBe(8);
+    expect(forced?.resolutions).toEqual([]);
+    if (!forced) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: forced.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    expect(log.some((entry) => entry.message.includes('FORCE-committed'))).toBe(true);
+  });
+
+  test('squad turn: members spend within the shared slot; a third member action warns per Acting Together [R-0033]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [...SK_PARTICIPANTS, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
+      squads: [SK_SQUAD],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    // The squad occupies ONE turn slot — "All members of a minion squad act
+    // together on the same initiative" [R-0033].
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'squad-sk',
+    });
+    const started = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(started?.turnState).toMatchObject({
+      activeTurnId: 'squad-sk',
+      turnsTaken: { 'squad-sk': 1 },
+    });
+
+    // A member acts within the squad's active slot: no off-turn warn.
+    // Claws, dice 4+5 → 11 → tier 1 → 1 poison damage (pipelined commit).
+    const clawsOnce = async () =>
+      await table.owner.client.mutation(api.encounters.useAbility, {
+        campaignId: table.campaignId,
+        artifactId: SKITTERLING.artifactId,
+        actorParticipantId: 'sk1',
+        targetParticipantIds: ['warrior'],
+        dice: [4, 5],
+      });
+    await clawsOnce();
+    const oneAction = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(oneAction?.participants.find((p) => p.id === 'warrior')?.vitals?.staminaCurrent).toBe(
+      14,
+    );
+    expect(
+      oneAction?.participants.find((p) => p.id === 'sk1')?.actionBudget['main-action'],
+    ).toMatchObject({ used: 1 });
+
+    // A second and third main action from the same member: the printed
+    // per-turn budget warns, and the third action breaches the minion
+    // two-action shape — "a move action and a main action, a move action
+    // and a maneuver, or two move actions" (Acting Together, R-0033).
+    await clawsOnce();
+    await clawsOnce();
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'squad-sk',
+    });
+    const ended = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(ended?.turnState?.activeTurnId).toBeNull();
+    if (!ended) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: ended.encounterId,
+    });
+    expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+    const violationKinds = log
+      .map(
+        (entry) =>
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind,
+      )
+      .filter((kind): kind is string => kind !== undefined);
+    expect(violationKinds).toContain('over-budget');
+    expect(violationKinds).toContain('minion-budget');
+    expect(violationKinds).not.toContain('off-turn');
+    expect(
+      log.some((entry) => entry.kind === 'warning' && entry.message.includes('Acting Together')),
+    ).toBe(true);
+  });
 });

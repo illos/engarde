@@ -306,6 +306,14 @@ export default defineSchema({
     sessionId: v.id('sessions'),
     status: v.union(v.literal('active'), v.literal('ended')),
     state: v.any(),
+    // Host-side pending-commit store (v6, R-0032): the exact use-ability
+    // payloads of OPEN resolution entries, keyed by resolutionId. The host
+    // builds each payload (compiled ability data never crosses the client
+    // boundary) and must re-supply it byte-for-byte at commit — the engine
+    // verifies its canonical SHA-256 against the hash stored at roll time,
+    // so this store is a convenience, never a trust surface. Entries are
+    // pruned as resolutions leave the open phase.
+    openPayloads: v.optional(v.any()),
     rngSeed: v.number(),
     dispatchCount: v.number(),
     logCount: v.number(),
