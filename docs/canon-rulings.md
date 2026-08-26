@@ -535,8 +535,11 @@ for triggering effects." [Dropping One Minion, Monsters p.7]
 attach/detach: singular captain per squad (attaching over an existing
 captain warns and replaces — the Director exercising the printed
 one-captain rule), one squad per captain, captain Stamina individual and
-never pooled. Eligibility beyond non-Mount/non-minion (shared language) is
-table-asserted. While attached, the squad surface shows the stat block's
+never pooled. Of the printed eligibility ("Any non-Mount, non-minion
+creature, who speaks a language that a squad of minions can understand"),
+the engine checks ONLY non-minion; non-Mount status AND the shared language
+are both table-asserted — statblock stats parse no roles and no languages —
+and the attach receipt names both. While attached, the squad surface shows the stat block's
 "With Captain" entry verbatim; applying the benefit is table-adjudicated
 this slice (tier-3 surfacing). Benefit automation is a named follow-up
 family: edge-type benefits can ride the grant substrate; the 10

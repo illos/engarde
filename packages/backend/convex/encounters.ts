@@ -20,6 +20,7 @@ import {
   initialEncounterState,
   isDead,
   isDying,
+  isMinion,
   isWinded,
   squadMemberStats,
   squadSeedWarnings,
@@ -69,6 +70,10 @@ const encounterView = v.union(
         id: v.string(),
         recordId: v.union(v.string(), v.null()),
         recordSlug: v.union(v.string(), v.null()),
+        /** The engine's one-home Minion predicate over the stat block —
+         * clients never re-derive it from `vitals.organization` (a squad
+         * member's vitals are null, so re-derivation misreads them). */
+        isMinion: v.boolean(),
         // Vitals from engine state + the health selectors (derived flags are
         // computed, never stored). null = table-mode actor (no automation).
         vitals: v.union(
@@ -318,6 +323,7 @@ export const getActive = query({
         id: participant.id,
         recordId: participant.sourceRecordId ?? null,
         recordSlug: participant.sourceRecordId ? slugOf(participant.sourceRecordId) : null,
+        isMinion: isMinion(participant),
         vitals:
           participant.stats && participant.stamina
             ? {

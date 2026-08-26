@@ -522,6 +522,34 @@ describe('squad weakness/immunity — once, last [R-0026]', () => {
     expect(squad(result.state).pendingKills).toBe(1);
   });
 
+  it('warns when MANUAL area damage hits a squad carrying a weakness/immunity row — batch, or the once-per-squad step multiply-applies', () => {
+    // The manual apply-damage payload carries ONE contributor, so a manual
+    // area instance spread over several dispatches would apply the R-0026
+    // once-per-squad step once PER DISPATCH — the engine warns on the shape.
+    const result = dispatch(
+      encounterWith(weakStats),
+      damageIntent('sc1', 4, { area: true, damageType: 'fire' }),
+    );
+    const warning = result.log.find(
+      (entry) => entry.data.manualAreaWeaknessImmunityInstance !== undefined,
+    );
+    expect(warning?.kind).toBe('warning');
+    expect(warning?.message).toMatch(/batch all contributions in one dispatch/);
+    // No warning without the area assertion…
+    const nonArea = dispatch(
+      encounterWith(weakStats),
+      damageIntent('sc1', 4, { damageType: 'fire' }),
+    );
+    expect(
+      nonArea.log.every((entry) => entry.data.manualAreaWeaknessImmunityInstance === undefined),
+    ).toBe(true);
+    // …and none for a squad without weakness/immunity rows.
+    const plain = dispatch(spinecleaverEncounter(), damageIntent('sc1', 4, { area: true }));
+    expect(
+      plain.log.every((entry) => entry.data.manualAreaWeaknessImmunityInstance === undefined),
+    ).toBe(true);
+  });
+
   it('applies immunity ONCE to the sum — the "save!" direction', () => {
     const result = dispatch(encounterWith(immuneStats), incinerateAt(['sc1', 'sc2', 'sc3']));
     // 15 capped − 3 immunity = 12 → pool 28, floor(12/5) = 2 kills.
@@ -727,10 +755,22 @@ describe('rule-mandated minion exemptions [R-0027]', () => {
     expect(result.log.every((entry) => !/is winded|is dying/.test(entry.message))).toBe(true);
   });
 
-  it('naming pending kills assigns identity WITHOUT a second 0-Stamina trigger receipt', () => {
+  it('pending kills fire the 0-Stamina trigger ANONYMOUSLY at count time; naming assigns identity without a second one', () => {
     const hit = dispatch(spinecleaverEncounter(), damageIntent('sc1', 12));
     // floor(12/5) = 2 kills: sc1 + 1 pending.
     expect(squad(hit.state).pendingKills).toBe(1);
+    // "When a minion is taken out of the fight, they count as being reduced
+    // to 0 Stamina for triggering effects" — the taking-out happens when the
+    // pool counts the kill, so the count-time entry carries the anonymous
+    // trigger receipt [R-0027].
+    const countTime = hit.log.find(
+      (entry) =>
+        (entry.data.zeroStaminaTrigger as { pending?: boolean } | undefined)?.pending === true,
+    );
+    expect(countTime?.data).toMatchObject({
+      zeroStaminaTrigger: { pending: true, count: 1, ruling: 'R-0027' },
+    });
+    expect(countTime?.message).toMatch(/count as being reduced to 0 Stamina/);
     intentCounter += 1;
     const naming = dispatch(hit.state, {
       intentId: `squad-i${intentCounter}`,
@@ -741,7 +781,7 @@ describe('rule-mandated minion exemptions [R-0027]', () => {
     expect(squad(naming.state).pendingKills).toBe(0);
     expect(squad(naming.state).deadMemberIds).toEqual(['sc1', 'sc2']);
     expect(naming.log.every((entry) => entry.data.zeroStaminaTrigger === undefined)).toBe(true);
-    expect(naming.log[0]?.message).toMatch(/already fired/);
+    expect(naming.log[0]?.message).toMatch(/fired anonymously/);
   });
 });
 
@@ -793,6 +833,11 @@ describe('kill-identity and captain intents [R-0024, R-0028]', () => {
     expect(squad(result.state).captainId).toBe('warrior');
     expect(squad(result.state).pool.current).toBe(40);
     expect(result.state.participants.warrior?.stamina?.current).toBe(15);
+    // The receipt names the eligibility halves the engine cannot verify —
+    // non-Mount role and the shared language are table-asserted [R-0028].
+    const receipt = result.log.find((entry) => Array.isArray(entry.data.captainDeltas));
+    expect(receipt?.message).toMatch(/table-asserted/);
+    expect(receipt?.data.tableAssertedEligibility).toEqual(['non-Mount role', 'shared language']);
   });
 
   it('refuses a minion captain ("non-minion creature" is printed eligibility)', () => {

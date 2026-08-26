@@ -202,6 +202,24 @@ naming. Table UI: squad card with pool bar + member chips.
   here blocks pool math; abilities already resolve per-target.
 - **With-Captain benefit automation** (R-0028): named follow-up family;
   Stamina-type benefits carry their own book-silent recompute ruling.
+- **Mount-role eligibility gate** (R-0028): the printed captain eligibility
+  is "Any non-Mount, non-minion creature, who speaks a language that a
+  squad of minions can understand" — `statblockStats` parses no roles (and
+  no languages), so the engine verifies only non-minion; non-Mount status
+  and the shared language are table-asserted and named in the attach
+  receipt. Role parsing lands with whatever future arc needs roles (Mount
+  rules themselves are unimplemented).
+- **Manual multi-contribution area payload**: the manual `apply-damage`
+  dispatch carries ONE contributor, so a manual area instance that damaged
+  several squad members cannot be batched into one dispatch the way ability
+  executions are — and the once-per-squad weakness/immunity step [R-0026]
+  would apply once per dispatch instead of once per instance. The engine
+  warns on exactly this shape (area dispatch + squad target + a
+  weakness/immunity row); a multi-target manual payload is the tracked fix.
+- **Dead-captain nudge** (R-0028): no table-directive fires when an
+  attached captain dies — detach remains a manual Director act. The nudge
+  is a natural hook for the With-Captain benefit follow-up family (which
+  must track captain lifecycle anyway).
 - **Demoralized** optional rule (pool set to living-member count, Monsters
   chapter p.964 region): optional Director rule; a future Director
   pool-override intent, not this slice.

@@ -781,8 +781,10 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       /** Director-or-damager adjudication of "the minions nearest to those
        * taken out suffer the same fate" [chapter/monster-basics §Dropping
        * Multiple Minions, R-0024] — trust gates live in the host. Naming
-       * assigns IDENTITY only; the 0-Stamina trigger receipt fired when the
-       * kill was counted, never again here [R-0027]. */
+       * assigns IDENTITY only; the 0-Stamina trigger receipt fired
+       * anonymously at count time (the pending-kills mutation entry carries
+       * `zeroStaminaTrigger: { pending: true, … }`), never again here
+       * [R-0027]. */
       squadId: z.string().min(1),
       victimMemberIds: z.array(ParticipantIdSchema).min(1),
       reason: z.string().min(1).optional(),

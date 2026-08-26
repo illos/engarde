@@ -74,6 +74,7 @@ const activeEncounter = {
       id: 'fury',
       recordId: FURY,
       recordSlug: 'fury',
+      isMinion: false,
       vitals: null,
       conditions: [],
       grants: [],
@@ -82,6 +83,7 @@ const activeEncounter = {
       id: 'censor',
       recordId: 'mcdm.heroes.v1/class/censor',
       recordSlug: 'censor',
+      isMinion: false,
       vitals: {
         staminaCurrent: 9,
         staminaTemporary: 0,
@@ -117,6 +119,7 @@ const activeEncounter = {
     },
   ],
   terrainFacts: [],
+  squads: [],
 };
 
 beforeEach(() => {
@@ -343,6 +346,7 @@ describe('EncounterPanel', () => {
           id: 'wode-elf-sentry',
           recordId: WODE_SENTRY,
           recordSlug: 'wode-elf-sentry',
+          isMinion: false,
           vitals: {
             staminaCurrent: 10,
             staminaTemporary: 0,

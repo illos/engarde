@@ -1,4 +1,5 @@
 import { type ApplyResult, type EngineContext, applyIntent } from './apply-intent.js';
+import { isMinion } from './damage.js';
 import { type InvariantViolation, checkInvariants } from './invariants.js';
 import type { EncounterState, Intent, LogEntry, ParticipantStats, SquadState } from './schemas.js';
 
@@ -100,7 +101,7 @@ function validateSquadSeeds(
           `squad ${squad.squadId} member ${memberId} has no stats — a squad pool needs the stat block's per-minion Stamina [R-0023]`,
         );
       }
-      if (member.stats.organization?.toLowerCase() !== 'minion') {
+      if (!isMinion(member)) {
         throw new Error(
           `squad ${squad.squadId} member ${memberId} is not a Minion-organization creature — only minions form squads [rule.monster/squad, R-0023]`,
         );

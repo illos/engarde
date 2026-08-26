@@ -5,9 +5,8 @@ import { type FunctionReference, getFunctionName } from 'convex/server';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 // Same mocking scheme as encounter.spec.tsx: the Convex data layer is mocked
-// per function name — the pinned-contract function references resolve to the
-// same names the backend lane is shipping (encounters:resolvePendingKills,
-// encounters:attachCaptain, encounters:detachCaptain).
+// per function name over the generated references (encounters:
+// resolvePendingKills / attachCaptain / detachCaptain).
 const queryResults = new Map<string, unknown>();
 const mutationSpies = new Map<string, ReturnType<typeof vi.fn>>();
 
@@ -46,12 +45,7 @@ vi.mock('convex/react', async () => {
 });
 
 import { EncounterPanel } from './EncounterPanel';
-import {
-  type SquadView,
-  attachCaptainRef,
-  detachCaptainRef,
-  resolvePendingKillsRef,
-} from './squad-contract';
+import type { SquadView } from './squad-contract';
 
 const campaignId = 'campaign-1' as Id<'campaigns'>;
 const encounterId = 'encounter-1' as Id<'encounters'>;
@@ -69,6 +63,8 @@ function member(id: string) {
     id,
     recordId: SPINECLEAVER,
     recordSlug: 'goblin-spinecleaver',
+    // The engine's one-home Minion predicate, computed server-side.
+    isMinion: true,
     // Seeded squad members carry stamina:null — the pool is the one home
     // for squad vitality, so the participant view has no vitals.
     vitals: null,
@@ -99,11 +95,20 @@ const activeEncounter = {
   startedAt: 0,
   viewerIsDirector: true,
   participants: [
-    { id: 'fury', recordId: FURY, recordSlug: 'fury', vitals: null, conditions: [], grants: [] },
+    {
+      id: 'fury',
+      recordId: FURY,
+      recordSlug: 'fury',
+      isMinion: false,
+      vitals: null,
+      conditions: [],
+      grants: [],
+    },
     {
       id: 'goblin-warrior',
       recordId: WARRIOR,
       recordSlug: 'goblin-warrior',
+      isMinion: false,
       vitals: {
         staminaCurrent: 15,
         staminaTemporary: 0,
@@ -184,7 +189,7 @@ describe('SquadsSection', () => {
     expect(options).toEqual(['fury', 'goblin-warrior']);
     fireEvent.change(picker, { target: { value: 'goblin-warrior' } });
     fireEvent.click(screen.getByText('Attach captain'));
-    expect(spyFor(attachCaptainRef)).toHaveBeenCalledWith({
+    expect(spyFor(api.encounters.attachCaptain)).toHaveBeenCalledWith({
       campaignId,
       squadId: 'squad-sc',
       captainId: 'goblin-warrior',
@@ -200,7 +205,7 @@ describe('SquadsSection', () => {
     });
     render(<EncounterPanel campaignId={campaignId} />);
     fireEvent.click(screen.getByText('Detach'));
-    expect(spyFor(detachCaptainRef)).toHaveBeenCalledWith({
+    expect(spyFor(api.encounters.detachCaptain)).toHaveBeenCalledWith({
       campaignId,
       squadId: 'squad-sc',
     });
@@ -247,7 +252,7 @@ describe('SquadsSection', () => {
     ).toBe(true);
     expect(resolveButton.disabled).toBe(false);
     fireEvent.click(resolveButton);
-    expect(spyFor(resolvePendingKillsRef)).toHaveBeenCalledWith({
+    expect(spyFor(api.encounters.resolvePendingKills)).toHaveBeenCalledWith({
       campaignId,
       squadId: 'squad-sc',
       victimMemberIds: ['sc1', 'sc2'],

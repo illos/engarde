@@ -941,6 +941,16 @@ test('squad pool E2E: seed → view card; non-area damage decrements, kills, pen
     (entry) => (entry.data as { squadDeaths?: { memberId: string }[] } | null)?.squadDeaths ?? [],
   );
   expect(deaths.map((death) => death.memberId)).toEqual(['sk1', 'sk2', 'sk3']);
+  // The pending kill's trigger fired ANONYMOUSLY at count time; naming
+  // (resolve-pending-kills) assigned identity only [R-0027].
+  expect(
+    log.some((entry) => {
+      const trigger = (
+        entry.data as { zeroStaminaTrigger?: { pending?: boolean; count?: number } } | null
+      )?.zeroStaminaTrigger;
+      return trigger?.pending === true && trigger.count === 1;
+    }),
+  ).toBe(true);
   expect(
     log.some((entry) => entry.kind === 'table-directive' && entry.message.includes('nearest')),
   ).toBe(true);

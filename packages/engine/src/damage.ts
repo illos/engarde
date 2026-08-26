@@ -70,8 +70,10 @@ export const MINION_CANON = {
 /** The ONE home for the Minion stat-block-organization predicate
  * [monsters chapter/monster-basics §Using Minions]. Case-insensitive over the
  * stored organization string; a participant without tracked stats is not a
- * minion. */
-export function isMinion(participant: ParticipantState): boolean {
+ * minion. Structurally typed over the stats slot so every host of the
+ * predicate — participant state, the driver's seed gate, view builders —
+ * calls this one home instead of re-deriving inline. */
+export function isMinion(participant: { stats?: ParticipantStats | null }): boolean {
   return participant.stats?.organization?.toLowerCase() === 'minion';
 }
 
@@ -560,12 +562,18 @@ export function applySquadDamage(
       entry(
         context,
         'mutation',
-        `${remaining} further kill(s) counted by the pool await victim identity`,
-        [MINION_CANON.droppingMultiple],
+        `${remaining} further kill(s) counted by the pool await victim identity — the taken-out minions count as being reduced to 0 Stamina for triggering effects NOW; only their identity is pending`,
+        [MINION_CANON.droppingMultiple, MINION_CANON.droppingOne],
         {
           pendingKillsDeltas: [
             { squadId: squad.squadId, from: pendingKills, to: pendingKills + remaining },
           ],
+          // "When a minion is taken out of the fight, they count as being
+          // reduced to 0 Stamina for triggering effects" — the taking-out
+          // happens when the pool COUNTS the kill, so the trigger receipt
+          // fires here, anonymously; resolve-pending-kills assigns identity
+          // only, never a second trigger [R-0027].
+          zeroStaminaTrigger: { pending: true, count: remaining, ruling: 'R-0027' },
         },
       ),
     );
@@ -667,26 +675,50 @@ export function flushSquadContributions(
   return { state: nextState, log };
 }
 
+/** How a minion's Stamina-gain binding routes [R-0027]. */
+export type MinionRegainRouting =
+  | { kind: 'refusal'; message: string }
+  | { kind: 'table-directive'; message: string };
+
 /**
- * The R-0027 rule-mandated refusal, if one applies: "Because minion Stamina
+ * The R-0027 routing for a minion bound to regain Stamina, gain temporary
+ * Stamina, or spend a Recovery. The printed rule: "Because minion Stamina
  * is tracked as a pool, minions can't be winded, can't regain Stamina, and
  * can't gain temporary Stamina during a battle" [chapter/monster-basics
- * §Shared Low Stamina]. A refusal (not warn-and-apply) because no individual
- * Stamina exists to receive the change — canon-incoherent over-state; and
- * PER-BINDING: sibling targets of the same effect still resolve. Callers
- * consult this BEFORE `regainAutomationBlocker` (a squad member's null
- * stamina would otherwise misread as untracked stats).
+ * §Shared Low Stamina].
+ * - A LIVING SQUAD MEMBER gets the rule-mandated REFUSAL (not
+ *   warn-and-apply): no individual Stamina exists to receive the change —
+ *   canon-incoherent over-state. PER-BINDING: sibling targets of the same
+ *   effect still resolve.
+ * - A minion who is NOT a living member of a seeded squad (never seeded, or
+ *   already dead) routes to the TABLE instead: the printed rule still
+ *   applies, but their Stamina is not pooled, so the refusal's incoherence
+ *   rationale does not hold — the Director adjudicates.
+ * Callers consult this BEFORE `regainAutomationBlocker` (a squad member's
+ * null stamina would otherwise misread as untracked stats).
  */
-export function minionRegainRefusal(participant: ParticipantState): string | null {
-  if (isMinion(participant)) {
-    return "minions can't regain Stamina and can't gain temporary Stamina during a battle — their Stamina is tracked as a squad pool";
+export function minionRegainRouting(
+  state: EncounterState,
+  participant: ParticipantState,
+): MinionRegainRouting | null {
+  if (!isMinion(participant)) return null;
+  if (squadOf(state, participant.id) !== undefined) {
+    return {
+      kind: 'refusal',
+      message:
+        "minions can't regain Stamina and can't gain temporary Stamina during a battle — their Stamina is tracked as a squad pool",
+    };
   }
-  return null;
+  return {
+    kind: 'table-directive',
+    message:
+      "minions can't regain Stamina and can't gain temporary Stamina during a battle — this minion is not a living member of a seeded squad, so the Director adjudicates at the table",
+  };
 }
 
 /** Why a participant's Stamina regain cannot be automated, if it can't —
- * the table-routing (not-automatable) half; the rule-mandated minion refusal
- * is `minionRegainRefusal` [R-0027] and is consulted first. */
+ * the table-routing (not-automatable) half; the rule-mandated minion routing
+ * is `minionRegainRouting` [R-0027] and is consulted first. */
 export function regainAutomationBlocker(participant: ParticipantState): string | null {
   if (participant.stats === null || participant.stamina === null) {
     return 'no stats tracked for this participant — resolve at the table';
@@ -697,8 +729,8 @@ export function regainAutomationBlocker(participant: ParticipantState): string |
 /** Why a participant cannot be offered an automated Recovery spend, if they
  * can't. Director-controlled non-minions are NOT blocked — they convert to
  * the one-third-maximum regain [rule.health/stamina §No Recoveries,
- * R-0019b]. Minions are refused outright by `minionRegainRefusal` [R-0027],
- * which callers consult first. */
+ * R-0019b]. Minions route through `minionRegainRouting` [R-0027], which
+ * callers consult first. */
 export function recoverySpendBlocker(participant: ParticipantState): string | null {
   const regainBlocker = regainAutomationBlocker(participant);
   if (regainBlocker !== null) return regainBlocker;

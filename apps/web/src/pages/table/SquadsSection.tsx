@@ -1,13 +1,9 @@
+import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
 import { useMutation } from 'convex/react';
 import { useState } from 'react';
 import { Button } from '../../primitives';
-import {
-  type SquadView,
-  attachCaptainRef,
-  detachCaptainRef,
-  resolvePendingKillsRef,
-} from './squad-contract';
+import type { SquadView } from './squad-contract';
 import { useRun } from './useRun';
 
 // Minion squad Stamina pools on the Table [R-0023..R-0028]. The pool is the
@@ -17,10 +13,12 @@ import { useRun } from './useRun';
 // controls mirror the terrain-fact affordance gating (director-only).
 
 /** The slice of the encounter view's participants the section needs —
- * structural subset of the full participant view rows. */
+ * structural subset of the full participant view rows. `isMinion` is the
+ * engine's one-home predicate computed server-side; the web never
+ * re-derives it from `vitals.organization`. */
 export interface SquadParticipantRef {
   id: string;
-  vitals: { organization: string | null } | null;
+  isMinion: boolean;
 }
 
 export function SquadsSection({
@@ -34,9 +32,9 @@ export function SquadsSection({
   participants: ReadonlyArray<SquadParticipantRef>;
   viewerIsDirector: boolean;
 }) {
-  const resolvePendingKills = useMutation(resolvePendingKillsRef);
-  const attachCaptain = useMutation(attachCaptainRef);
-  const detachCaptain = useMutation(detachCaptainRef);
+  const resolvePendingKills = useMutation(api.encounters.resolvePendingKills);
+  const attachCaptain = useMutation(api.encounters.attachCaptain);
+  const detachCaptain = useMutation(api.encounters.detachCaptain);
   const { run, error, busy } = useRun();
   const [captainPicks, setCaptainPicks] = useState<Record<string, string>>({});
   const [victimPicks, setVictimPicks] = useState<Record<string, string[]>>({});
@@ -44,15 +42,14 @@ export function SquadsSection({
 
   // Captain candidates: a captain is a separate non-minion participant —
   // exclude every seeded squad member (living or dead) and any participant
-  // whose stat block reads as a minion organization. The engine stays the
-  // authority (warn-and-replace per R-0028); this only shapes the picker.
+  // the view flags as a minion (the engine's one-home predicate, computed
+  // server-side). The engine stays the authority (warn-and-replace per
+  // R-0028); this only shapes the picker.
   const squadMemberIds = new Set(
     squads.flatMap((squad) => [...squad.livingMemberIds, ...squad.deadMemberIds]),
   );
   const captainCandidates = participants.filter(
-    (participant) =>
-      !squadMemberIds.has(participant.id) &&
-      participant.vitals?.organization?.toLowerCase() !== 'minion',
+    (participant) => !squadMemberIds.has(participant.id) && !participant.isMinion,
   );
 
   return (

@@ -13,6 +13,7 @@ import {
   damageAutomationBlocker,
   flushSquadContributions,
   isMinion,
+  squadMemberStats,
   squadOf,
   withParticipant,
   withSquad,
@@ -136,6 +137,34 @@ export function applyIntent(
       // is the manual half of the R-0025 discriminator.
       const squad = isMinion(target) ? squadOf(state, intent.payload.target) : undefined;
       if (squad) {
+        const preLog: LogEntry[] = [];
+        // Manual area damage names ONE contributor per dispatch, but the
+        // squad's weakness/immunity step applies "once, even if multiple
+        // minions share the same immunity or weakness" per damage instance
+        // [R-0026]. Warn when the squad's stats carry such a row: if the
+        // same area effect damaged other squad members, they must be
+        // batched into one dispatch or the adjustment multiply-applies —
+        // one application per dispatch instead of one per instance.
+        const squadStats = squadMemberStats(state, squad);
+        if (
+          intent.payload.area &&
+          squadStats !== null &&
+          (squadStats.weaknesses.length > 0 || squadStats.immunities.length > 0)
+        ) {
+          preLog.push({
+            kind: 'warning',
+            intentId: intent.intentId,
+            actor: intent.actor,
+            canonRefs: [MINION_CANON.weaknessImmunity],
+            message: `manual area damage against ${squad.name}: the once-per-squad weakness/immunity step applies to this dispatch alone — if the same area effect damaged other squad members, batch all contributions in one dispatch, or the adjustment applies once per dispatch instead of once per damage instance`,
+            data: {
+              manualAreaWeaknessImmunityInstance: {
+                squadId: squad.squadId,
+                targetId: intent.payload.target,
+              },
+            },
+          });
+        }
         const flushed = flushSquadContributions(
           state,
           new Map([
@@ -157,7 +186,7 @@ export function applyIntent(
           },
           lifecycleContext,
         );
-        return { state: flushed.state, log: flushed.log };
+        return { state: flushed.state, log: [...preLog, ...flushed.log] };
       }
       if (intent.payload.minionKillVictims.length > 0) {
         return {
@@ -284,8 +313,9 @@ export function applyIntent(
       // Identity assignment for pool-counted kills [R-0024]: "the minions
       // nearest to those taken out suffer the same fate" is spatial, so the
       // Director-or-damager names the victims. The 0-Stamina trigger receipt
-      // fired when each kill was counted — naming only assigns identity,
-      // never a second trigger [R-0027].
+      // fired ANONYMOUSLY when each kill was counted (the count-time entry
+      // carries `zeroStaminaTrigger: { pending: true, … }`) — naming only
+      // assigns identity, never a second trigger [R-0027].
       const squad = state.squads.find((candidate) => candidate.squadId === intent.payload.squadId);
       if (!squad) {
         return { state, log: [refusal(intent, `unknown squad ${intent.payload.squadId}`)] };
@@ -331,7 +361,7 @@ export function applyIntent(
             intentId: intent.intentId,
             actor: intent.actor,
             canonRefs: [MINION_CANON.droppingMultiple],
-            message: `${victims.join(', ')} identified as the pool's counted kill(s) in ${squad.name}${intent.payload.reason ? ` (${intent.payload.reason})` : ''} — the 0-Stamina trigger already fired when each kill was counted`,
+            message: `${victims.join(', ')} identified as the pool's counted kill(s) in ${squad.name}${intent.payload.reason ? ` (${intent.payload.reason})` : ''} — the 0-Stamina trigger fired anonymously when each kill was counted; naming assigns identity only`,
             data: {
               squadDeaths: victims.map((memberId) => ({ squadId: squad.squadId, memberId })),
               pendingKillsDeltas: [
@@ -426,14 +456,20 @@ export function applyIntent(
         });
         nextState = withSquad(nextState, { ...previousSquad, captainId: null });
       }
+      // The printed eligibility is "Any non-Mount, non-minion creature, who
+      // speaks a language that a squad of minions can understand"
+      // [rule.monster/captain]. The engine verifies ONLY non-minion —
+      // statblock stats parse no roles and no languages — so the receipt
+      // names the two table-asserted halves explicitly [R-0028].
       log.push({
         kind: 'mutation',
         intentId: intent.intentId,
         actor: intent.actor,
         canonRefs: [MINION_CANON.captain],
-        message: `${captain.id} is attached to ${squad.name} as its captain — With-Captain benefits apply per the stat block (table-adjudicated); the captain's Stamina stays individual`,
+        message: `${captain.id} is attached to ${squad.name} as its captain — the engine verified only that they are not a minion; that they are not a Mount and speak a language the squad can understand is table-asserted. With-Captain benefits apply per the stat block (table-adjudicated); the captain's Stamina stays individual`,
         data: {
           captainDeltas: [{ squadId: squad.squadId, from: squad.captainId, to: captain.id }],
+          tableAssertedEligibility: ['non-Mount role', 'shared language'],
         },
       });
       nextState = withSquad(nextState, { ...squad, captainId: captain.id });

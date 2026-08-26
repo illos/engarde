@@ -195,25 +195,26 @@ describe('spend-recovery resolution [R-0018, R-0019]', () => {
     });
   });
 
-  it('a minion is refused per-binding — upgraded from R-0019c table routing [R-0027]', () => {
+  it('a SQUADLESS minion routes to the table, not the refusal — R-0027 scopes the refusal to squad members', () => {
     // "minions … can't regain Stamina … during a battle" [chapter/
-    // monster-basics §Shared Low Stamina]: with the pool mechanism shipped,
-    // the old "pool not mechanized" table routing becomes the printed
-    // rule-mandated refusal.
+    // monster-basics §Shared Low Stamina]: the R-0027 refusal's rationale
+    // (no individual Stamina to receive the change) holds only for pooled
+    // squad members. This minion is seeded into no squad, so the printed
+    // rule routes to the Director at the table — and the receipt must not
+    // claim their Stamina is pooled.
     const before = damaged(encounter(), 'minion', 3);
     const result = dispatch(
       before,
       useEffect(offer, ['minion'], { recoverySpends: { minion: true } }),
     );
     expect(result.state.participants.minion?.stamina?.current).toBe(3);
-    expect(
-      result.log.some(
-        (entry) =>
-          entry.kind === 'refusal' &&
-          entry.data.perBinding === true &&
-          entry.data.minionRecoverySpendRefused !== undefined,
-      ),
-    ).toBe(true);
+    const routed = result.log.find(
+      (entry) =>
+        entry.kind === 'table-directive' && entry.data.minionRecoverySpendTableRouted !== undefined,
+    );
+    expect(routed?.message).toMatch(/can't regain Stamina/);
+    expect(routed?.message).not.toMatch(/pool/);
+    expect(result.log.every((entry) => entry.kind !== 'refusal')).toBe(true);
   });
 
   it('warns and applies when a singular subject binds more than one spender', () => {
@@ -382,18 +383,21 @@ describe('regain-stamina resolution [R-0017, R-0020]', () => {
     expect(result.state.participants.ally?.stamina?.temporary).toBe(3);
   });
 
-  it('refuses a minion target per-binding — upgraded from R-0019c table routing [R-0027]', () => {
+  it('a SQUADLESS minion target routes to the table, not the refusal — R-0027 scopes the refusal to squad members', () => {
+    // The refusal's incoherence rationale (no individual Stamina number)
+    // holds only for pooled squad members; this squadless minion tracks
+    // individual Stamina, so the printed rule table-routes instead and the
+    // receipt must not claim a pool.
     const before = damaged(encounter(), 'minion', 2);
     const result = dispatch(before, useEffect(regain, ['minion']));
     expect(result.state.participants.minion?.stamina?.current).toBe(2);
-    expect(
-      result.log.some(
-        (entry) =>
-          entry.kind === 'refusal' &&
-          entry.data.perBinding === true &&
-          entry.data.minionRegainRefused !== undefined,
-      ),
-    ).toBe(true);
+    const routed = result.log.find(
+      (entry) =>
+        entry.kind === 'table-directive' && entry.data.minionRegainTableRouted !== undefined,
+    );
+    expect(routed?.message).toMatch(/can't regain Stamina/);
+    expect(routed?.message).not.toMatch(/pool/);
+    expect(result.log.every((entry) => entry.kind !== 'refusal')).toBe(true);
   });
 });
 

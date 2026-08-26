@@ -9,7 +9,7 @@ import {
   flushSquadContributions,
   gainTemporaryStamina,
   isMinion,
-  minionRegainRefusal,
+  minionRegainRouting,
   recoverySpendBlocker,
   regainAutomationBlocker,
   regainStamina,
@@ -326,24 +326,40 @@ export function executeUseEffect(
         );
         return null;
       }
-      // R-0027: a minion accepting a Recovery spend is REFUSED per-binding —
-      // "minions … can't regain Stamina … during a battle"; no individual
-      // Stamina exists to receive it. Siblings proceed (the entry carries
-      // the perBinding marker the invariant suite recognizes).
-      const minionRefusal = minionRegainRefusal(target);
-      if (minionRefusal !== null) {
-        log.push(
-          entry(
-            context,
-            'refusal',
-            `${targetId} cannot spend a Recovery — ${minionRefusal}`,
-            refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
-            {
-              perBinding: true,
-              minionRecoverySpendRefused: { targetId, ruling: 'R-0027' },
-            },
-          ),
-        );
+      // R-0027: a LIVING SQUAD MEMBER accepting a Recovery spend is REFUSED
+      // per-binding — "minions … can't regain Stamina … during a battle";
+      // no individual Stamina exists to receive it. Siblings proceed (the
+      // entry carries the perBinding marker the invariant suite recognizes).
+      // A minion outside any seeded squad routes to the table instead — the
+      // printed rule applies but their Stamina is not pooled. Squad
+      // membership is dispatch-constant on this path, so the outer `state`
+      // is the right lookup base.
+      const minionRouting = minionRegainRouting(state, target);
+      if (minionRouting !== null) {
+        if (minionRouting.kind === 'refusal') {
+          log.push(
+            entry(
+              context,
+              'refusal',
+              `${targetId} cannot spend a Recovery — ${minionRouting.message}`,
+              refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
+              {
+                perBinding: true,
+                minionRecoverySpendRefused: { targetId, ruling: 'R-0027' },
+              },
+            ),
+          );
+        } else {
+          log.push(
+            entry(
+              context,
+              'table-directive',
+              `${targetId} accepts the offered Recovery — ${minionRouting.message}`,
+              refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
+              { minionRecoverySpendTableRouted: { targetId } },
+            ),
+          );
+        }
         return null;
       }
       const blocker = recoverySpendBlocker(target);
@@ -420,23 +436,42 @@ export function executeUseEffect(
       );
     }
     const regainState = applyPerTarget(state, targets, effect, log, (target, targetId) => {
-      // R-0027 rule-mandated per-binding refusal: "minions can't regain
-      // Stamina, and can't gain temporary Stamina during a battle". Sibling
-      // bindings proceed.
-      const minionRefusal = minionRegainRefusal(target);
-      if (minionRefusal !== null) {
-        log.push(
-          entry(
-            context,
-            'refusal',
-            `${targetId} cannot ${resolution.kind === 'regain-stamina' ? `regain ${resolution.amount} Stamina` : `gain ${resolution.amount} temporary Stamina`} — ${minionRefusal}`,
-            refs(effect, [MINION_CANON.sharedPool]),
-            {
-              perBinding: true,
-              minionRegainRefused: { targetId, kind: resolution.kind, ruling: 'R-0027' },
-            },
-          ),
-        );
+      // R-0027: a LIVING SQUAD MEMBER is refused per-binding — "minions
+      // can't regain Stamina, and can't gain temporary Stamina during a
+      // battle"; sibling bindings proceed. A minion outside any seeded
+      // squad routes to the table instead — the printed rule applies but
+      // their Stamina is not pooled. Squad membership is dispatch-constant
+      // on this path, so the outer `state` is the right lookup base.
+      const boundGain =
+        resolution.kind === 'regain-stamina'
+          ? `regain ${resolution.amount} Stamina`
+          : `gain ${resolution.amount} temporary Stamina`;
+      const minionRouting = minionRegainRouting(state, target);
+      if (minionRouting !== null) {
+        if (minionRouting.kind === 'refusal') {
+          log.push(
+            entry(
+              context,
+              'refusal',
+              `${targetId} cannot ${boundGain} — ${minionRouting.message}`,
+              refs(effect, [MINION_CANON.sharedPool]),
+              {
+                perBinding: true,
+                minionRegainRefused: { targetId, kind: resolution.kind, ruling: 'R-0027' },
+              },
+            ),
+          );
+        } else {
+          log.push(
+            entry(
+              context,
+              'table-directive',
+              `${targetId} is bound to ${boundGain} — ${minionRouting.message}`,
+              refs(effect, [MINION_CANON.sharedPool]),
+              { minionRegainTableRouted: { targetId, kind: resolution.kind } },
+            ),
+          );
+        }
         return null;
       }
       const blocker = regainAutomationBlocker(target);

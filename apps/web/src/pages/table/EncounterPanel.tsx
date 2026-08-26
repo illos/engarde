@@ -4,7 +4,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../primitives';
 import { SquadsSection } from './SquadsSection';
-import { type SquadDamageLogData, type SquadPoolDelta, squadsOf } from './squad-contract';
+import type { SquadDamageLogData, SquadPoolDelta } from './squad-contract';
 import { useRun } from './useRun';
 
 // The encounter surface inside the Table — the pure rules engine mounted
@@ -450,7 +450,7 @@ function ActiveEncounter({
 
       <SquadsSection
         campaignId={campaignId}
-        squads={squadsOf(encounter)}
+        squads={encounter.squads}
         participants={encounter.participants}
         viewerIsDirector={encounter.viewerIsDirector}
       />
