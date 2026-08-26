@@ -2,10 +2,9 @@ import { type LifecycleContext, applyConditionInstance } from './condition-lifec
 import {
   type PendingSquadContribution,
   applyDamage,
+  collectSquadContribution,
   damageAutomationBlocker,
   flushSquadContributions,
-  isMinion,
-  squadOf,
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
@@ -491,11 +490,14 @@ export function executeUseAbility(
         .filter((item) => item.target === undefined || item.target === targetId)
         .reduce((sum, item) => sum + item.value, 0);
       const amount = tierData.damage.amount + damageBinding.value + extra;
-      const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
-      if (squad) {
-        const list = squadContributions.get(squad.squadId) ?? [];
-        list.push({ targetId, damage: amount, type: damageType });
-        squadContributions.set(squad.squadId, list);
+      if (
+        collectSquadContribution(
+          nextState,
+          target,
+          { targetId, damage: amount, type: damageType },
+          squadContributions,
+        )
+      ) {
         continue;
       }
       const blocker = damageAutomationBlocker(target);

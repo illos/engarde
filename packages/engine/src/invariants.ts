@@ -85,6 +85,68 @@ function claimed(data: Record<string, unknown>, field: string): string[] {
     : [];
 }
 
+/**
+ * Shared claim collection for every walked state slot: gather one field's
+ * rows across the mutation entries, grouped by the row's key (participantId
+ * or squadId), in log order. Rows whose key is not a string are ignored.
+ */
+function collectClaimRows<TClaim>(
+  mutations: readonly { data: Record<string, unknown> }[],
+  field: string,
+  keyOf: (claim: TClaim) => unknown,
+): Map<string, TClaim[]> {
+  const store = new Map<string, TClaim[]>();
+  for (const entry of mutations) {
+    const rows = entry.data[field];
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const claim = row as TClaim;
+      const key = keyOf(claim);
+      if (typeof key !== 'string') continue;
+      const list = store.get(key) ?? [];
+      list.push(claim);
+      store.set(key, list);
+    }
+  }
+  return store;
+}
+
+/**
+ * Generic state↔log claim walker — the ONE home for the reconciliation
+ * shape every walked state slot shares (stamina, Recoveries, squad pool,
+ * pendingKills, captain; a schema v6 slot adds a config entry, not a
+ * copy): replay the entity's claims in log order from the before-value;
+ * a claim whose `from` misses the walked value is phantom, and a walk
+ * that misses the after-value is an unattributed change. The slot's
+ * claim/reconciliation semantics (value extraction, equality, violation
+ * wording) are the parameters.
+ */
+function walkClaims<TClaim, TValue>(
+  before: TValue,
+  after: TValue,
+  claims: readonly TClaim[],
+  semantics: {
+    from: (claim: TClaim) => TValue;
+    to: (claim: TClaim) => TValue;
+    equals: (a: TValue, b: TValue) => boolean;
+    phantom: (claim: TClaim, walked: TValue) => InvariantViolation;
+    unattributed: (walked: TValue) => InvariantViolation;
+  },
+): InvariantViolation[] {
+  const violations: InvariantViolation[] = [];
+  let current = before;
+  for (const claim of claims) {
+    if (!semantics.equals(semantics.from(claim), current)) {
+      violations.push(semantics.phantom(claim, current));
+    }
+    current = semantics.to(claim);
+  }
+  if (!semantics.equals(current, after)) {
+    violations.push(semantics.unattributed(current));
+  }
+  return violations;
+}
+
 export function checkInvariants(
   before: EncounterState,
   intent: Intent,
@@ -255,18 +317,11 @@ export function checkInvariants(
     temporaryFrom: number;
     temporaryTo: number;
   }
-  const staminaClaims = new Map<string, StaminaClaim[]>();
-  for (const entry of mutations) {
-    const rows = entry.data.staminaDeltas;
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
-      const claim = row as StaminaClaim;
-      if (typeof claim?.participantId !== 'string') continue;
-      const list = staminaClaims.get(claim.participantId) ?? [];
-      list.push(claim);
-      staminaClaims.set(claim.participantId, list);
-    }
-  }
+  const staminaClaims = collectClaimRows<StaminaClaim>(
+    mutations,
+    'staminaDeltas',
+    (claim) => claim?.participantId,
+  );
   for (const participant of Object.values(result.state.participants)) {
     const beforeParticipant = before.participants[participant.id];
     const beforeStamina = beforeParticipant?.stamina ?? null;
@@ -281,24 +336,26 @@ export function checkInvariants(
       }
       continue;
     }
-    let current = beforeStamina.current;
-    let temporary = beforeStamina.temporary;
-    for (const claim of claims) {
-      if (claim.from !== current || claim.temporaryFrom !== temporary) {
-        violations.push({
-          code: 'phantom-stamina-claim',
-          detail: `claim on ${participant.id} starts at ${claim.from}/${claim.temporaryFrom}, state was ${current}/${temporary}`,
-        });
-      }
-      current = claim.to;
-      temporary = claim.temporaryTo;
-    }
-    if (current !== afterStamina.current || temporary !== afterStamina.temporary) {
-      violations.push({
-        code: 'unattributed-stamina-change',
-        detail: `${participant.id} ended at ${afterStamina.current}/${afterStamina.temporary}; claims walk to ${current}/${temporary}`,
-      });
-    }
+    violations.push(
+      ...walkClaims(
+        { current: beforeStamina.current, temporary: beforeStamina.temporary },
+        { current: afterStamina.current, temporary: afterStamina.temporary },
+        claims,
+        {
+          from: (claim) => ({ current: claim.from, temporary: claim.temporaryFrom }),
+          to: (claim) => ({ current: claim.to, temporary: claim.temporaryTo }),
+          equals: (a, b) => a.current === b.current && a.temporary === b.temporary,
+          phantom: (claim, walked) => ({
+            code: 'phantom-stamina-claim',
+            detail: `claim on ${participant.id} starts at ${claim.from}/${claim.temporaryFrom}, state was ${walked.current}/${walked.temporary}`,
+          }),
+          unattributed: (walked) => ({
+            code: 'unattributed-stamina-change',
+            detail: `${participant.id} ended at ${afterStamina.current}/${afterStamina.temporary}; claims walk to ${walked.current}/${walked.temporary}`,
+          }),
+        },
+      ),
+    );
   }
 
   // ── Recoveries↔log reconciliation (v4, R-0018/R-0019) ───────────────────
@@ -310,18 +367,11 @@ export function checkInvariants(
     from: number;
     to: number;
   }
-  const recoveriesClaims = new Map<string, RecoveriesClaim[]>();
-  for (const entry of mutations) {
-    const rows = entry.data.recoveriesDeltas;
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
-      const claim = row as RecoveriesClaim;
-      if (typeof claim?.participantId !== 'string') continue;
-      const list = recoveriesClaims.get(claim.participantId) ?? [];
-      list.push(claim);
-      recoveriesClaims.set(claim.participantId, list);
-    }
-  }
+  const recoveriesClaims = collectClaimRows<RecoveriesClaim>(
+    mutations,
+    'recoveriesDeltas',
+    (claim) => claim?.participantId,
+  );
   for (const participant of Object.values(result.state.participants)) {
     const beforeParticipant = before.participants[participant.id];
     const beforeRecoveries = beforeParticipant?.stamina?.recoveries ?? null;
@@ -336,22 +386,21 @@ export function checkInvariants(
       }
       continue;
     }
-    let current = beforeRecoveries;
-    for (const claim of claims) {
-      if (claim.from !== current) {
-        violations.push({
+    violations.push(
+      ...walkClaims(beforeRecoveries, afterRecoveries, claims, {
+        from: (claim) => claim.from,
+        to: (claim) => claim.to,
+        equals: (a, b) => a === b,
+        phantom: (claim, walked) => ({
           code: 'phantom-recoveries-claim',
-          detail: `claim on ${participant.id} starts at ${claim.from}, state was ${current}`,
-        });
-      }
-      current = claim.to;
-    }
-    if (current !== afterRecoveries) {
-      violations.push({
-        code: 'unattributed-recoveries-change',
-        detail: `${participant.id} ended at ${afterRecoveries} Recoveries; claims walk to ${current}`,
-      });
-    }
+          detail: `claim on ${participant.id} starts at ${claim.from}, state was ${walked}`,
+        }),
+        unattributed: (walked) => ({
+          code: 'unattributed-recoveries-change',
+          detail: `${participant.id} ended at ${afterRecoveries} Recoveries; claims walk to ${walked}`,
+        }),
+      }),
+    );
     const max = participant.stats?.recoveriesMax;
     if (typeof max === 'number' && (afterRecoveries < 0 || afterRecoveries > max)) {
       violations.push({
@@ -542,35 +591,23 @@ export function checkInvariants(
       from: string | null;
       to: string | null;
     }
-    const poolClaims = new Map<string, SquadNumberClaim[]>();
-    const pendingClaims = new Map<string, SquadNumberClaim[]>();
-    const captainClaims = new Map<string, CaptainClaim[]>();
+    const poolClaims = collectClaimRows<SquadNumberClaim>(
+      mutations,
+      'squadPoolDeltas',
+      (claim) => claim?.squadId,
+    );
+    const pendingClaims = collectClaimRows<SquadNumberClaim>(
+      mutations,
+      'pendingKillsDeltas',
+      (claim) => claim?.squadId,
+    );
+    const captainClaims = collectClaimRows<CaptainClaim>(
+      mutations,
+      'captainDeltas',
+      (claim) => claim?.squadId,
+    );
     const deathClaims = new Map<string, string[]>();
     for (const entry of mutations) {
-      for (const [field, store] of [
-        ['squadPoolDeltas', poolClaims],
-        ['pendingKillsDeltas', pendingClaims],
-      ] as const) {
-        const rows = entry.data[field];
-        if (!Array.isArray(rows)) continue;
-        for (const row of rows) {
-          const claim = row as SquadNumberClaim;
-          if (typeof claim?.squadId !== 'string') continue;
-          const list = store.get(claim.squadId) ?? [];
-          list.push(claim);
-          store.set(claim.squadId, list);
-        }
-      }
-      const captains = entry.data.captainDeltas;
-      if (Array.isArray(captains)) {
-        for (const row of captains) {
-          const claim = row as CaptainClaim;
-          if (typeof claim?.squadId !== 'string') continue;
-          const list = captainClaims.get(claim.squadId) ?? [];
-          list.push(claim);
-          captainClaims.set(claim.squadId, list);
-        }
-      }
       const deaths = entry.data.squadDeaths;
       if (Array.isArray(deaths)) {
         for (const row of deaths) {
@@ -594,56 +631,68 @@ export function checkInvariants(
         });
       }
       // Pool walk.
-      let pool = beforeSquad.pool.current;
-      for (const claim of poolClaims.get(squadId) ?? []) {
-        if (claim.from !== pool) {
-          violations.push({
-            code: 'phantom-squad-claim',
-            detail: `${squadId}: pool claim starts at ${claim.from}, state was ${pool}`,
-          });
-        }
-        pool = claim.to;
-      }
-      if (pool !== afterSquad.pool.current) {
-        violations.push({
-          code: 'unattributed-squad-change',
-          detail: `${squadId}: pool ended at ${afterSquad.pool.current}; claims walk to ${pool}`,
-        });
-      }
+      violations.push(
+        ...walkClaims(
+          beforeSquad.pool.current,
+          afterSquad.pool.current,
+          poolClaims.get(squadId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-squad-claim',
+              detail: `${squadId}: pool claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-squad-change',
+              detail: `${squadId}: pool ended at ${afterSquad.pool.current}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
       // pendingKills walk.
-      let pendingKills = beforeSquad.pendingKills;
-      for (const claim of pendingClaims.get(squadId) ?? []) {
-        if (claim.from !== pendingKills) {
-          violations.push({
-            code: 'phantom-squad-claim',
-            detail: `${squadId}: pendingKills claim starts at ${claim.from}, state was ${pendingKills}`,
-          });
-        }
-        pendingKills = claim.to;
-      }
-      if (pendingKills !== afterSquad.pendingKills) {
-        violations.push({
-          code: 'unattributed-squad-change',
-          detail: `${squadId}: pendingKills ended at ${afterSquad.pendingKills}; claims walk to ${pendingKills}`,
-        });
-      }
+      violations.push(
+        ...walkClaims(
+          beforeSquad.pendingKills,
+          afterSquad.pendingKills,
+          pendingClaims.get(squadId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-squad-claim',
+              detail: `${squadId}: pendingKills claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-squad-change',
+              detail: `${squadId}: pendingKills ended at ${afterSquad.pendingKills}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
       // Captain walk.
-      let captain = beforeSquad.captainId;
-      for (const claim of captainClaims.get(squadId) ?? []) {
-        if (claim.from !== captain) {
-          violations.push({
-            code: 'phantom-squad-claim',
-            detail: `${squadId}: captain claim starts at ${String(claim.from)}, state was ${String(captain)}`,
-          });
-        }
-        captain = claim.to;
-      }
-      if (captain !== afterSquad.captainId) {
-        violations.push({
-          code: 'unattributed-squad-change',
-          detail: `${squadId}: captain ended at ${String(afterSquad.captainId)}; claims walk to ${String(captain)}`,
-        });
-      }
+      violations.push(
+        ...walkClaims(
+          beforeSquad.captainId,
+          afterSquad.captainId,
+          captainClaims.get(squadId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-squad-claim',
+              detail: `${squadId}: captain claim starts at ${String(claim.from)}, state was ${String(walked)}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-squad-change',
+              detail: `${squadId}: captain ended at ${String(afterSquad.captainId)}; claims walk to ${String(walked)}`,
+            }),
+          },
+        ),
+      );
       // Death claims: exactly the live→dead transitions, each claimed once.
       const died = afterSquad.deadMemberIds.filter(
         (memberId) => !beforeSquad.deadMemberIds.includes(memberId),

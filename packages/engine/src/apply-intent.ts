@@ -9,12 +9,13 @@ import {
 } from './condition-lifecycle.js';
 import {
   MINION_CANON,
+  type PendingSquadContribution,
   applyDamage,
+  collectSquadContribution,
   damageAutomationBlocker,
   flushSquadContributions,
   isMinion,
   squadMemberStats,
-  squadOf,
   withParticipant,
   withSquad,
 } from './damage.js';
@@ -135,7 +136,17 @@ export function applyIntent(
       // A living squad member's damage decrements the shared pool — the ONE
       // home for squad vitality [R-0024]; the dispatch-asserted `area` flag
       // is the manual half of the R-0025 discriminator.
-      const squad = isMinion(target) ? squadOf(state, intent.payload.target) : undefined;
+      const pendingContributions = new Map<string, PendingSquadContribution[]>();
+      const squad = collectSquadContribution(
+        state,
+        target,
+        {
+          targetId: intent.payload.target,
+          damage: intent.payload.amount,
+          type: intent.payload.damageType ?? null,
+        },
+        pendingContributions,
+      );
       if (squad) {
         const preLog: LogEntry[] = [];
         // Manual area damage names ONE contributor per dispatch, but the
@@ -167,18 +178,7 @@ export function applyIntent(
         }
         const flushed = flushSquadContributions(
           state,
-          new Map([
-            [
-              squad.squadId,
-              [
-                {
-                  targetId: intent.payload.target,
-                  damage: intent.payload.amount,
-                  type: intent.payload.damageType ?? null,
-                },
-              ],
-            ],
-          ]),
+          pendingContributions,
           {
             area: intent.payload.area,
             namedVictims: intent.payload.minionKillVictims,

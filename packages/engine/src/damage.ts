@@ -630,6 +630,28 @@ export interface PendingSquadContribution {
 }
 
 /**
+ * The ONE home for the dispatch-path collection step: a target that is a
+ * living squad member routes its damage contribution into the pending map
+ * (keyed by squadId; map insertion order — first contributing member —
+ * fixes squad order for `flushSquadContributions`). Returns the squad when
+ * the contribution was collected, or `undefined` when the target is not a
+ * living member of a seeded squad and resolves individually.
+ */
+export function collectSquadContribution(
+  state: EncounterState,
+  target: ParticipantState,
+  contribution: PendingSquadContribution,
+  pending: Map<string, PendingSquadContribution[]>,
+): SquadState | undefined {
+  const squad = isMinion(target) ? squadOf(state, contribution.targetId) : undefined;
+  if (!squad) return undefined;
+  const list = pending.get(squad.squadId) ?? [];
+  list.push(contribution);
+  pending.set(squad.squadId, list);
+  return squad;
+}
+
+/**
  * Shared dispatch-path flush: every executor that damages participants
  * collects same-squad contributions into ONE map and flushes them through a
  * single `applySquadDamage` call per squad — required by R-0026's

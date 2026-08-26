@@ -5,16 +5,15 @@ import {
   MINION_CANON,
   type PendingSquadContribution,
   applyDamage,
+  collectSquadContribution,
   damageAutomationBlocker,
   flushSquadContributions,
   gainTemporaryStamina,
-  isMinion,
   minionRegainRouting,
   recoverySpendBlocker,
   regainAutomationBlocker,
   regainStamina,
   spendRecovery,
-  squadOf,
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
@@ -568,15 +567,14 @@ export function executeUseEffect(
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
       if (!target) continue;
-      const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
-      if (squad) {
-        const list = squadContributions.get(squad.squadId) ?? [];
-        list.push({
-          targetId,
-          damage: effect.resolution.amount,
-          type: effect.resolution.damageType,
-        });
-        squadContributions.set(squad.squadId, list);
+      if (
+        collectSquadContribution(
+          nextState,
+          target,
+          { targetId, damage: effect.resolution.amount, type: effect.resolution.damageType },
+          squadContributions,
+        )
+      ) {
         continue;
       }
       const blocker = damageAutomationBlocker(target);
@@ -873,12 +871,18 @@ function applyTestTier(
     // so it flushes alone — the once-per-squad weakness step applies per
     // instance [R-0026]; the effect header's Area keyword still selects the
     // per-minion cap [R-0025].
-    const squad = isMinion(target) ? squadOf(nextState, targetId) : undefined;
+    const pendingContributions = new Map<string, PendingSquadContribution[]>();
+    const squad = collectSquadContribution(
+      nextState,
+      target,
+      { targetId, damage: data.damage.amount, type: damageType },
+      pendingContributions,
+    );
     if (squad) {
       const isArea = effect.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
       const flushed = flushSquadContributions(
         nextState,
-        new Map([[squad.squadId, [{ targetId, damage: data.damage.amount, type: damageType }]]]),
+        pendingContributions,
         {
           area: isArea,
           reason: `from ${effect.effectArtifactId} test (tier ${tierNumber})`,
