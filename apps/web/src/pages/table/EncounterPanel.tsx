@@ -3,7 +3,9 @@ import type { Id } from '@engarde/backend/convex/_generated/dataModel';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../primitives';
-import { errorMessage } from '../campaigns/AppScreen';
+import { SquadsSection } from './SquadsSection';
+import { type SquadDamageLogData, type SquadPoolDelta, squadsOf } from './squad-contract';
+import { useRun } from './useRun';
 
 // The encounter surface inside the Table — the pure rules engine mounted
 // behind the session lobby. This panel renders engine state and dispatches
@@ -26,20 +28,6 @@ interface PowerRollLogData {
   edges: number;
   banes: number;
   resolution: { total: number; tier: number; naturalTopEnd: boolean };
-}
-
-function useRun() {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const run = (action: () => Promise<unknown>) => {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    action()
-      .catch((cause) => setError(errorMessage(cause)))
-      .finally(() => setBusy(false));
-  };
-  return { run, error, busy };
 }
 
 export function EncounterPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
@@ -459,6 +447,13 @@ function ActiveEncounter({
           </li>
         ))}
       </ul>
+
+      <SquadsSection
+        campaignId={campaignId}
+        squads={squadsOf(encounter)}
+        participants={encounter.participants}
+        viewerIsDirector={encounter.viewerIsDirector}
+      />
 
       {encounter.terrainFacts.length > 0 ? (
         <div className="mt-4 border-t border-line-soft pt-4">
@@ -939,6 +934,35 @@ function EncounterLog({
                   </p>
                 </div>
               );
+            const squadData = entry.data as {
+              squadDamage?: SquadDamageLogData;
+              squadPoolDeltas?: SquadPoolDelta[];
+            } | null;
+            if (squadData?.squadDamage) {
+              // Squad-pool damage receipt [R-0024..R-0026]: the engine's
+              // persisted breakdown — pool delta, discarded overflow, kills.
+              const receipt = squadData.squadDamage;
+              const delta = squadData.squadPoolDeltas?.find(
+                (candidate) => candidate.squadId === receipt.squadId,
+              );
+              return (
+                <div key={entry.entryId} className="border border-line-soft bg-ink-1 p-2">
+                  <p className="text-sm">{entry.message}</p>
+                  <p className="mt-1 font-mono text-xs text-text-mute">
+                    {delta
+                      ? `pool ${delta.from} → ${delta.to}`
+                      : `pool −${receipt.fullPoolReduction}`}
+                    {receipt.area ? ' · area' : ''}
+                    {receipt.weaknessApplied ? ' · weakness applied' : ''}
+                    {receipt.immunityApplied ? ' · immunity applied' : ''}
+                    {receipt.overflowDiscarded > 0
+                      ? ` · ${receipt.overflowDiscarded} discarded`
+                      : ''}{' '}
+                    · {receipt.kills} kill{receipt.kills === 1 ? '' : 's'}
+                  </p>
+                </div>
+              );
+            }
             const tone =
               entry.kind === 'invariant-violation' || entry.kind === 'refusal'
                 ? 'text-foe'
