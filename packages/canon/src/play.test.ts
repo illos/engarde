@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { type ParticipantStats, ParticipantStatsSchema } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import { ingestStructuredRecord } from './extract.js';
+import { DEVIL_ADJUDICATOR } from './fixtures/devil-adjudicator.verbatim.js';
 import { GOBLIN_SPINECLEAVER } from './fixtures/goblin-spinecleaver.verbatim.js';
 import { GOBLIN_WARRIOR } from './fixtures/goblin-warrior.verbatim.js';
 import { createPlaySession } from './play.js';
@@ -191,6 +192,232 @@ describe('play session shell mechanics', () => {
     expect(session.execute('clearterrain zzz').output).toContain(
       'no terrain fact matches "zzz" (none recorded)',
     );
+  });
+
+  it('documents the action-economy verbs (R-0029..R-0033)', () => {
+    const session = neutralSession();
+    const help = session.execute('help').output;
+    expect(help).toContain('combat <heroes|director>');
+    expect(help).toContain('turn <actor|squad>');
+    expect(help).toContain('roll <query> <actor> <targets>');
+    expect(help).toContain('--hold');
+    expect(help).toContain('commit [<resolutionId>]');
+    expect(help).toContain('mod [<resolution>] downgrade <1|2>');
+    expect(help).toContain('trigger <query> <actor>');
+    expect(help).toContain('villain <query> <actor>');
+    expect(help).toContain('convert [<actor>] main <maneuver|move>');
+    expect(help).toContain('advround');
+    expect(help).toContain('grant <participant>');
+    expect(help).toContain('endturn <actor|squad>');
+  });
+
+  it('economy verbs validate their tokens before any intent is built', () => {
+    const session = neutralSession();
+    expect(session.execute('combat').output).toContain('usage: combat');
+    expect(session.execute('combat sideways').output).toContain('usage: combat');
+    expect(session.execute('turn').output).toContain('usage: turn');
+    expect(session.execute('turn fury').output).toContain('combat has not begun');
+    expect(session.execute('advround now').output).toContain('usage: advround');
+    expect(session.execute('convert').output).toContain('usage: convert');
+    expect(session.execute('convert fury maneuver main').output).toContain('usage: convert');
+    expect(session.execute('roll').output).toContain('usage: roll');
+    expect(session.execute('roll fury fury censor blorp').output).toContain(
+      'unknown roll token "blorp"',
+    );
+    // The neutral record text compiles no power-roll cluster — the shell
+    // points at the asserted-tier and Effect paths instead of guessing.
+    expect(session.execute('roll fury fury censor').output).toContain(
+      'compiles no rolling ability',
+    );
+    expect(session.execute('commit').output).toContain('no open resolution on the stack');
+    expect(session.execute('mod downgrade 1').output).toContain('the resolution stack is empty');
+    expect(session.execute('trigger').output).toContain('usage: trigger');
+    expect(session.execute('villain fury').output).toContain('usage: villain');
+    expect(session.execute('grant fury blorp').output).toContain('unknown grant cost "blorp"');
+    expect(session.execute('grant fury main x0').output).toContain('usage: grant');
+  });
+
+  it('runs the combat round flow: tracker, budget chips, convert, loud warnings, round advance', () => {
+    const session = neutralSession();
+    const begun = session.execute('combat heroes').output;
+    // Server-rolled d10 path (auto-roll default) [rule.combat/combat-round].
+    expect(begun).toContain('combat begins — round 1, heroes act first');
+    expect(begun).toContain('d10:');
+
+    let status = session.execute('status').output;
+    expect(status).toContain(
+      'combat: round 1 — active turn: none — turn choice: heroes — first side: heroes',
+    );
+    expect(status).toContain('turns taken: fury 0/1 · censor 0/1');
+    expect(status).toContain('villain action: available this round');
+    expect(status).toContain('budget: main 0/1 · maneuver 0/1 · move 0/1 · triggered 0/1');
+
+    expect(session.execute('turn fury').output).toContain('fury starts their turn (round 1)');
+    status = session.execute('status').output;
+    expect(status).toContain('active turn: fury');
+    expect(status).toContain('turns taken: fury 1/1');
+
+    // Implicit-actor convert rides the active turn; the maneuver capacity
+    // grows by the converted grant ("You can also turn your main action
+    // into a move action or a maneuver").
+    const converted = session.execute('convert main maneuver').output;
+    expect(converted).toContain('fury turns their main action into a maneuver');
+    status = session.execute('status').output;
+    expect(status).toContain('budget: main 1/1 · maneuver 0/2 · move 0/1 · triggered 0/1');
+
+    expect(session.execute('endturn fury').output).toContain('fury ends their turn');
+
+    // Acting again after taking a turn is R-0030 warn-and-apply — rendered
+    // LOUD, never silent.
+    const again = session.execute('turn fury').output;
+    expect(again).toContain('!! WARNING:');
+    expect(again).toContain('acts again after taking 1 turn(s) this round');
+    expect(again).toContain('Applied anyway (permissive engine, R-0030)');
+    session.execute('endturn fury');
+
+    // Director-asserted round advance warns listing living unspent turns.
+    const advanced = session.execute('advround because the table asserts the round over').output;
+    expect(advanced).toContain('!! WARNING:');
+    expect(advanced).toContain('living unspent turns: censor');
+    expect(advanced).toContain('round 2 begins');
+    expect(session.execute('status').output).toContain('combat: round 2');
+  });
+
+  it('director grants and the villain economy through the CLI', () => {
+    const session = neutralSession();
+    session.execute('combat director');
+
+    // Escape-flagged action grant [R-0030]: printed escapes never warn.
+    const granted = session.execute('grant fury main x2 --ignores-dazed --off-turn').output;
+    expect(granted).toContain('fury is granted an additional main-action');
+    const status = session.execute('status').output;
+    expect(status).toContain('pending: additional main-action ×2');
+
+    // Director-asserted scheduling: a turn-allowance grant.
+    expect(session.execute('grant censor turn').output).toContain('censor is granted');
+
+    // Villain economy: one per round, once per encounter — the second use
+    // warns loudly on both printed constraints and applies anyway.
+    expect(session.execute('villain fury censor').output).toContain(
+      "spends the encounter's villain action",
+    );
+    const second = session.execute('villain fury censor').output;
+    expect(second).toContain('!! WARNING: a villain action was already used this round');
+    expect(second).toContain('was already used this encounter');
+    expect(session.execute('status').output).toContain('villain action: SPENT this round');
+
+    // Triggered actions: the per-round counter warns past the limit.
+    expect(session.execute('trigger fury censor because a creature strikes them').output).toContain(
+      'asserted trigger: a creature strikes them',
+    );
+    const overLimit = session.execute('trigger fury censor because it happens again').output;
+    expect(overLimit).toContain('!! WARNING:');
+    expect(overLimit).toContain('limit 1');
+  });
+});
+
+describe('two-phase combat with real corpus abilities (verbatim fixtures)', () => {
+  function combatSession() {
+    // Stats come from the drift-guarded verbatim fixtures (models point,
+    // code cuts) — never hand-typed rule content.
+    const adjudicatorStats = ParticipantStatsSchema.parse(JSON.parse(DEVIL_ADJUDICATOR.statsJson));
+    const warriorStats = ParticipantStatsSchema.parse(JSON.parse(GOBLIN_WARRIOR.statsJson));
+    return createPlaySession({
+      actors: [
+        { id: 'adjudicator', recordId: DEVIL_ADJUDICATOR.artifactId, stats: adjudicatorStats },
+        { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId, stats: warriorStats },
+      ],
+      records: new Map([
+        [DEVIL_ADJUDICATOR.artifactId, DEVIL_ADJUDICATOR.text],
+        [GOBLIN_WARRIOR.artifactId, GOBLIN_WARRIOR.text],
+      ]),
+    });
+  }
+
+  it('roll auto-commits by default: one action for the common path [R-0032]', () => {
+    const session = combatSession();
+    expect(session.execute('combat director roll 4').output).toContain('(d10: 4, asserted)');
+    session.execute('turn adjudicator');
+
+    // Infernal Injunction (fixed Power Roll + 3): 3+4+3 = 10 → tier 1 —
+    // "10 fire damage; I < 1 frightened (save ends)". The dispatch opens a
+    // resolution entry and the shell pipelines the commit immediately.
+    const rolled = session.execute('roll devil-adjudicator adjudicator warrior dice 3,4').output;
+    expect(rolled).toContain('rolled and OPEN on the resolution stack');
+    expect(rolled).toContain('is committed and executes against commit-time state');
+    expect(rolled).toContain('warrior takes 10 fire damage');
+    expect(rolled).toContain('frightened applied to warrior');
+
+    const status = session.execute('status').output;
+    expect(status).toContain('stamina 5/15');
+    expect(status).toContain('budget: main 1/1');
+    expect(status).not.toContain('open resolutions:');
+    expect(session.transcript().violationCount).toBe(0);
+  });
+
+  it('holds a window open: --hold, mod downgrade, explicit commit, endturn force-commit', () => {
+    const session = combatSession();
+    session.execute('combat director roll 4');
+    session.execute('turn adjudicator');
+    session.execute('endturn adjudicator');
+    session.execute('turn warrior');
+
+    // The goblin-warrior stat block compiles two rolling abilities — the
+    // shell lists them instead of guessing.
+    const ambiguous = session.execute('roll goblin-warrior warrior adjudicator').output;
+    expect(ambiguous).toContain('compiles 2 rolling abilities');
+
+    // Spear Charge held open: 5+5+2 = 12 → tier 2 ("4 damage"), then a
+    // downgrade modification and the explicit commit apply tier 1's
+    // "3 damage" against commit-time state [R-0032].
+    const held = session.execute(
+      'roll goblin-warrior warrior adjudicator 1 dice 5,5 --hold',
+    ).output;
+    expect(held).toContain('HELD OPEN');
+    let status = session.execute('status').output;
+    expect(status).toContain('open resolutions:');
+    expect(status).toContain('by warrior — rolled tier 2, commit pending [R-0032] — mods: none');
+    expect(session.execute('mod downgrade 1').output).toContain('records a downgrade modification');
+    expect(session.execute('status').output).toContain('mods: downgrade→tier 1');
+    const committed = session.execute('commit').output;
+    expect(committed).toContain('with 1 recorded modification(s)');
+    expect(committed).toContain('adjudicator takes 3 damage');
+
+    // A second main action this turn is an R-0030 violation: loud warning,
+    // applied anyway. Ending the turn force-commits the open entry — the
+    // shell re-supplies the held payload; printed damage is never
+    // discarded. Bury the Point tier 2: "6 damage; M < 1 bleeding".
+    const over = session.execute(
+      'roll goblin-warrior warrior adjudicator 2 dice 5,5 --hold',
+    ).output;
+    expect(over).toContain('!! WARNING: warrior exceeds their turn budget for a main-action');
+    const ended = session.execute('endturn warrior').output;
+    expect(ended).toContain('FORCE-committed at end of turn');
+    expect(ended).toContain('adjudicator takes 6 damage');
+    expect(ended).toContain('bleeding applied to adjudicator');
+
+    status = session.execute('status').output;
+    expect(status).toContain('stamina 131/140');
+    expect(status).not.toContain('open resolutions:');
+    expect(session.transcript().violationCount).toBe(0);
+  });
+
+  it('triggered actions ride the compiled header: cost, cap, and interception point [R-0031]', () => {
+    const session = combatSession();
+    session.execute('combat director roll 4');
+    session.execute('turn warrior');
+    // Spear Charge auto-commits: 3+4+2 = 9 → tier 1 ("3 damage").
+    const rolled = session.execute('roll goblin-warrior warrior adjudicator 1 dice 3,4').output;
+    expect(rolled).toContain('adjudicator takes 3 damage');
+    // Devilish Charm (Triggered action) against the strike occurrence: the
+    // compiled annotation classifies its tier-1 retarget template onto the
+    // 'targeting' interception point [R-0031].
+    const triggered = session.execute('trigger devil-adjudicator adjudicator by cli-2').output;
+    expect(triggered).toContain('triggered by dispatch cli-2');
+    expect(triggered).toContain('uses a triggered action');
+    expect(triggered).toContain('1 of 1 this round');
+    expect(triggered).toContain('interception point: targeting [R-0031]');
+    expect(session.transcript().violationCount).toBe(0);
   });
 });
 
