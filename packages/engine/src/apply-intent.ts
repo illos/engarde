@@ -1,10 +1,9 @@
 import { executeUseAbility } from './ability-execution.js';
+import { runBoundarySweeps } from './boundary-sweeps.js';
 import {
   CANON,
   SAVING_THROW,
   applyConditionInstance,
-  endEncounterSweep,
-  endOfTurnSweep,
   removeConditionInstance,
 } from './condition-lifecycle.js';
 import {
@@ -21,7 +20,6 @@ import {
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
-import { endEncounterGrantSweep, endOfTurnGrantSweep } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 
@@ -237,77 +235,30 @@ export function applyIntent(
           log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
         };
       }
-      const swept = endOfTurnSweep(
+      // Per-slot boundary behavior (conditions' saving throws + expiry,
+      // grants' windowed expiry [R-0016]) lives in the boundary-sweep
+      // registry; the handler names the boundary once.
+      return runBoundarySweeps(
         state,
-        target,
-        intent.payload.rolls ?? {},
-        () => context.random.roll(SAVING_THROW.die),
+        {
+          kind: 'end-of-turn',
+          participantId: intent.payload.participantId,
+          rolls: intent.payload.rolls ?? {},
+          rollSavingThrow: () => context.random.roll(SAVING_THROW.die),
+        },
         lifecycleContext,
       );
-      // Windowed next-roll grants expire at the holder's end-turn event
-      // [R-0016]; the same sweep is the current-turn clause.
-      const liveTarget = swept.state.participants[intent.payload.participantId];
-      if (!liveTarget) return swept;
-      const grantSwept = endOfTurnGrantSweep(swept.state, liveTarget, lifecycleContext);
-      return { state: grantSwept.state, log: [...swept.log, ...grantSwept.log] };
     }
     case 'end-encounter': {
-      const swept = endEncounterSweep(
+      // Per-slot boundary behavior (conditions' ending-effects sweep with
+      // the health exemption, grant clearing [R-0012], temporary-Stamina
+      // disappearance, terrain-fact clearing [R-0022]) lives in the
+      // boundary-sweep registry; the handler names the boundary once.
+      return runBoundarySweeps(
         state,
-        intent.payload.keepInstanceIds,
+        { kind: 'end-of-encounter', keepInstanceIds: intent.payload.keepInstanceIds },
         lifecycleContext,
-        (participant, instance) =>
-          isHealthSourcedInstance(instance) &&
-          (instance.source.effectArtifactId !== HEALTH_CANON.dying ||
-            (participant.stamina !== null && isDying(participant.stamina.current))),
       );
-      // Every remaining next-roll grant clears with the encounter [R-0012];
-      // out-of-encounter retention stays Director/table state.
-      const grantsSwept = endEncounterGrantSweep(swept.state, lifecycleContext);
-      // Temporary Stamina disappears at the end of an encounter
-      // [rule.health/temporary-stamina].
-      let nextState = grantsSwept.state;
-      const log = [...swept.log, ...grantsSwept.log];
-      for (const participant of Object.values(nextState.participants)) {
-        if (participant.stamina !== null && participant.stamina.temporary > 0) {
-          const cleared = {
-            ...participant,
-            stamina: { ...participant.stamina, temporary: 0 },
-          };
-          nextState = withParticipant(nextState, cleared);
-          log.push({
-            kind: 'mutation',
-            intentId: intent.intentId,
-            actor: intent.actor,
-            canonRefs: [HEALTH_CANON.temporaryStamina],
-            message: `temporary Stamina on ${participant.id} disappears with the encounter`,
-            data: {
-              staminaDeltas: [
-                {
-                  participantId: participant.id,
-                  from: participant.stamina.current,
-                  to: participant.stamina.current,
-                  temporaryFrom: participant.stamina.temporary,
-                  temporaryTo: 0,
-                },
-              ],
-            },
-          });
-        }
-      }
-      // Terrain facts do not survive the encounter [R-0022].
-      if (nextState.terrainFacts.length > 0) {
-        log.push({
-          kind: 'mutation',
-          intentId: intent.intentId,
-          actor: intent.actor,
-          canonRefs: [TERRAIN_CANON.difficultTerrain],
-          message: `${nextState.terrainFacts.length} recorded terrain fact(s) end with the encounter`,
-          data: { terrainFactsCleared: nextState.terrainFacts.map((fact) => fact.factId) },
-        });
-        nextState = { ...nextState, terrainFacts: [] };
-      }
-      return { state: nextState, log };
     }
     case 'resolve-pending-kills': {
       // Identity assignment for pool-counted kills [R-0024]: "the minions

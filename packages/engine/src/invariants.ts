@@ -121,6 +121,52 @@ function collectClaimRows<TClaim>(
  * claim/reconciliation semantics (value extraction, equality, violation
  * wording) are the parameters.
  */
+/**
+ * Generic add/remove SET reconciliation — the ONE home for the two-way
+ * membership shape every set-shaped state slot shares (condition
+ * instances, next-roll grants, terrain facts; a schema v6 set slot adds a
+ * config entry, not a copy): diff the before/after member ids, require
+ * every appearance/disappearance to be claimed, and flag every claim the
+ * diff does not show. Members may carry arbitrary per-member payloads —
+ * the caller extracts ids and claim rows, so no slot schema leaks in
+ * here. Claim multiplicity and order are the caller's: phantoms emit one
+ * violation per claim row, exactly as supplied. The slot's violation
+ * wording is the parameter.
+ */
+interface SetClaim {
+  op: 'added' | 'removed';
+  id: string;
+}
+
+function reconcileSetClaims(
+  beforeIds: readonly string[],
+  afterIds: readonly string[],
+  claims: readonly SetClaim[],
+  semantics: {
+    unattributed: (op: SetClaim['op'], id: string) => InvariantViolation;
+    phantom: (op: SetClaim['op'], id: string) => InvariantViolation;
+  },
+): { violations: InvariantViolation[]; added: string[]; removed: string[] } {
+  const beforeSet = new Set(beforeIds);
+  const afterSet = new Set(afterIds);
+  const added = afterIds.filter((id) => !beforeSet.has(id));
+  const removed = beforeIds.filter((id) => !afterSet.has(id));
+  const claimedByOp = { added: new Set<string>(), removed: new Set<string>() };
+  for (const claim of claims) claimedByOp[claim.op].add(claim.id);
+  const violations: InvariantViolation[] = [];
+  for (const id of added) {
+    if (!claimedByOp.added.has(id)) violations.push(semantics.unattributed('added', id));
+  }
+  for (const id of removed) {
+    if (!claimedByOp.removed.has(id)) violations.push(semantics.unattributed('removed', id));
+  }
+  const realByOp = { added: new Set(added), removed: new Set(removed) };
+  for (const claim of claims) {
+    if (!realByOp[claim.op].has(claim.id)) violations.push(semantics.phantom(claim.op, claim.id));
+  }
+  return { violations, added, removed };
+}
+
 function walkClaims<TClaim, TValue>(
   before: TValue,
   after: TValue,
@@ -212,100 +258,52 @@ export function checkInvariants(
   }
 
   // State↔log reconciliation over condition instances.
-  const beforeIds = instanceIds(before);
-  const afterIds = instanceIds(result.state);
-  const added = [...afterIds.keys()].filter((id) => !beforeIds.has(id));
-  const removed = [...beforeIds.keys()].filter((id) => !afterIds.has(id));
-
   const mutations = result.log.filter((entry) => entry.kind === 'mutation');
-  const claimedAdds = new Set(
-    mutations.flatMap((entry) => claimed(entry.data, 'addedInstanceIds')),
+  const conditionRecon = reconcileSetClaims(
+    [...instanceIds(before).keys()],
+    [...instanceIds(result.state).keys()],
+    mutations.flatMap((entry) => [
+      ...claimed(entry.data, 'addedInstanceIds').map((id) => ({ op: 'added' as const, id })),
+      ...claimed(entry.data, 'removedInstanceIds').map((id) => ({ op: 'removed' as const, id })),
+    ]),
+    {
+      unattributed: (op, id) =>
+        op === 'added'
+          ? { code: 'unattributed-add', detail: `instance ${id} appeared with no claim` }
+          : { code: 'unattributed-remove', detail: `instance ${id} vanished with no claim` },
+      phantom: (_op, id) => ({
+        code: 'phantom-claim',
+        detail: `mutation entry claims ${id} but the state shows no such change`,
+      }),
+    },
   );
-  const claimedRemoves = new Set(
-    mutations.flatMap((entry) => claimed(entry.data, 'removedInstanceIds')),
-  );
-
-  for (const id of added) {
-    if (!claimedAdds.has(id)) {
-      violations.push({
-        code: 'unattributed-add',
-        detail: `instance ${id} appeared with no claim`,
-      });
-    }
-  }
-  for (const id of removed) {
-    if (!claimedRemoves.has(id)) {
-      violations.push({
-        code: 'unattributed-remove',
-        detail: `instance ${id} vanished with no claim`,
-      });
-    }
-  }
-  const addedSet = new Set(added);
-  const removedSet = new Set(removed);
-  for (const entry of mutations) {
-    const claims = [
-      ...claimed(entry.data, 'addedInstanceIds').map((id) => ({ id, real: addedSet.has(id) })),
-      ...claimed(entry.data, 'removedInstanceIds').map((id) => ({ id, real: removedSet.has(id) })),
-    ];
-    for (const claim of claims) {
-      if (!claim.real) {
-        violations.push({
-          code: 'phantom-claim',
-          detail: `mutation entry claims ${claim.id} but the state shows no such change`,
-        });
-      }
-    }
-  }
+  violations.push(...conditionRecon.violations);
+  // The added-instance list feeds the potency-gate consistency check below.
+  const added = conditionRecon.added;
 
   // State↔log reconciliation over next-roll grants (v3): every grant that
   // appears or vanishes must be claimed by a mutation entry's
   // addedGrantIds / removedGrantIds, and every claim must be real.
-  const beforeGrantIds = grantIds(before);
-  const afterGrantIds = grantIds(result.state);
-  const grantsAdded = [...afterGrantIds.keys()].filter((id) => !beforeGrantIds.has(id));
-  const grantsRemoved = [...beforeGrantIds.keys()].filter((id) => !afterGrantIds.has(id));
-  const claimedGrantAdds = new Set(
-    mutations.flatMap((entry) => claimed(entry.data, 'addedGrantIds')),
-  );
-  const claimedGrantRemoves = new Set(
-    mutations.flatMap((entry) => claimed(entry.data, 'removedGrantIds')),
-  );
-  for (const id of grantsAdded) {
-    if (!claimedGrantAdds.has(id)) {
-      violations.push({
-        code: 'unattributed-grant-add',
-        detail: `grant ${id} appeared with no claim`,
-      });
-    }
-  }
-  for (const id of grantsRemoved) {
-    if (!claimedGrantRemoves.has(id)) {
-      violations.push({
-        code: 'unattributed-grant-remove',
-        detail: `grant ${id} vanished with no claim`,
-      });
-    }
-  }
-  const grantsAddedSet = new Set(grantsAdded);
-  const grantsRemovedSet = new Set(grantsRemoved);
-  for (const entry of mutations) {
-    const grantClaims = [
-      ...claimed(entry.data, 'addedGrantIds').map((id) => ({ id, real: grantsAddedSet.has(id) })),
-      ...claimed(entry.data, 'removedGrantIds').map((id) => ({
-        id,
-        real: grantsRemovedSet.has(id),
-      })),
-    ];
-    for (const claim of grantClaims) {
-      if (!claim.real) {
-        violations.push({
+  violations.push(
+    ...reconcileSetClaims(
+      [...grantIds(before).keys()],
+      [...grantIds(result.state).keys()],
+      mutations.flatMap((entry) => [
+        ...claimed(entry.data, 'addedGrantIds').map((id) => ({ op: 'added' as const, id })),
+        ...claimed(entry.data, 'removedGrantIds').map((id) => ({ op: 'removed' as const, id })),
+      ]),
+      {
+        unattributed: (op, id) =>
+          op === 'added'
+            ? { code: 'unattributed-grant-add', detail: `grant ${id} appeared with no claim` }
+            : { code: 'unattributed-grant-remove', detail: `grant ${id} vanished with no claim` },
+        phantom: (_op, id) => ({
           code: 'phantom-grant-claim',
-          detail: `mutation entry claims grant ${claim.id} but the state shows no such change`,
-        });
-      }
-    }
-  }
+          detail: `mutation entry claims grant ${id} but the state shows no such change`,
+        }),
+      },
+    ).violations,
+  );
 
   // ── Stamina↔log reconciliation (power-roll cluster) ─────────────────────
   // Every participant's stamina delta must be walked, in log order, by the
@@ -423,7 +421,6 @@ export function checkInvariants(
   }
 
   // ── Terrain-fact↔log reconciliation (v4, R-0022) ────────────────────────
-  const beforeFactIds = before.terrainFacts.map((fact) => fact.factId);
   const afterFactIds = result.state.terrainFacts.map((fact) => fact.factId);
   const seenFactIds = new Set<string>();
   for (const factId of afterFactIds) {
@@ -432,8 +429,9 @@ export function checkInvariants(
     }
     seenFactIds.add(factId);
   }
-  const factsAdded = afterFactIds.filter((id) => !beforeFactIds.includes(id));
-  const factsRemoved = beforeFactIds.filter((id) => !afterFactIds.includes(id));
+  // Claims arrive as one-object add/clear receipts plus bulk clears;
+  // dedupe to first occurrence (adds before removes) — a fact id claimed
+  // twice is one claim against the walked set, not two.
   const claimedFactAdds = new Set<string>();
   const claimedFactRemoves = new Set<string>();
   for (const entry of mutations) {
@@ -443,38 +441,29 @@ export function checkInvariants(
     if (typeof clearedFact?.factId === 'string') claimedFactRemoves.add(clearedFact.factId);
     for (const id of claimed(entry.data, 'terrainFactsCleared')) claimedFactRemoves.add(id);
   }
-  for (const id of factsAdded) {
-    if (!claimedFactAdds.has(id)) {
-      violations.push({
-        code: 'unattributed-terrain-change',
-        detail: `terrain fact ${id} appeared with no claim`,
-      });
-    }
-  }
-  for (const id of factsRemoved) {
-    if (!claimedFactRemoves.has(id)) {
-      violations.push({
-        code: 'unattributed-terrain-change',
-        detail: `terrain fact ${id} vanished with no claim`,
-      });
-    }
-  }
-  for (const id of claimedFactAdds) {
-    if (!factsAdded.includes(id)) {
-      violations.push({
-        code: 'phantom-terrain-claim',
-        detail: `mutation entry claims added fact ${id} but the state shows no such change`,
-      });
-    }
-  }
-  for (const id of claimedFactRemoves) {
-    if (!factsRemoved.includes(id)) {
-      violations.push({
-        code: 'phantom-terrain-claim',
-        detail: `mutation entry claims removed fact ${id} but the state shows no such change`,
-      });
-    }
-  }
+  violations.push(
+    ...reconcileSetClaims(
+      before.terrainFacts.map((fact) => fact.factId),
+      afterFactIds,
+      [
+        ...[...claimedFactAdds].map((id) => ({ op: 'added' as const, id })),
+        ...[...claimedFactRemoves].map((id) => ({ op: 'removed' as const, id })),
+      ],
+      {
+        unattributed: (op, id) => ({
+          code: 'unattributed-terrain-change',
+          detail:
+            op === 'added'
+              ? `terrain fact ${id} appeared with no claim`
+              : `terrain fact ${id} vanished with no claim`,
+        }),
+        phantom: (op, id) => ({
+          code: 'phantom-terrain-claim',
+          detail: `mutation entry claims ${op} fact ${id} but the state shows no such change`,
+        }),
+      },
+    ).violations,
+  );
 
   // ── Squad-pool reconciliation (v5, R-0023..R-0028) ─────────────────────
   // Structural coherence: the printed pool formula, the standing R-0024
