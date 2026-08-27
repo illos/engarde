@@ -94,6 +94,7 @@ export function applyIntent(
             abilityKey: asserted.abilityArtifactId,
             usesPerRound: asserted.usesPerRound,
             partOf: asserted.partOf ?? null,
+            sharesAbilityUse: asserted.partOf !== undefined,
           },
           lifecycleContext,
         );
@@ -178,6 +179,7 @@ export function applyIntent(
             abilityKey: instance.source.effectArtifactId,
             usesPerRound: null,
             partOf: null,
+            sharesAbilityUse: false,
           },
           lifecycleContext,
         );
@@ -242,6 +244,7 @@ export function applyIntent(
             abilityKey: asserted.abilityArtifactId,
             usesPerRound: asserted.usesPerRound,
             partOf: asserted.partOf ?? null,
+            sharesAbilityUse: asserted.partOf !== undefined,
           },
           lifecycleContext,
         );
@@ -889,6 +892,7 @@ export function applyIntent(
           abilityKey: `convert-action:${intent.payload.to}`,
           usesPerRound: null,
           partOf: null,
+          sharesAbilityUse: false,
         },
         lifecycleContext,
       );
@@ -971,6 +975,7 @@ export function applyIntent(
           abilityKey: intent.payload.abilityArtifactId,
           usesPerRound: intent.payload.perRoundCap,
           partOf: null,
+          sharesAbilityUse: false,
         },
         lifecycleContext,
       );
@@ -999,6 +1004,7 @@ export function applyIntent(
           abilityKey: intent.payload.abilityArtifactId,
           usesPerRound: null,
           partOf: null,
+          sharesAbilityUse: false,
         },
         lifecycleContext,
       );

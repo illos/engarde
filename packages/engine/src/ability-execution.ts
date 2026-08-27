@@ -747,6 +747,9 @@ export function executeUseAbility(
           abilityKey: ability.abilityArtifactId,
           usesPerRound: ability.usesPerRound,
           partOf: payload.partOf ?? null,
+          // use-ability.partOf composes a distinct child ability (Charge's
+          // inner strike): it shares the debit, not its own usage counter.
+          sharesAbilityUse: false,
         },
         context,
       );

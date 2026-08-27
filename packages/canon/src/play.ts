@@ -23,6 +23,7 @@ import {
   compileAbilities,
   compileEffectPrograms,
   groupPowerRollClusters,
+  resolvePowerRollAbilityHeader,
   tierOutcomeToIntents,
 } from './effect-conformance.js';
 import { type GrammarParse, auditGrammarConservation, parseEffectText } from './effect-grammar.js';
@@ -97,9 +98,11 @@ const HELP = `commands:
                                           roll omitted = auto-roll
   remove <target> <condition> [as <actor>] [because <reason..>]
   clearterrain <factId> [because <reason..>] clear a recorded terrain fact (director)
-  damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>] [because <reason..>]
+  damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>]
+         [ability <record[#ability-slug]> by <actor>] [partof <intent>] [because <reason..>]
                                           manual damage (director); a squad member's
-                                          damage routes to its squad's Stamina pool
+                                          damage routes to its squad's Stamina pool;
+                                          optional ability assertion derives its debit
   resolvekills <squad> <victim,victim..> [because <reason..>]
                                           name the victims of pool-counted kills (director)
   attach <squad> <captain>                attach a captain to a squad (director)
@@ -1354,7 +1357,7 @@ export function createPlaySession(options: {
 
   function commandDamage(args: string[]): string {
     const usage =
-      'usage: damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>] [because <reason ...>]';
+      'usage: damage <target> <amount> [<type>] [area] [knockout] [victims <a,b>] [ability <record[#ability-slug]> by <actor>] [partof <intent>] [because <reason ...>]';
     const becauseAt = args.indexOf('because');
     const tokens = args.slice(0, becauseAt === -1 ? args.length : becauseAt);
     const [targetQuery, amountText, ...rest] = tokens;
@@ -1367,6 +1370,9 @@ export function createPlaySession(options: {
     let area = false;
     let knockOut = false;
     const victims: string[] = [];
+    let abilityReference: string | null = null;
+    let abilityActorQuery: string | null = null;
+    let partOf: string | undefined;
     for (let index = 0; index < rest.length; index += 1) {
       const token = (rest[index] ?? '').toLowerCase();
       if (token === 'area') {
@@ -1383,6 +1389,19 @@ export function createPlaySession(options: {
           victims.push(victim.id);
         }
         index += 1;
+      } else if (token === 'ability') {
+        const reference = rest[index + 1];
+        const by = rest[index + 2]?.toLowerCase();
+        const actorQuery = rest[index + 3];
+        if (!reference || by !== 'by' || !actorQuery || abilityReference !== null) return usage;
+        abilityReference = reference;
+        abilityActorQuery = actorQuery;
+        index += 3;
+      } else if (token === 'partof') {
+        const parentIntentId = rest[index + 1];
+        if (!parentIntentId || partOf !== undefined) return usage;
+        partOf = parentIntentId;
+        index += 1;
       } else if ((DAMAGE_TYPES as readonly string[]).includes(token)) {
         damageType = token as DamageType;
       } else {
@@ -1393,6 +1412,36 @@ export function createPlaySession(options: {
       becauseAt !== -1 && args.length > becauseAt + 1
         ? args.slice(becauseAt + 1).join(' ')
         : 'manual damage entry';
+    if (partOf !== undefined && abilityReference === null)
+      return `partof requires an ability assertion — ${usage}`;
+    let assertedAbilityUse: Extract<
+      Intent,
+      { kind: 'apply-damage' }
+    >['payload']['assertedAbilityUse'] = null;
+    if (abilityReference !== null && abilityActorQuery !== null) {
+      const [recordQuery, suffix, ...extra] = abilityReference.split('#');
+      if (!recordQuery || suffix === '' || extra.length > 0) return usage;
+      const record = resolveRecord(recordQuery);
+      if ('error' in record) return record.error;
+      const actor = resolveParticipant(abilityActorQuery);
+      if ('error' in actor) return actor.error;
+      const fullReference = suffix === undefined ? record.id : `${record.id}#${suffix}`;
+      const resolved = resolvePowerRollAbilityHeader(
+        parsedRecord(record.id),
+        record.id,
+        fullReference,
+      );
+      if (resolved === null) {
+        return `cannot derive one printed power-roll ability from "${abilityReference}" — use an exact record#ability-slug reference`;
+      }
+      assertedAbilityUse = {
+        actorParticipantId: actor.id,
+        abilityArtifactId: resolved.abilityArtifactId,
+        actionCost: resolved.annotation.actionCost,
+        usesPerRound: resolved.annotation.usesPerRound,
+        ...(partOf === undefined ? {} : { partOf }),
+      };
+    }
     // Director adjudication: `area` is the dispatch half of the R-0025
     // discriminator; `victims` names extra kills [R-0024]; a living squad
     // member's damage routes to the pool inside the engine.
@@ -1400,7 +1449,10 @@ export function createPlaySession(options: {
       {
         intentId: nextIntentId(),
         kind: 'apply-damage',
-        actor: { kind: 'director' },
+        actor:
+          assertedAbilityUse === null
+            ? { kind: 'director' }
+            : { kind: 'participant', participantId: assertedAbilityUse.actorParticipantId },
         payload: {
           target: target.id,
           amount,
@@ -1409,6 +1461,7 @@ export function createPlaySession(options: {
           knockOut,
           area,
           minionKillVictims: victims,
+          assertedAbilityUse,
         },
       },
     ]);

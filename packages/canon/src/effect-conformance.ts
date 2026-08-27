@@ -1,6 +1,7 @@
 import {
   type AbilityEffectData,
   AbilityEffectDataSchema,
+  type ActionCost,
   type AssertedAbilityUse,
   type EffectProgramData,
   EffectProgramDataSchema,
@@ -200,6 +201,46 @@ export function groupPowerRollClusters(parse: GrammarParse): PowerRollClusterGro
     openCluster = null;
   }
   return clusters;
+}
+
+/**
+ * Resolve an explicitly referenced power-roll ability to the header that
+ * owns its cost annotation. A stat block can contain several abilities, so
+ * a bare record reference succeeds only when there is exactly one
+ * header-backed power-roll cluster; callers must supply `#ability-slug`
+ * otherwise. This is the shared host/CLI derivation seam for manual damage
+ * that is asserted to realize an ability use [N-3].
+ */
+export function resolvePowerRollAbilityHeader(
+  parse: GrammarParse,
+  baseArtifactId: string,
+  abilityArtifactId: string,
+): {
+  abilityArtifactId: string;
+  annotation: HeaderCostAnnotation & { actionCost: ActionCost };
+} | null {
+  const [referencedBase, suffix, ...extra] = abilityArtifactId.split('#');
+  if (referencedBase !== baseArtifactId || extra.length > 0 || suffix === '') return null;
+  const annotations = annotateHeaderCosts(parse, baseArtifactId);
+  const seen = new Set<PowerRollClusterGroup['header']>();
+  const candidates: HeaderCostAnnotation[] = [];
+  for (const cluster of groupPowerRollClusters(parse)) {
+    if (cluster.header === null || seen.has(cluster.header)) continue;
+    seen.add(cluster.header);
+    const annotation = annotations.get(cluster.header);
+    if (annotation) candidates.push(annotation);
+  }
+  const matches =
+    suffix === undefined
+      ? candidates
+      : candidates.filter((annotation) => annotation.abilitySlug === suffix);
+  if (matches.length !== 1) return null;
+  const annotation = matches[0];
+  if (!annotation || annotation.actionCost === null) return null;
+  return {
+    abilityArtifactId,
+    annotation: { ...annotation, actionCost: annotation.actionCost },
+  };
 }
 
 /** Economy fields for one compiled shape from its header's annotation

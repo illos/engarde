@@ -356,6 +356,15 @@ counter but honors per-ability caps and the prevention coupling
 R-0001 wiring: the off-turn effect-ending maneuver warn, tested by
 pilot step 7 — the first mandated test of the arc.
 
+Several asserted dispatches that realize one printed ability use may share
+the first dispatch through `partOf`: they share both its action debit and its
+per-ability use count. A composed child ability with a different ability key
+(Charge's inner strike) shares only the parent debit and retains its own use
+counter. Damage-only asserted tiers use the manual-damage host seam: an
+optional actor + exact canon ability reference derives `actionCost` and
+`usesPerRound` from the owned power-roll header; ambiguous stat blocks require
+`record#ability-slug` and are never resolved by first-header guesswork.
+
 **Common actions.** Compile the 5 companion ability artifacts through
 the existing pipeline (they are ordinary statblock-shaped abilities).
 The 12 prose features: those whose text the existing grammar covers
@@ -369,9 +378,10 @@ budgets, resolution stack, villain economy); Director mutations for
 begin-combat / start-turn / advance-round / grants / villain actions;
 CLI verbs `turn` / `endturn` / `advround` / `commit` / `convert` /
 `grant`; web Table: turn tracker rail, budget chips, open-resolution
-card with commit + modification affordances. New drift-guarded E2E
-fixture: a two-side encounter walking a full round with a triggered
-action, a crit grant, and a squad turn.
+card with commit + modification affordances, plus a Director manual-damage
+form whose optional ability assertion is derived server-side. New
+drift-guarded E2E fixture: a two-side encounter walking a full round with a
+triggered action, a crit grant, and a squad turn.
 
 ## 4. Deliberate scope cuts (tracked, not hidden)
 

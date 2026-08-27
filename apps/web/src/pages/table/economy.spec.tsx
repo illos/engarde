@@ -614,6 +614,76 @@ describe('AddGrantSection [I-6f]', () => {
   });
 });
 
+describe('manual damage ability assertion [N-3]', () => {
+  test('Director can enter bare damage or optionally assert a canon-derived ability debit', async () => {
+    setScene({ ...combatView, participants: [fury, monarch], squads: [] });
+    setQuery(api.encounters.searchRecords, [
+      {
+        artifactId: SPINECLEAVER,
+        slug: 'goblin-spinecleaver',
+        parsedTiers: ['≤11', '12-16', '17+'],
+        residueSpans: 1,
+        effects: [],
+        autoRollable: true,
+        hasStats: true,
+      },
+    ]);
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText('Manual damage target'), {
+      target: { value: 'goblin-monarch' },
+    });
+    fireEvent.change(screen.getByLabelText('Manual damage amount'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Manual damage type'), {
+      target: { value: 'fire' },
+    });
+    fireEvent.change(screen.getByLabelText('Manual damage reason'), {
+      target: { value: 'hazard' },
+    });
+    fireEvent.click(screen.getByText('Apply damage'));
+    expect(spyFor(api.encounters.applyDamage)).toHaveBeenCalledWith({
+      campaignId,
+      targetParticipantId: 'goblin-monarch',
+      amount: 4,
+      damageType: 'fire',
+      reason: 'hazard',
+    });
+    await act(() => Promise.resolve());
+
+    fireEvent.click(screen.getByLabelText('Assert this damage as an ability use'));
+    fireEvent.change(screen.getByLabelText('Search manual damage ability'), {
+      target: { value: 'spine' },
+    });
+    fireEvent.click(screen.getByText('Assert ability'));
+    fireEvent.change(screen.getByLabelText('Manual damage ability slug'), {
+      target: { value: 'axe' },
+    });
+    fireEvent.change(screen.getByLabelText('Manual damage parent intent'), {
+      target: { value: 'd8-parent' },
+    });
+    fireEvent.click(screen.getByText('Apply damage'));
+    expect(spyFor(api.encounters.applyDamage)).toHaveBeenLastCalledWith({
+      campaignId,
+      targetParticipantId: 'goblin-monarch',
+      amount: 4,
+      damageType: 'fire',
+      reason: 'hazard',
+      abilityAssertion: {
+        actorParticipantId: 'fury',
+        abilityArtifactId: `${SPINECLEAVER}#axe`,
+        partOf: 'd8-parent',
+      },
+    });
+
+    cleanup();
+    setScene(
+      { ...combatView, viewerIsDirector: false, participants: [fury, monarch], squads: [] },
+      'player',
+    );
+    render(<EncounterPanel campaignId={campaignId} />);
+    expect(screen.queryByText('Manual damage (Director)')).toBeNull();
+  });
+});
+
 describe('ResolutionsSection', () => {
   const resolution = {
     resolutionId: 'd7-blood-for-blood',

@@ -29,6 +29,10 @@ import { type EffectClause, type GrammarParse, stripSccLinks } from './effect-gr
  */
 
 export interface HeaderCostAnnotation {
+  /** Deterministic slug of the printed ability name immediately preceding
+   * this header. Null for headerless tables. Hosts use this only to resolve
+   * an explicit `record#ability-slug` reference; it never guesses a cost. */
+  abilitySlug: string | null;
   actionCost: ActionCost | null;
   actionCostResidue: string | null;
   operatorPays: boolean;
@@ -66,6 +70,22 @@ function lastContentLine(text: string): string | null {
     .map((line) => line.replace(/^>+\s*/, '').trim())
     .filter((line) => line.length > 0);
   return lines.length > 0 ? (lines[lines.length - 1] ?? null) : null;
+}
+
+/** Printed ability-name line → the same lowercase dash form used by canon
+ * artifact/ability references (`Meat Shield` → `meat-shield`). Parenthetical
+ * cost/category tails are metadata, not part of the ability name. */
+function abilitySlugFromNameLine(nameLine: string | null): string | null {
+  if (nameLine === null) return null;
+  const printedName = /\*\*([^*]+)\*\*/.exec(nameLine)?.[1];
+  if (printedName === undefined) return null;
+  const withoutMetadata = printedName.replace(/\s+\([^)]*\)\s*$/, '').trim();
+  const slug = withoutMetadata
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : null;
 }
 
 /**
@@ -201,6 +221,7 @@ export function annotateHeaderCosts(
         : null;
 
     annotations.set(header, {
+      abilitySlug: abilitySlugFromNameLine(nameLine),
       actionCost,
       actionCostResidue,
       operatorPays,

@@ -225,6 +225,10 @@ export interface DebitRequest {
   /** Composition parent reference — the parent's debit covers this
    * dispatch [design §3]. */
   partOf: string | null;
+  /** True only when `partOf` is another dispatch of this SAME printed
+   * ability use. A composed child with its own ability key still counts as
+   * its own use even though the parent pays the action debit. */
+  sharesAbilityUse: boolean;
 }
 
 /**
@@ -278,18 +282,30 @@ export function debitActionCost(
   let nextState = state;
   let nextPayer = payer;
 
-  // ── per-ability usage counters (always, partOf included) ───────────────
+  // ── per-ability usage counters ─────────────────────────────────────────
+  // A partOf child that realizes another half/target of the SAME printed
+  // ability use shares both the action debit and the usage counter [N-1].
+  // A composed child with a different ability key (Charge → its inner
+  // strike) still records its own use even though the parent paid the cost.
   const uses = payer.abilityUses[request.abilityKey] ?? { round: 0, turn: 0, encounter: 0 };
-  const nextUses = { round: uses.round + 1, turn: uses.turn + 1, encounter: uses.encounter + 1 };
-  nextPayer = {
-    ...nextPayer,
-    abilityUses: { ...nextPayer.abilityUses, [request.abilityKey]: nextUses },
-  };
-  const abilityUseDeltas = [
-    { participantId: payer.id, abilityKey: request.abilityKey, from: uses, to: nextUses },
-  ];
+  const nextUses = request.sharesAbilityUse
+    ? uses
+    : { round: uses.round + 1, turn: uses.turn + 1, encounter: uses.encounter + 1 };
+  if (!request.sharesAbilityUse) {
+    nextPayer = {
+      ...nextPayer,
+      abilityUses: { ...nextPayer.abilityUses, [request.abilityKey]: nextUses },
+    };
+  }
+  const abilityUseDeltas = request.sharesAbilityUse
+    ? []
+    : [{ participantId: payer.id, abilityKey: request.abilityKey, from: uses, to: nextUses }];
   const violations: Violation[] = [];
-  if (request.usesPerRound !== null && nextUses.round > request.usesPerRound) {
+  if (
+    !request.sharesAbilityUse &&
+    request.usesPerRound !== null &&
+    nextUses.round > request.usesPerRound
+  ) {
     violations.push({
       kind: 'per-ability-cap',
       canonRefs: [request.abilityKey],

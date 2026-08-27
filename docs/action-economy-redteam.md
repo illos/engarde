@@ -93,3 +93,52 @@ delay/ready mechanism. **Recovered: the "Acting Together" minion action
 economy prose, Monsters p.8–9, verbatim** — absent from the markdown
 bundle pin; grounds R-0033 (full text on the card and, if accepted, in
 the rulings log).
+
+## Re-audit (same-day closeout, 2026-08-27): GO
+
+The implementation re-audit first returned NO-GO, then GO after the two
+audit-fix batches (`76c8921`, `42ae76e`). A final residual walk found three
+bounded issues; all are fixed in the closeout commit containing this note:
+
+- **N-1 (minor):** asserted damage + condition dispatches sharing one
+  `partOf` action were counting two `abilityUses` and could emit a false
+  per-ability-cap warning. A shared dispatch with the same asserted ability
+  key now shares both the debit and the use counter; composed child abilities
+  with their own key (for example Charge's inner strike) still count their own
+  use. Engine and Convex regressions pin one round/encounter use.
+- **N-2 (minor):** Convex triggered-action derivation selected the first
+  triggered/free-triggered header in a stat block and ignored an explicit
+  `#ability-slug`. Header annotations now carry a deterministic printed-name
+  slug, and derivation matches the suffix. The real bugbear channeler's
+  adjacent Catcher (free) and Shadow Veil (counted) headers prove the split;
+  explicit cost/cap overrides remain the asserted-case escape.
+- **N-3 (important):** a damage-only asserted tier produced no compiler
+  intents, so there was no surface on which to carry the economy assertion.
+  Manual damage in Convex, CLI, and the Director web form now accepts an
+  optional actor + ability reference. Cost and once-per-round cap derive from
+  the loaded checksummed record through the same
+  `groupPowerRollClusters` + `annotateHeaderCosts` ownership seam; ambiguous
+  multi-ability records require `record#ability-slug` and are refused rather
+  than guessed. Bare manual damage remains unchanged. Convex and CLI tests
+  pin the budget delta and second-use over-budget warning.
+
+Final verdict: **GO** for the action-economy/two-phase-commit slice. The
+following are tracked follow-up-family boundaries, not concealed acceptance
+criteria for this slice:
+
+- R-0036 accounting must not claim Grab, Escape Grab, or Knockback are
+  compiled at this pin: only the two Free Strike Together shapes compile.
+  The squad-attack family must extend the grammar or amend R-0036.
+- Targeting interception currently starts at `rolled`; there is no persisted
+  declared-but-unrolled resolution entry.
+- Squad-owned resolution entries currently skip bleeding's participant
+  qualifier lookup (`resolution.ts`, participant ownership branch).
+- `partOf` usage sharing is valid only for dispatches realizing the same
+  printed ability; a different child ability key keeps its own use counter.
+- The permissive host still has no authenticated user↔participant binding;
+  actor attribution is receipted but not ownership authorization.
+- Multi-ability host derivation must remain suffix-aware; a bare ambiguous
+  record is never license to select the first header.
+- Pin-bump tripwires are mechanical: exact Wave of Blood references, the
+  zero action-cost-residue sweep, and the 17 common features + 5 companion
+  abilities count freeze must all be re-certified on a corpus change.

@@ -355,6 +355,28 @@ describe('two-phase combat with real corpus abilities (verbatim fixtures)', () =
     expect(session.transcript().violationCount).toBe(0);
   });
 
+  it('manual damage can assert a damage-only ability use and derives its debit [N-3]', () => {
+    const session = combatSession();
+    session.execute('combat director roll 4');
+    session.execute('turn warrior');
+
+    // The real goblin-warrior record has two power-roll abilities, so the
+    // explicit suffix proves that the shell derives Spear Charge's printed
+    // main-action cost instead of guessing a record-level cost.
+    const first = session.execute(
+      'damage adjudicator 3 ability goblin-warrior#spear-charge by warrior because asserted tier damage',
+    ).output;
+    expect(first).toContain('adjudicator takes 3 asserted tier damage');
+    expect(first).not.toContain('WARNING');
+    expect(session.execute('status').output).toContain('budget: main 1/1');
+
+    const reused = session.execute(
+      'damage adjudicator 3 ability goblin-warrior#spear-charge by warrior because asserted tier damage again',
+    ).output;
+    expect(reused).toContain('!! WARNING:');
+    expect(reused).toContain('exceeds their turn budget for a main-action');
+  });
+
   it('holds a window open: --hold, mod downgrade, explicit commit, endturn force-commit', () => {
     const session = combatSession();
     session.execute('combat director roll 4');

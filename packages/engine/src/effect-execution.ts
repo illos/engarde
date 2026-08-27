@@ -351,6 +351,7 @@ export function executeUseEffect(
           abilityKey: effect.effectArtifactId,
           usesPerRound: effect.usesPerRound,
           partOf: intent.payload.partOf ?? null,
+          sharesAbilityUse: false,
         },
         context,
       );

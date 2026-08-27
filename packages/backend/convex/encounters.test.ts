@@ -35,6 +35,13 @@ const CENSOR = 'mcdm.heroes.v1/class/censor';
 const WODE_SENTRY = 'mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-sentry';
 const WODE_EFFECT_TEXT =
   '> **Effect:** Allies gain an edge on abilities against a target marked by any wode elf.\n> **Effect:** Each target takes 3 damage.\n';
+const BUGBEAR_CHANNELER = 'mcdm.monsters.v1/monster.bugbear.statblock/bugbear-channeler';
+/** Exact adjacent Catcher + Shadow Veil sections from the pinned bugbear
+ * channeler artifact. This real record carries BOTH free-triggered and
+ * triggered headers, so a `#shadow-veil` reference proves suffix-aware
+ * derivation instead of accidentally taking the first header [N-2]. */
+const BUGBEAR_TRIGGER_HEADERS =
+  "> ❗️ **Catcher**\n>\n> | **Melee**      |                **Free [triggered action](scc.v1:mcdm.heroes.v1/rule.combat/triggered-action)** |\n> |----------------|-----------------------------------------:|\n> | **📏 Melee 1** | **🎯 The triggering creature or object** |\n>\n> **Trigger:** A size 1 creature or object is [force moved](scc.v1:mcdm.heroes.v1/movement/forced-movement) within distance, or a size 1 ally willingly moves within distance.\n>\n> **Effect:** The target is [grabbed](scc.v1:mcdm.heroes.v1/condition/grabbed) by the channeler.\n\n> ❗️ **Shadow Veil**\n>\n> | **Magic, Ranged** |       **[Triggered action](scc.v1:mcdm.heroes.v1/rule.combat/triggered-action)** |\n> |-------------------|---------------------------:|\n> | **📏 Ranged 5**   | **🎯 The triggering ally** |\n>\n> **Trigger:** An ally within distance takes damage.\n>\n> **Effect:** The target is wrapped in shadow and halves the damage. The target can't be targeted by strikes until the start of their next turn.\n";
 
 /** Web Crypto (the edge-runtime test environment has no Node builtins). */
 async function sha256(text: string): Promise<string> {
@@ -121,6 +128,12 @@ async function seedRecords(t: Harness) {
         // test needs only these cuts, while exhaustive canon owns the record.
         text: WODE_EFFECT_TEXT,
         textSha256: await sha256(WODE_EFFECT_TEXT),
+      },
+      {
+        artifactId: BUGBEAR_CHANNELER,
+        slug: 'bugbear-channeler',
+        text: BUGBEAR_TRIGGER_HEADERS,
+        textSha256: await sha256(BUGBEAR_TRIGGER_HEADERS),
       },
     ]) {
       await ctx.db.insert('canonRecords', record);
@@ -1790,7 +1803,7 @@ describe('action economy host', () => {
     });
     const adjudicator = after?.participants.find((p) => p.id === 'adjudicator');
     expect(adjudicator?.actionBudget['main-action']).toMatchObject({ used: 1 });
-    expect(adjudicator?.abilityUses[DEVIL_ADJUDICATOR.artifactId]).toMatchObject({ round: 2 });
+    expect(adjudicator?.abilityUses[DEVIL_ADJUDICATOR.artifactId]).toMatchObject({ round: 1 });
     for (const targetId of ['warrior-a', 'warrior-b']) {
       expect(
         after?.participants
@@ -1829,6 +1842,77 @@ describe('action economy host', () => {
             'over-budget',
       ),
     ).toBe(true);
+  });
+
+  test('manual damage assertion derives a damage-only ability debit and warns on reuse [N-3]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    const spearCharge = `${GOBLIN_WARRIOR.artifactId}#spear-charge`;
+    const assertedDamage = () =>
+      table.owner.client.mutation(api.encounters.applyDamage, {
+        campaignId: table.campaignId,
+        targetParticipantId: 'warrior-b',
+        amount: 3,
+        reason: 'asserted Spear Charge tier damage',
+        abilityAssertion: {
+          actorParticipantId: 'warrior-a',
+          abilityArtifactId: spearCharge,
+        },
+      });
+
+    await assertedDamage();
+    const afterFirst = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const actor = afterFirst?.participants.find((participant) => participant.id === 'warrior-a');
+    expect(actor?.actionBudget['main-action']).toMatchObject({ used: 1 });
+    expect(actor?.abilityUses[spearCharge]).toMatchObject({ round: 1, encounter: 1 });
+    expect(
+      afterFirst?.participants.find((participant) => participant.id === 'warrior-b')?.vitals
+        ?.staminaCurrent,
+    ).toBe(12);
+
+    await assertedDamage();
+    if (!afterFirst) throw new Error('no active encounter');
+    const log = await table.owner.client.query(api.encounters.listLog, {
+      campaignId: table.campaignId,
+      encounterId: afterFirst.encounterId,
+    });
+    expect(
+      log.some(
+        (entry) =>
+          entry.kind === 'warning' &&
+          (entry.data as { ruleViolation?: { kind?: string } } | null)?.ruleViolation?.kind ===
+            'over-budget',
+      ),
+    ).toBe(true);
+
+    // This real stat block has two power-roll abilities. A bare record is
+    // ambiguous and must be refused rather than charging the first header.
+    await expect(
+      table.owner.client.mutation(api.encounters.applyDamage, {
+        campaignId: table.campaignId,
+        targetParticipantId: 'warrior-b',
+        amount: 1,
+        reason: 'ambiguous assertion',
+        abilityAssertion: {
+          actorParticipantId: 'warrior-a',
+          abilityArtifactId: GOBLIN_WARRIOR.artifactId,
+        },
+      }),
+    ).rejects.toThrow('record#ability-slug');
   });
 
   test("convert-action is the acting participant's own choice: a member dispatches it; the log receipts land [I-5]", async () => {
@@ -1925,6 +2009,48 @@ describe('action economy host', () => {
         entry.message.includes("doesn't count against your limit of one triggered action"),
       ),
     ).toBe(true);
+  });
+
+  test('triggered dispatch matches the #ability suffix when one record carries both triggered costs [N-2]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'channeler', recordId: BUGBEAR_CHANNELER }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+
+    // Catcher is the first header and is FREE triggered.
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'channeler',
+      abilityArtifactId: `${BUGBEAR_CHANNELER}#catcher`,
+      triggerText: 'A size 1 creature is force moved within distance.',
+    });
+    let view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(view?.participants.find((p) => p.id === 'channeler')?.triggeredThisRound).toBe(0);
+
+    // Shadow Veil is the SECOND header and counts against the round limit.
+    // A first-header `.find()` would incorrectly derive Catcher's free cost.
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'channeler',
+      abilityArtifactId: `${BUGBEAR_CHANNELER}#shadow-veil`,
+      triggerText: 'An ally within distance takes damage.',
+    });
+    view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(view?.participants.find((p) => p.id === 'channeler')?.triggeredThisRound).toBe(1);
   });
 
   test('addGrant rejects a non-budget action cost at the boundary; a budget grant lands [M-2]', async () => {

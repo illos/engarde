@@ -1407,6 +1407,7 @@ describe('asserted-band ability use debits the action economy (R-0029/R-0030 par
           actorParticipantId: 'warrior',
           abilityArtifactId: BURY_THE_POINT,
           actionCost: 'main-action',
+          usesPerRound: 1,
         },
       },
     });
@@ -1425,6 +1426,7 @@ describe('asserted-band ability use debits the action economy (R-0029/R-0030 par
           actorParticipantId: 'warrior',
           abilityArtifactId: BURY_THE_POINT,
           actionCost: 'main-action',
+          usesPerRound: 1,
           partOf: damageIntentId,
         },
       },
@@ -1436,6 +1438,19 @@ describe('asserted-band ability use debits the action economy (R-0029/R-0030 par
         (instance) => instance.conditionId === BLEEDING,
       ),
     ).toBe(true);
-    expect(conditioned.state.participants.warrior?.abilityUses[BURY_THE_POINT]?.encounter).toBe(2);
+    // N-1: the condition dispatch is another half of the SAME printed use,
+    // so it neither double-counts abilityUses nor spuriously breaches the
+    // printed once-per-round cap.
+    expect(conditioned.state.participants.warrior?.abilityUses[BURY_THE_POINT]).toMatchObject({
+      round: 1,
+      encounter: 1,
+    });
+    expect(
+      conditioned.log.some(
+        (entry) =>
+          entry.kind === 'warning' &&
+          (entry.data.ruleViolation as { kind?: string })?.kind === 'per-ability-cap',
+      ),
+    ).toBe(false);
   });
 });

@@ -2,7 +2,7 @@ import { api } from '@engarde/backend/convex/_generated/api';
 import type { Id } from '@engarde/backend/convex/_generated/dataModel';
 // The printed per-turn budget lives in the engine's one home — never
 // re-derived client-side (one canon rule, one implementation).
-import { BASE_TURN_BUDGET } from '@engarde/engine';
+import { BASE_TURN_BUDGET, DAMAGE_TYPES, type DamageType } from '@engarde/engine';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../primitives';
@@ -145,6 +145,184 @@ function StartEncounter({
   );
 }
 
+/** Director-only manual damage, including the optional N-3 assertion that
+ * the entry realizes a printed ability use. The client supplies only an
+ * actor + canon reference; the host derives the action cost and printed cap
+ * from the record and refuses ambiguous stat blocks. */
+function ManualDamageSection({
+  campaignId,
+  participants,
+}: {
+  campaignId: Id<'campaigns'>;
+  participants: EncounterView['participants'];
+}) {
+  const applyDamage = useMutation(api.encounters.applyDamage);
+  const { run, error, busy } = useRun();
+  const [targetId, setTargetId] = useState(participants[0]?.id ?? '');
+  const [amount, setAmount] = useState('0');
+  const [damageType, setDamageType] = useState<DamageType | ''>('');
+  const [reason, setReason] = useState('');
+  const [area, setArea] = useState(false);
+  const [knockOut, setKnockOut] = useState(false);
+  const [assertAbility, setAssertAbility] = useState(false);
+  const [abilityRecord, setAbilityRecord] = useState<SearchHits[number] | null>(null);
+  const [abilitySlug, setAbilitySlug] = useState('');
+  const [actorId, setActorId] = useState(participants[0]?.id ?? '');
+  const [partOf, setPartOf] = useState('');
+  const numericAmount = Number(amount);
+  const invalidAmount = !Number.isInteger(numericAmount) || numericAmount < 0;
+
+  return (
+    <section className="mt-4 border border-line-soft bg-ink-2 p-3">
+      <h3 className="type-label text-xs text-text-mute">Manual damage (Director)</h3>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select
+          aria-label="Manual damage target"
+          className="h-9 border border-line bg-ink-1 px-2 text-sm"
+          value={targetId}
+          onChange={(event) => setTargetId(event.target.value)}
+        >
+          {participants.map((participant) => (
+            <option key={participant.id} value={participant.id}>
+              {participant.id}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Manual damage amount"
+          className="h-9 w-20 border border-line bg-ink-1 px-2 text-sm"
+          inputMode="numeric"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+        />
+        <select
+          aria-label="Manual damage type"
+          className="h-9 border border-line bg-ink-1 px-2 text-sm"
+          value={damageType}
+          onChange={(event) => setDamageType(event.target.value as DamageType | '')}
+        >
+          <option value="">untyped</option>
+          {DAMAGE_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {type}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Manual damage reason"
+          className="h-9 min-w-48 flex-1 border border-line bg-ink-1 px-2 text-sm"
+          placeholder="reason"
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+        <label className="flex items-center gap-1 text-xs text-text-mute">
+          <input
+            type="checkbox"
+            checked={area}
+            onChange={(event) => setArea(event.target.checked)}
+          />
+          area
+        </label>
+        <label className="flex items-center gap-1 text-xs text-text-mute">
+          <input
+            type="checkbox"
+            checked={knockOut}
+            onChange={(event) => setKnockOut(event.target.checked)}
+          />
+          knock out
+        </label>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-xs text-text-mute">
+        <input
+          type="checkbox"
+          aria-label="Assert this damage as an ability use"
+          checked={assertAbility}
+          onChange={(event) => setAssertAbility(event.target.checked)}
+        />
+        This damage realizes a printed ability use (derive its action debit from canon)
+      </label>
+      {assertAbility ? (
+        <div className="mt-2 border-l-2 border-accent/50 pl-3">
+          <RecordSearch
+            campaignId={campaignId}
+            pickLabel="Assert ability"
+            requireParsedTier
+            searchLabel="Search manual damage ability"
+            onPick={(hit) => {
+              setAbilityRecord(hit);
+              setAbilitySlug('');
+            }}
+          />
+          {abilityRecord ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs">{abilityRecord.slug}</span>
+              <select
+                aria-label="Manual damage ability actor"
+                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                value={actorId}
+                onChange={(event) => setActorId(event.target.value)}
+              >
+                {participants.map((participant) => (
+                  <option key={participant.id} value={participant.id}>
+                    {participant.id}
+                  </option>
+                ))}
+              </select>
+              <input
+                aria-label="Manual damage ability slug"
+                className="h-9 w-44 border border-line bg-ink-1 px-2 text-xs"
+                placeholder="ability-slug (if stat block)"
+                value={abilitySlug}
+                onChange={(event) => setAbilitySlug(event.target.value)}
+              />
+              <input
+                aria-label="Manual damage parent intent"
+                className="h-9 w-40 border border-line bg-ink-1 px-2 text-xs"
+                placeholder="partOf intent (optional)"
+                value={partOf}
+                onChange={(event) => setPartOf(event.target.value)}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <Button
+        className="mt-3"
+        size="sm"
+        variant="primary"
+        disabled={busy || invalidAmount || !targetId || (assertAbility && abilityRecord === null)}
+        onClick={() => {
+          const suffix = abilitySlug.trim().replace(/^#/, '');
+          const parentIntentId = partOf.trim();
+          run(() =>
+            applyDamage({
+              campaignId,
+              targetParticipantId: targetId,
+              amount: numericAmount,
+              reason: reason.trim() || 'manual damage entry',
+              ...(damageType === '' ? {} : { damageType }),
+              ...(area ? { area: true } : {}),
+              ...(knockOut ? { knockOut: true } : {}),
+              ...(assertAbility && abilityRecord
+                ? {
+                    abilityAssertion: {
+                      actorParticipantId: actorId,
+                      abilityArtifactId: `${abilityRecord.artifactId}${suffix ? `#${suffix}` : ''}`,
+                      ...(parentIntentId ? { partOf: parentIntentId } : {}),
+                    },
+                  }
+                : {}),
+            }),
+          );
+        }}
+      >
+        Apply damage
+      </Button>
+      {error ? <p className="mt-2 text-sm text-foe">{error}</p> : null}
+    </section>
+  );
+}
+
 function ActiveEncounter({
   campaignId,
   encounter,
@@ -265,7 +443,10 @@ function ActiveEncounter({
       {encounter.viewerIsDirector ? (
         // Director grant form [I-6f]: without it a web-only table cannot
         // suppress the dazed Solo-Action warn — R-0030's promise.
-        <AddGrantSection campaignId={campaignId} participants={encounter.participants} />
+        <>
+          <AddGrantSection campaignId={campaignId} participants={encounter.participants} />
+          <ManualDamageSection campaignId={campaignId} participants={encounter.participants} />
+        </>
       ) : null}
 
       <ul className="mt-4 grid gap-2 sm:grid-cols-2">

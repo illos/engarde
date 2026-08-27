@@ -3,6 +3,7 @@ import {
   compileAbility,
   compileEffectPrograms,
   groupPowerRollClusters,
+  resolvePowerRollAbilityHeader,
   tierOutcomeToIntents,
 } from '@engarde/canon/effect-conformance';
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
@@ -1355,6 +1356,18 @@ export const applyDamage = mutation({
     /** Damager-named extra victims when one instance kills beyond the
      * damaged target [R-0024]. */
     minionKillVictims: v.optional(v.array(v.string())),
+    /** Optional assertion that this manually entered damage realizes a
+     * printed ability use [N-3]. The host derives cost/cap from canon; the
+     * client cannot author either value. */
+    abilityAssertion: v.optional(
+      v.object({
+        actorParticipantId: v.string(),
+        /** Bare record only when it has one power-roll ability; multi-
+         * ability stat blocks require `record#ability-slug`. */
+        abilityArtifactId: v.string(),
+        partOf: v.optional(v.string()),
+      }),
+    ),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -1362,10 +1375,44 @@ export const applyDamage = mutation({
     if (gameRoleFor(membership) !== 'director')
       throw new ConvexError('Manual damage entry is the Director’s adjudication');
     const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    let assertedAbilityUse: AssertedAbilityUse | null = null;
+    if (args.abilityAssertion !== undefined) {
+      const assertion = args.abilityAssertion;
+      const state = upgradeEncounterState(encounter.state);
+      if (!state.participants[assertion.actorParticipantId])
+        throw new ConvexError(`Unknown participant: ${assertion.actorParticipantId}`);
+      const baseArtifactId = assertion.abilityArtifactId.split('#')[0] ?? '';
+      const record = await loadRecord(ctx, baseArtifactId);
+      if (!record) throw new ConvexError(`Unknown canon record: ${baseArtifactId}`);
+      const parse = parseEffectText(record.text);
+      const conservation = auditGrammarConservation(record.text, parse);
+      if (conservation.length > 0)
+        throw new ConvexError(`Grammar conservation failed for ${baseArtifactId}`);
+      const resolved = resolvePowerRollAbilityHeader(
+        parse,
+        baseArtifactId,
+        assertion.abilityArtifactId,
+      );
+      if (resolved === null) {
+        throw new ConvexError(
+          `Cannot derive one printed power-roll ability from ${assertion.abilityArtifactId}; use an exact record#ability-slug reference`,
+        );
+      }
+      assertedAbilityUse = {
+        actorParticipantId: assertion.actorParticipantId,
+        abilityArtifactId: resolved.abilityArtifactId,
+        actionCost: resolved.annotation.actionCost,
+        usesPerRound: resolved.annotation.usesPerRound,
+        ...(assertion.partOf === undefined ? {} : { partOf: assertion.partOf }),
+      };
+    }
     const intent: Intent = {
       intentId: `d${encounter.dispatchCount + 1}-apply-damage`,
       kind: 'apply-damage',
-      actor: { kind: 'director' },
+      actor:
+        assertedAbilityUse === null
+          ? { kind: 'director' }
+          : { kind: 'participant', participantId: assertedAbilityUse.actorParticipantId },
       payload: {
         target: args.targetParticipantId,
         amount: args.amount,
@@ -1374,6 +1421,7 @@ export const applyDamage = mutation({
         knockOut: args.knockOut ?? false,
         area: args.area ?? false,
         minionKillVictims: args.minionKillVictims ?? [],
+        assertedAbilityUse,
       },
     };
     try {
@@ -1738,12 +1786,16 @@ export const useTriggeredAction = mutation({
     // CLI-proven derivation — smaller than shipping the annotation through
     // the search payload); explicit args stay the asserted-case override.
     // No annotation = table-asserted dispatch, exactly as before.
+    const abilitySuffix = args.abilityArtifactId.includes('#')
+      ? (args.abilityArtifactId.split('#')[1] ?? '')
+      : null;
     const annotation =
       args.free === undefined || args.perRoundCap === undefined
         ? [...annotateHeaderCosts(parseEffectText(record.text), baseArtifactId).values()].find(
             (candidate) =>
-              candidate.actionCost === 'triggered-action' ||
-              candidate.actionCost === 'free-triggered-action',
+              (abilitySuffix === null || candidate.abilitySlug === abilitySuffix) &&
+              (candidate.actionCost === 'triggered-action' ||
+                candidate.actionCost === 'free-triggered-action'),
           )
         : undefined;
     const free = args.free ?? annotation?.actionCost === 'free-triggered-action';
