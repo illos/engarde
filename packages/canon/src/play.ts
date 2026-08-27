@@ -11,6 +11,8 @@ import {
   type ParticipantStats,
   type ResolutionEntry,
   type ResolutionModification,
+  type ResolutionPayloadInput,
+  type SquadSignatureAttackPayloadInput,
   type Transcript,
   type UseAbilityPayloadInput,
   createDriver,
@@ -22,6 +24,7 @@ import { annotateHeaderCosts } from './action-cost.js';
 import {
   compileAbilities,
   compileEffectPrograms,
+  compileSquadAbilities,
   groupPowerRollClusters,
   resolvePowerRollAbilityHeader,
   tierOutcomeToIntents,
@@ -84,6 +87,10 @@ const HELP = `commands:
   turn <actor|squad>                      start a turn (economy violations warn, never block)
   roll <query> <actor> <targets> [n] [with <M|A|R|I|P>] [type <damageType>] [dice <d1>,<d2>] [--hold]
                                           roll a compiled ability; auto-commits unless --hold
+  squadattack <query> <ability-slug> <squad> <target:owner:member+member[,..]> [dice <d1>,<d2>] [--hold]
+                                          one squad roll with ordered participation/instance owners
+  squadfs <squad> <target> <member[*count][,member..]>
+                                          combine simultaneous free strikes into one strike
   commit [<resolutionId>]                 commit an open resolution (default: top of stack)
   mod [<resolution>] downgrade <1|2> | tier <±n> because <..> | retarget <from> <to> because <..>
       | halve <down|up> [<target>] because <..> | potency <±n> [<target>] because <..>
@@ -195,7 +202,7 @@ export function createPlaySession(options: {
   // Rolled payloads by resolutionId [R-0032]: commit (explicit or the
   // end-turn force-commit) RE-SUPPLIES the payload and the engine verifies
   // its canonical hash — the shell keeps every rolled payload it dispatched.
-  const heldPayloads = new Map<string, UseAbilityPayloadInput>();
+  const heldPayloads = new Map<string, ResolutionPayloadInput>();
   const parseCache = new Map<string, GrammarParse>();
 
   function parsedRecord(artifactId: string): GrammarParse {
@@ -677,7 +684,7 @@ export function createPlaySession(options: {
     const state = driver.state();
     const endingSquad = state.squads.find((candidate) => candidate.squadId === entity.id);
     const ownedIds = [entity.id, ...(endingSquad ? endingSquad.memberIds : [])];
-    const commitPayloads: Record<string, UseAbilityPayloadInput> = {};
+    const commitPayloads: Record<string, ResolutionPayloadInput> = {};
     for (const open of openResolutionsOwnedBy(state, ownedIds)) {
       const held = heldPayloads.get(open.resolutionId);
       if (!held) {
@@ -1085,6 +1092,118 @@ export function createPlaySession(options: {
       }
     }
     return lines.join('\n');
+  }
+
+  function commandSquadAttack(args: string[]): string {
+    const usage =
+      'usage: squadattack <query> <ability-slug> <squad> <target:owner:member+member[,..]> [dice <d1>,<d2>] [--hold]';
+    const [recordQuery, abilitySlug, squadQuery, participationText, ...rest] = args;
+    if (!recordQuery || !abilitySlug || !squadQuery || !participationText) return usage;
+    const record = resolveRecord(recordQuery);
+    if ('error' in record) return record.error;
+    const squad = resolveSquad(squadQuery);
+    if ('error' in squad) return squad.error;
+    const participation: SquadSignatureAttackPayloadInput['participation'] = [];
+    for (const cell of participationText.split(',')) {
+      const [targetQuery, ownerQuery, membersText, ...extra] = cell.split(':');
+      if (!targetQuery || !ownerQuery || !membersText || extra.length > 0) return usage;
+      const target = resolveParticipant(targetQuery);
+      if ('error' in target) return target.error;
+      const owner = resolveParticipant(ownerQuery);
+      if ('error' in owner) return owner.error;
+      const memberIds: string[] = [];
+      for (const memberQuery of membersText.split('+')) {
+        const member = resolveParticipant(memberQuery);
+        if ('error' in member) return member.error;
+        memberIds.push(member.id);
+      }
+      participation.push({ targetId: target.id, instanceOwner: owner.id, memberIds });
+    }
+    let dice: [number, number] | undefined;
+    let hold = false;
+    for (let index = 0; index < rest.length; index += 1) {
+      const token = rest[index]?.toLowerCase();
+      if (token === '--hold' || token === 'hold') hold = true;
+      else if (token === 'dice') {
+        const pair = (rest[index + 1] ?? '').split(',').map(Number);
+        if (pair.length !== 2 || pair.some((die) => !Number.isInteger(die) || die < 1 || die > 10))
+          return usage;
+        dice = pair as [number, number];
+        index += 1;
+      } else return usage;
+    }
+    const compiled = compileSquadAbilities(parsedRecord(record.id), record.id);
+    const ability = compiled.abilities.find(
+      (candidate) => candidate.abilityArtifactId === `${record.id}#${abilitySlug}`,
+    );
+    if (!ability) return `${record.id} has no losslessly attached squad ability #${abilitySlug}`;
+    const payload: SquadSignatureAttackPayloadInput = {
+      squadId: squad.squadId,
+      ability,
+      participation,
+      ...(dice ? { dice } : {}),
+    };
+    const intentId = nextIntentId();
+    heldPayloads.set(intentId, payload);
+    const lines = [
+      `${squad.squadId} rolls ${ability.abilityArtifactId}`,
+      ...dispatchAll([
+        {
+          intentId,
+          kind: 'squad-signature-attack',
+          actor: { kind: 'director' },
+          payload,
+        },
+      ]),
+    ];
+    const opened = driver
+      .state()
+      .resolutionStack.find(
+        (candidate) => candidate.resolutionId === intentId && candidate.phase === 'rolled',
+      );
+    if (opened && !hold) {
+      lines.push(
+        ...dispatchAll([
+          {
+            intentId: nextIntentId(),
+            kind: 'commit-resolution',
+            actor: { kind: 'director' },
+            payload: { resolutionId: intentId, payload },
+          },
+        ]),
+      );
+    } else if (opened) {
+      lines.push(`  resolution ${intentId} HELD OPEN — modify/react, then commit ${intentId}`);
+    }
+    return lines.join('\n');
+  }
+
+  function commandSquadFreeStrike(args: string[]): string {
+    const usage = 'usage: squadfs <squad> <target> <member[*count][,member..]>';
+    const [squadQuery, targetQuery, contributionText] = args;
+    if (!squadQuery || !targetQuery || !contributionText || args.length !== 3) return usage;
+    const squad = resolveSquad(squadQuery);
+    if ('error' in squad) return squad.error;
+    const target = resolveParticipant(targetQuery);
+    if ('error' in target) return target.error;
+    const contributions: Array<{ memberId: string; count: number }> = [];
+    for (const cell of contributionText.split(',')) {
+      const [memberQuery, countText, ...extra] = cell.split('*');
+      if (!memberQuery || extra.length > 0) return usage;
+      const member = resolveParticipant(memberQuery);
+      if ('error' in member) return member.error;
+      const count = countText === undefined ? 1 : Number(countText);
+      if (!Number.isInteger(count) || count < 1) return usage;
+      contributions.push({ memberId: member.id, count });
+    }
+    return dispatchAll([
+      {
+        intentId: nextIntentId(),
+        kind: 'squad-free-strike',
+        actor: { kind: 'director' },
+        payload: { squadId: squad.squadId, targetId: target.id, contributions },
+      },
+    ]).join('\n');
   }
 
   function commandCommit(args: string[]): string {
@@ -1615,6 +1734,10 @@ export function createPlaySession(options: {
             return { output: commandTurn(args), quit: false };
           case 'roll':
             return { output: commandRoll(args), quit: false };
+          case 'squadattack':
+            return { output: commandSquadAttack(args), quit: false };
+          case 'squadfs':
+            return { output: commandSquadFreeStrike(args), quit: false };
           case 'commit':
             return { output: commandCommit(args), quit: false };
           case 'mod':

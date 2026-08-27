@@ -130,6 +130,7 @@ const squad = {
   pendingKills: 0,
   captainId: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 const baseView = {

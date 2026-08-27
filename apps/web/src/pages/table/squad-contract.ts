@@ -1,7 +1,7 @@
 import type { api } from '@engarde/backend/convex/_generated/api';
 import type { FunctionReturnType } from 'convex/server';
 
-// Minion squad Stamina pools on the Table (R-0023..R-0028,
+// Minion squad Stamina pools and one-roll actions on the Table (R-0023..R-0039,
 // docs/minion-pool-design.md §3 "Hosts"). The generated api carries the
 // squads slot and the three Director mutations (resolvePendingKills /
 // attachCaptain / detachCaptain) — components call `api.encounters.*`
@@ -11,9 +11,9 @@ import type { FunctionReturnType } from 'convex/server';
 /** The active-encounter view exactly as the backend's validator types it. */
 export type ActiveEncounterView = NonNullable<FunctionReturnType<typeof api.encounters.getActive>>;
 
-/** One squad as the Table view presents it. `withCaptain` is a verbatim
- * statblock string passed through the view, present only while a captain
- * is attached — the web renders it untouched and never composes it. */
+/** One squad as the Table view presents it. `withCaptain` remains verbatim;
+ * `withCaptainBenefit` is its closed-template tag for live modifier/directive
+ * chips while attached. */
 export type SquadView = ActiveEncounterView['squads'][number];
 
 /** The engine's persisted squad-damage receipt (LogEntry.data.squadDamage,

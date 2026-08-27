@@ -125,13 +125,13 @@ describe.skipIf(!sourceRoot)(
         }
       }
       // The frozen per-companion split at the accepted pin: the two free
-      // strikes compile end-to-end; Grab / Escape Grab / Knockback carry
-      // prose tier outcomes outside the closed tier grammar and ride as
-      // accounted maneuver-cost directives (stitched model, design §3).
+      // strikes and bounded Push-only Knockback compile end-to-end; Grab /
+      // Escape Grab retain prose/reaction tiers and ride as accounted
+      // maneuver-cost directives (R-0036 amendment boundary).
       expect(dispositions).toEqual({
         'escape-grab.md': 'accounted:maneuver',
         'grab.md': 'accounted:maneuver',
-        'knockback.md': 'accounted:maneuver',
+        'knockback.md': 'compiled:maneuver',
         'melee-weapon-free-strike.md': 'compiled:main-action',
         'ranged-weapon-free-strike.md': 'compiled:main-action',
       });

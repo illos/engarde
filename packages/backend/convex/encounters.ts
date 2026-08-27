@@ -2,6 +2,7 @@ import { annotateHeaderCosts } from '@engarde/canon/action-cost';
 import {
   compileAbility,
   compileEffectPrograms,
+  compileSquadAbilities,
   groupPowerRollClusters,
   resolvePowerRollAbilityHeader,
   tierOutcomeToIntents,
@@ -60,6 +61,11 @@ const LOG_PAGE = 100;
 const SEARCH_LIMIT = 12;
 
 const bandValidator = v.union(v.literal('≤11'), v.literal('12-16'), v.literal('17+'));
+const squadParticipationValidator = v.object({
+  targetId: v.string(),
+  instanceOwner: v.string(),
+  memberIds: v.array(v.string()),
+});
 
 const endingView = v.union(
   v.literal('save-ends'),
@@ -306,8 +312,16 @@ const encounterView = v.union(
         captainId: v.union(v.string(), v.null()),
         withCaptain: v.union(v.string(), v.null()),
         withCaptainBenefit: v.union(
-          v.object({ kind: v.literal('strike-edge'), magnitude: v.number(), sourceText: v.string() }),
-          v.object({ kind: v.literal('strike-damage'), amount: v.number(), sourceText: v.string() }),
+          v.object({
+            kind: v.literal('strike-edge'),
+            magnitude: v.number(),
+            sourceText: v.string(),
+          }),
+          v.object({
+            kind: v.literal('strike-damage'),
+            amount: v.number(),
+            sourceText: v.string(),
+          }),
           v.object({ kind: v.literal('stamina'), amount: v.number(), sourceText: v.string() }),
           v.object({
             kind: v.literal('directive'),
@@ -1179,6 +1193,139 @@ export const useAbility = mutation({
     }
     await pruneOpenPayloads(ctx, encounter._id);
     return intentId;
+  },
+});
+
+/** One-roll squad signature host [R-0034]. The client identifies a printed
+ * ability slug and participation only; executable tier data is recompiled
+ * from the stored canon bytes inside the transaction. */
+export const squadAttack = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    artifactId: v.string(),
+    abilitySlug: v.string(),
+    squadId: v.string(),
+    participation: v.array(squadParticipationValidator),
+    dice: v.optional(v.array(v.number())),
+    characteristicChoice: v.optional(v.string()),
+    damageCharacteristicChoice: v.optional(v.string()),
+    damageTypeChoice: v.optional(v.string()),
+    edges: v.optional(v.number()),
+    banes: v.optional(v.number()),
+    downgradeToTier: v.optional(v.number()),
+    knockOut: v.optional(v.boolean()),
+    hold: v.optional(v.boolean()),
+  },
+  returns: v.union(v.null(), v.string()),
+  handler: async (ctx, args) => {
+    const { profile } = await requireActiveMember(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    const record = await loadRecord(ctx, args.artifactId);
+    if (!record) throw new ConvexError(`Unknown canon record: ${args.artifactId}`);
+    if (args.participation.length === 0) throw new ConvexError('Name at least one target');
+    if (args.dice !== undefined && args.dice.length !== 2)
+      throw new ConvexError('Asserted dice must be exactly two d10 results');
+    const parse = parseEffectText(record.text);
+    if (auditGrammarConservation(record.text, parse).length > 0)
+      throw new ConvexError(`Grammar conservation failed for ${args.artifactId}`);
+    const compiled = compileSquadAbilities(parse, args.artifactId);
+    const ability = compiled.abilities.find(
+      (candidate) => candidate.abilityArtifactId === `${args.artifactId}#${args.abilitySlug}`,
+    );
+    if (!ability)
+      throw new ConvexError(
+        `${record.slug} has no losslessly attached squad ability #${args.abilitySlug}`,
+      );
+    const intentId = `d${encounter.dispatchCount + 1}-squad-${record.slug}-${args.abilitySlug}`;
+    const payload = JSON.parse(
+      JSON.stringify({
+        squadId: args.squadId,
+        ability,
+        participation: args.participation,
+        dice: args.dice as [number, number] | undefined,
+        characteristicChoice: args.characteristicChoice as never,
+        damageCharacteristicChoice: args.damageCharacteristicChoice as never,
+        damageTypeChoice: args.damageTypeChoice as never,
+        edges: args.edges ?? 0,
+        banes: args.banes ?? 0,
+        downgradeToTier: args.downgradeToTier as 1 | 2 | undefined,
+        knockOut: args.knockOut ?? false,
+      }),
+    );
+    const intent: Intent = {
+      intentId,
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload,
+    };
+    const actor = { userId: profile.userId, name: profile.displayName };
+    await runIntents(ctx, encounter, actor, [intent], {
+      before: [
+        {
+          kind: 'informational',
+          message: `${args.squadId} uses ${record.slug}#${args.abilitySlug} with ${args.participation.map((row) => `${row.memberIds.join('+')}→${row.targetId}`).join(', ')}`,
+          canonRefs: [ability.abilityArtifactId],
+          engineActorLabel: args.squadId,
+        },
+      ],
+    });
+    const afterRoll = await ctx.db.get(encounter._id);
+    if (!afterRoll) return null;
+    const opened = upgradeEncounterState(afterRoll.state).resolutionStack.find(
+      (candidate) => candidate.resolutionId === intentId && candidate.phase === 'rolled',
+    );
+    if (!opened) return null;
+    await ctx.db.patch(encounter._id, {
+      openPayloads: {
+        ...((afterRoll.openPayloads ?? {}) as Record<string, unknown>),
+        [intentId]: payload,
+      },
+    });
+    if (args.hold === true) return intentId;
+    const forCommit = await ctx.db.get(encounter._id);
+    if (!forCommit) return intentId;
+    await runIntents(ctx, forCommit, actor, [
+      {
+        intentId: `d${forCommit.dispatchCount + 1}-commit-squad-${record.slug}`,
+        kind: 'commit-resolution',
+        actor: { kind: 'director' },
+        payload: { resolutionId: intentId, payload },
+      },
+    ]);
+    await pruneOpenPayloads(ctx, encounter._id);
+    return intentId;
+  },
+});
+
+/** Free Strike Together host [R-0037]. Multiple strikes are asserted as
+ * simultaneous by choosing them in this one dispatch; the engine applies
+ * weakness/immunity to the summed instance once. */
+export const squadFreeStrike = mutation({
+  args: {
+    campaignId: v.id('campaigns'),
+    squadId: v.string(),
+    targetId: v.string(),
+    contributions: v.array(v.object({ memberId: v.string(), count: v.number() })),
+    knockOut: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { profile } = await requireActiveMember(ctx, args.campaignId);
+    const encounter = await requireLiveEncounter(ctx, args.campaignId);
+    await runIntents(ctx, encounter, { userId: profile.userId, name: profile.displayName }, [
+      {
+        intentId: `d${encounter.dispatchCount + 1}-squad-free-strike`,
+        kind: 'squad-free-strike',
+        actor: { kind: 'director' },
+        payload: {
+          squadId: args.squadId,
+          targetId: args.targetId,
+          contributions: args.contributions,
+          knockOut: args.knockOut ?? false,
+        },
+      },
+    ]);
+    return null;
   },
 });
 

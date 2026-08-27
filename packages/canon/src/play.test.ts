@@ -6,6 +6,7 @@ import { ingestStructuredRecord } from './extract.js';
 import { DEVIL_ADJUDICATOR } from './fixtures/devil-adjudicator.verbatim.js';
 import { GOBLIN_SPINECLEAVER } from './fixtures/goblin-spinecleaver.verbatim.js';
 import { GOBLIN_WARRIOR } from './fixtures/goblin-warrior.verbatim.js';
+import { SKITTERLING } from './fixtures/skitterling.verbatim.js';
 import { createPlaySession } from './play.js';
 
 /**
@@ -107,6 +108,39 @@ describe('play session shell mechanics', () => {
     expect(help).toContain('resolvekills <squad>');
     expect(help).toContain('attach <squad> <captain>');
     expect(help).toContain('detach <squad>');
+    expect(help).toContain('squadattack <query> <ability-slug>');
+    expect(help).toContain('squadfs <squad> <target>');
+  });
+
+  it('runs squadattack and squadfs through the thin CLI skin', () => {
+    const skitterlingStats = ParticipantStatsSchema.parse(JSON.parse(SKITTERLING.statsJson));
+    const warriorStats = ParticipantStatsSchema.parse(JSON.parse(GOBLIN_WARRIOR.statsJson));
+    const session = createPlaySession({
+      actors: [
+        ...['sk1', 'sk2', 'sk3', 'sk4'].map((id) => ({
+          id,
+          recordId: SKITTERLING.artifactId,
+          stats: skitterlingStats,
+        })),
+        { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId, stats: warriorStats },
+      ],
+      records: new Map([
+        [SKITTERLING.artifactId, SKITTERLING.text],
+        [GOBLIN_WARRIOR.artifactId, GOBLIN_WARRIOR.text],
+      ]),
+      squads: [
+        { squadId: 'squad-sk', name: 'skitterlings', memberIds: ['sk1', 'sk2', 'sk3', 'sk4'] },
+      ],
+    });
+    const attack = session.execute(
+      'squadattack skitterling claws squad-sk warrior:sk1:sk1+sk2 dice 5,5',
+    ).output;
+    expect(attack).toContain("squad-sk's one-roll squad outcome resolves");
+    expect(session.execute('status').output).toContain('stamina 12/15');
+    const freeStrike = session.execute('squadfs squad-sk warrior sk3,sk4').output;
+    expect(freeStrike).toContain('combines 2 free-strike contribution');
+    expect(session.execute('status').output).toContain('stamina 10/15');
+    expect(session.transcript().violationCount).toBe(0);
   });
 
   it('squad play: seeded pool vitals, damage routing, pending-kill naming, captain attach/detach', () => {

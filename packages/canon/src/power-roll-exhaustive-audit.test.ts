@@ -232,7 +232,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
     // swallowed middle clauses (forced movement, resource grants), potency
     // gates, or endings now correctly fail to residue and stay verbatim.
     expect(fixtures.length).toBe(587);
-    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(504);
+    expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(508);
     expect(malformed).toEqual([]);
   });
 

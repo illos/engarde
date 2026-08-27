@@ -1275,7 +1275,12 @@ function applyIntentCore(
         nextState.squads.find((candidate) => candidate.squadId === squad.squadId) ?? squad;
       nextState = withSquad(nextState, { ...liveSquad, captainId: captain.id });
       if (liveSquad.captainId === null) {
-        const shifted = shiftCaptainBenefit(nextState, { ...liveSquad, captainId: captain.id }, 'attach', lifecycleContext);
+        const shifted = shiftCaptainBenefit(
+          nextState,
+          { ...liveSquad, captainId: captain.id },
+          'attach',
+          lifecycleContext,
+        );
         nextState = shifted.state;
         log.push(...shifted.log);
       }

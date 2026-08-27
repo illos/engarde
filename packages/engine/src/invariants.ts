@@ -675,24 +675,19 @@ export function checkInvariants(
       );
       // R-0039 effective maximum walk.
       violations.push(
-        ...walkClaims(
-          beforeSquad.pool.max,
-          afterSquad.pool.max,
-          poolMaxClaims.get(squadId) ?? [],
-          {
-            from: (claim) => claim.from,
-            to: (claim) => claim.to,
-            equals: (a, b) => a === b,
-            phantom: (claim, walked) => ({
-              code: 'phantom-squad-claim',
-              detail: `${squadId}: pool max claim starts at ${claim.from}, state was ${walked}`,
-            }),
-            unattributed: (walked) => ({
-              code: 'unattributed-squad-change',
-              detail: `${squadId}: pool max ended at ${afterSquad.pool.max}; claims walk to ${walked}`,
-            }),
-          },
-        ),
+        ...walkClaims(beforeSquad.pool.max, afterSquad.pool.max, poolMaxClaims.get(squadId) ?? [], {
+          from: (claim) => claim.from,
+          to: (claim) => claim.to,
+          equals: (a, b) => a === b,
+          phantom: (claim, walked) => ({
+            code: 'phantom-squad-claim',
+            detail: `${squadId}: pool max claim starts at ${claim.from}, state was ${walked}`,
+          }),
+          unattributed: (walked) => ({
+            code: 'unattributed-squad-change',
+            detail: `${squadId}: pool max ended at ${afterSquad.pool.max}; claims walk to ${walked}`,
+          }),
+        }),
       );
       // R-0039 effective per-minion divisor / area-cap walk.
       violations.push(

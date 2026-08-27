@@ -2,8 +2,7 @@ import type { LifecycleContext } from './condition-lifecycle.js';
 import { squadMemberStats, withSquad } from './damage.js';
 import type { EncounterState, LogEntry, SquadState } from './schemas.js';
 
-export const CAPTAIN_BENEFIT_CANON =
-  'mcdm.monsters.v1/chapter/monster-basics#captain';
+export const CAPTAIN_BENEFIT_CANON = 'mcdm.monsters.v1/chapter/monster-basics#captain';
 
 export interface CaptainBenefitShift {
   state: EncounterState;

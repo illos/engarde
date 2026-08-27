@@ -288,12 +288,7 @@ export const BenefitPhraseSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('directive'),
-    template: z.enum([
-      'speed',
-      'ranged-distance',
-      'melee-distance',
-      'forced-movement-distance',
-    ]),
+    template: z.enum(['speed', 'ranged-distance', 'melee-distance', 'forced-movement-distance']),
     amount: z.number().int().positive(),
     sourceText: z.string().min(1),
   }),

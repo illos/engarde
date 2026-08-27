@@ -102,6 +102,7 @@ const squadFixture: SquadView = {
   pendingKills: 0,
   captainId: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 const activeEncounter = {
@@ -174,6 +175,11 @@ describe('SquadsSection', () => {
           ...squadFixture,
           captainId: 'goblin-warrior',
           withCaptain: SPINECLEAVER_WITH_CAPTAIN,
+          withCaptainBenefit: {
+            kind: 'strike-damage',
+            amount: 1,
+            sourceText: SPINECLEAVER_WITH_CAPTAIN,
+          },
         },
       ],
     });
@@ -190,6 +196,7 @@ describe('SquadsSection', () => {
     expect(screen.getByText('Captain')).toBeTruthy();
     expect(screen.getByText('With Captain')).toBeTruthy();
     expect(screen.getByText(SPINECLEAVER_WITH_CAPTAIN)).toBeTruthy();
+    expect(screen.getByText('Automated live modifier')).toBeTruthy();
     // No pending badge at zero.
     expect(screen.queryByText(/pending kill/)).toBeNull();
 
@@ -199,6 +206,37 @@ describe('SquadsSection', () => {
     // Verbatim text renders only while a captain is attached.
     expect(screen.queryByText('With Captain')).toBeNull();
     expect(screen.queryByText(SPINECLEAVER_WITH_CAPTAIN)).toBeNull();
+  });
+
+  test('signature/free-strike picker dispatches the selected participation chips', () => {
+    setScene(activeEncounter);
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText('Ability slug for goblin spinecleavers'), {
+      target: { value: 'axe' },
+    });
+    fireEvent.click(screen.getByLabelText('Attack with sc2 in goblin spinecleavers'));
+    fireEvent.click(screen.getByText('Roll signature'));
+    expect(spyFor(api.encounters.squadAttack)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: SPINECLEAVER,
+      abilitySlug: 'axe',
+      squadId: 'squad-sc',
+      participation: [{ targetId: 'fury', instanceOwner: 'sc1', memberIds: ['sc1', 'sc2'] }],
+    });
+    cleanup();
+    setScene(activeEncounter);
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.click(screen.getByLabelText('Attack with sc2 in goblin spinecleavers'));
+    fireEvent.click(screen.getByText('Free Strike Together'));
+    expect(spyFor(api.encounters.squadFreeStrike)).toHaveBeenCalledWith({
+      campaignId,
+      squadId: 'squad-sc',
+      targetId: 'fury',
+      contributions: [
+        { memberId: 'sc1', count: 1 },
+        { memberId: 'sc2', count: 1 },
+      ],
+    });
   });
 
   test('attach: candidates exclude squad members and minions; dispatch shape', () => {

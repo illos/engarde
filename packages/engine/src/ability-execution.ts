@@ -335,6 +335,17 @@ export function applyAbilityOutcome(
     const target = nextState.participants[targetId];
     if (!target) continue; // presence proven by the refusal gates
     const tierData = ability.tiers[`tier${tierFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
+    if (tierData.forcedMovement) {
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `${actor.id} pushes ${targetId} ${tierData.forcedMovement.distance} square(s) — movement geometry is table-resolved`,
+          [ability.abilityArtifactId],
+          { forcedMovement: { targetId, ...tierData.forcedMovement } },
+        ),
+      );
+    }
     if (tierData.conditionIds.length === 0) continue;
 
     if (tierData.potency) {

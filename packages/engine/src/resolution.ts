@@ -3,7 +3,6 @@ import { ECONOMY_CANON, hasCondition } from './action-economy.js';
 import type { LifecycleContext } from './condition-lifecycle.js';
 import { hashPayload } from './payload-hash.js';
 import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
-import { applySquadBreakdown, type SquadBreakdown } from './squad-actions.js';
 import type {
   EncounterState,
   LogEntry,
@@ -12,6 +11,7 @@ import type {
   SquadSignatureAttackPayload,
   UseAbilityPayload,
 } from './schemas.js';
+import { type SquadBreakdown, applySquadBreakdown } from './squad-actions.js';
 
 /**
  * The two-phase commit executor (R-0032; red-team B1/B3/F10/F11): commit
@@ -204,17 +204,35 @@ export function commitResolutionEntry(
         if (livePayload.ability === null) {
           return {
             state,
-            log: [entry(context, 'refusal', 'squad maneuver resolution has no compiled ability', [], {})],
+            log: [
+              entry(
+                context,
+                'refusal',
+                'squad maneuver resolution has no compiled ability',
+                [],
+                {},
+              ),
+            ],
           };
         }
         const ability = livePayload.ability;
         const originalTargets = livePayload.participation.map((row) => row.targetId);
-        const targetMap = new Map(originalTargets.map((targetId, index) => [targetId, targets[index] ?? targetId]));
+        const targetMap = new Map(
+          originalTargets.map((targetId, index) => [targetId, targets[index] ?? targetId]),
+        );
         const stored = stackEntry.squadBreakdown;
         if (stored === null) {
           return {
             state,
-            log: [entry(context, 'refusal', `resolution ${stackEntry.resolutionId} has no stored squad breakdown`, [], {})],
+            log: [
+              entry(
+                context,
+                'refusal',
+                `resolution ${stackEntry.resolutionId} has no stored squad breakdown`,
+                [],
+                {},
+              ),
+            ],
           };
         }
         const effectiveBreakdown: SquadBreakdown = stored.map((row) => {

@@ -30,23 +30,42 @@ const SPIT: SquadAbilityData = {
     tier1: {
       kind: 'automatic',
       sourceText: '- **≤11:** 2 poison damage',
-      data: { damage: { amount: 2, characteristicOptions: [], typeOptions: ['poison'] }, potency: null, conditionIds: [], ending: null },
+      data: {
+        damage: { amount: 2, characteristicOptions: [], typeOptions: ['poison'] },
+        potency: null,
+        conditionIds: [],
+        ending: null,
+      },
     },
     tier2: {
       kind: 'automatic',
       sourceText: '- **12-16:** 4 poison damage',
-      data: { damage: { amount: 4, characteristicOptions: [], typeOptions: ['poison'] }, potency: null, conditionIds: [], ending: null },
+      data: {
+        damage: { amount: 4, characteristicOptions: [], typeOptions: ['poison'] },
+        potency: null,
+        conditionIds: [],
+        ending: null,
+      },
     },
     tier3: {
       kind: 'automatic',
       sourceText: '- **17+:** 6 poison damage',
-      data: { damage: { amount: 6, characteristicOptions: [], typeOptions: ['poison'] }, potency: null, conditionIds: [], ending: null },
+      data: {
+        damage: { amount: 6, characteristicOptions: [], typeOptions: ['poison'] },
+        potency: null,
+        conditionIds: [],
+        ending: null,
+      },
     },
   },
 };
 
 function stateWithBenefit(benefit: ParticipantStats['withCaptainBenefit'] = null): EncounterState {
-  const memberStats = { ...BASE_STATS, withCaptainBenefit: benefit, withCaptain: benefit?.sourceText ?? null };
+  const memberStats = {
+    ...BASE_STATS,
+    withCaptainBenefit: benefit,
+    withCaptain: benefit?.sourceText ?? null,
+  };
   return upgradeEncounterState({
     schemaVersion: 5,
     terrainFacts: [],
@@ -63,12 +82,60 @@ function stateWithBenefit(benefit: ParticipantStats['withCaptainBenefit'] = null
       },
     ],
     participants: {
-      'pit-1': { id: 'pit-1', kind: 'director-creature', sourceRecordId: 'pitling', stats: memberStats, stamina: null, conditions: [], grants: [] },
-      'pit-2': { id: 'pit-2', kind: 'director-creature', sourceRecordId: 'pitling', stats: memberStats, stamina: null, conditions: [], grants: [] },
-      'pit-3': { id: 'pit-3', kind: 'director-creature', sourceRecordId: 'pitling', stats: memberStats, stamina: null, conditions: [], grants: [] },
-      captain: { id: 'captain', kind: 'director-creature', sourceRecordId: 'captain', stats: { ...BASE_STATS, organization: 'Leader', staminaMax: 10 }, stamina: { current: 10, temporary: 0, recoveries: null }, conditions: [], grants: [] },
-      shadow: { id: 'shadow', kind: 'hero', sourceRecordId: 'shadow', stats: { ...BASE_STATS, organization: null, staminaMax: 20 }, stamina: { current: 20, temporary: 0, recoveries: null }, conditions: [], grants: [] },
-      conduit: { id: 'conduit', kind: 'hero', sourceRecordId: 'conduit', stats: { ...BASE_STATS, organization: null, staminaMax: 20 }, stamina: { current: 20, temporary: 0, recoveries: null }, conditions: [], grants: [] },
+      'pit-1': {
+        id: 'pit-1',
+        kind: 'director-creature',
+        sourceRecordId: 'pitling',
+        stats: memberStats,
+        stamina: null,
+        conditions: [],
+        grants: [],
+      },
+      'pit-2': {
+        id: 'pit-2',
+        kind: 'director-creature',
+        sourceRecordId: 'pitling',
+        stats: memberStats,
+        stamina: null,
+        conditions: [],
+        grants: [],
+      },
+      'pit-3': {
+        id: 'pit-3',
+        kind: 'director-creature',
+        sourceRecordId: 'pitling',
+        stats: memberStats,
+        stamina: null,
+        conditions: [],
+        grants: [],
+      },
+      captain: {
+        id: 'captain',
+        kind: 'director-creature',
+        sourceRecordId: 'captain',
+        stats: { ...BASE_STATS, organization: 'Leader', staminaMax: 10 },
+        stamina: { current: 10, temporary: 0, recoveries: null },
+        conditions: [],
+        grants: [],
+      },
+      shadow: {
+        id: 'shadow',
+        kind: 'hero',
+        sourceRecordId: 'shadow',
+        stats: { ...BASE_STATS, organization: null, staminaMax: 20 },
+        stamina: { current: 20, temporary: 0, recoveries: null },
+        conditions: [],
+        grants: [],
+      },
+      conduit: {
+        id: 'conduit',
+        kind: 'hero',
+        sourceRecordId: 'conduit',
+        stats: { ...BASE_STATS, organization: null, staminaMax: 20 },
+        stamina: { current: 20, temporary: 0, recoveries: null },
+        conditions: [],
+        grants: [],
+      },
     },
   });
 }
@@ -101,19 +168,30 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     const receipt = result.log.find((row) => row.data.squadBreakdown !== undefined);
     expect(receipt?.data.squadBreakdown).toMatchObject([
       { targetId: 'shadow', tier: 2, stacking: { kind: 'none' } },
-      { targetId: 'conduit', tier: 2, stacking: { kind: 'applied', total: 2, damageType: 'poison' } },
+      {
+        targetId: 'conduit',
+        tier: 2,
+        stacking: { kind: 'applied', total: 2, damageType: 'poison' },
+      },
     ]);
   });
 
   it('applies captain edge once per roll and grants every participant a crit action', () => {
-    const before = stateWithBenefit({ kind: 'strike-edge', magnitude: 1, sourceText: 'an edge on strikes' });
+    const before = stateWithBenefit({
+      kind: 'strike-edge',
+      magnitude: 1,
+      sourceText: 'an edge on strikes',
+    });
     const result = dispatch(before, {
       intentId: 'pitling-crit',
       kind: 'squad-signature-attack',
       actor: { kind: 'director' },
       payload: {
-        squadId: 'pitlings', ability: SPIT,
-        participation: [{ targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] }],
+        squadId: 'pitlings',
+        ability: SPIT,
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] },
+        ],
         dice: [10, 9],
       },
     });
@@ -128,34 +206,69 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     const before = stateWithBenefit();
     const shadow = before.participants.shadow;
     if (!shadow?.stats) throw new Error('fixture');
-    before.participants.shadow = { ...shadow, stats: { ...shadow.stats, weaknesses: [{ appliesTo: 'any', value: 2 }] } };
+    before.participants.shadow = {
+      ...shadow,
+      stats: { ...shadow.stats, weaknesses: [{ appliesTo: 'any', value: 2 }] },
+    };
     const result = dispatch(before, {
-      intentId: 'free-strike-together', kind: 'squad-free-strike', actor: { kind: 'director' },
-      payload: { squadId: 'pitlings', targetId: 'shadow', contributions: [{ memberId: 'pit-1' }, { memberId: 'pit-2' }, { memberId: 'pit-3' }] },
+      intentId: 'free-strike-together',
+      kind: 'squad-free-strike',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        targetId: 'shadow',
+        contributions: [{ memberId: 'pit-1' }, { memberId: 'pit-2' }, { memberId: 'pit-3' }],
+      },
     });
     expect(result.state.participants.shadow?.stamina?.current).toBe(12); // 2+2+2, then weakness 2 once
   });
 
   it('moves Stamina benefits with the pool and auto-detaches a dead captain', () => {
-    let before = stateWithBenefit();
-    before.squads[0] = { ...before.squads[0]!, captainId: null };
+    const before = stateWithBenefit();
+    const initialSquad = before.squads[0];
+    if (!initialSquad) throw new Error('fixture');
+    before.squads[0] = { ...initialSquad, captainId: null };
     const member = before.participants['pit-1'];
     if (!member?.stats) throw new Error('fixture');
-    const staminaBenefit = { kind: 'stamina' as const, amount: 2, sourceText: '+2 bonus to Stamina' };
+    const staminaBenefit = {
+      kind: 'stamina' as const,
+      amount: 2,
+      sourceText: '+2 bonus to Stamina',
+    };
     for (const id of ['pit-1', 'pit-2', 'pit-3']) {
-      const current = before.participants[id]!;
-      before.participants[id] = { ...current, stats: { ...current.stats!, withCaptain: staminaBenefit.sourceText, withCaptainBenefit: staminaBenefit } };
+      const current = before.participants[id];
+      if (!current?.stats) throw new Error('fixture');
+      before.participants[id] = {
+        ...current,
+        stats: {
+          ...current.stats,
+          withCaptain: staminaBenefit.sourceText,
+          withCaptainBenefit: staminaBenefit,
+        },
+      };
     }
     const attached = dispatch(before, {
-      intentId: 'attach', kind: 'attach-captain', actor: { kind: 'director' },
+      intentId: 'attach',
+      kind: 'attach-captain',
+      actor: { kind: 'director' },
       payload: { squadId: 'pitlings', captainId: 'captain' },
     });
-    expect(attached.state.squads[0]).toMatchObject({ perMinionStamina: 5, pool: { current: 15, max: 15 }, captainId: 'captain' });
+    expect(attached.state.squads[0]).toMatchObject({
+      perMinionStamina: 5,
+      pool: { current: 15, max: 15 },
+      captainId: 'captain',
+    });
     const killed = dispatch(attached.state, {
-      intentId: 'kill-captain', kind: 'apply-damage', actor: { kind: 'director' },
+      intentId: 'kill-captain',
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
       payload: { target: 'captain', amount: 10, reason: 'test lethal strike' },
     });
-    expect(killed.state.squads[0]).toMatchObject({ perMinionStamina: 3, pool: { current: 9, max: 9 }, captainId: null });
+    expect(killed.state.squads[0]).toMatchObject({
+      perMinionStamina: 3,
+      pool: { current: 9, max: 9 },
+      captainId: null,
+    });
     expect(killed.log.some((row) => row.data.automaticCaptainDetach !== undefined)).toBe(true);
   });
 });

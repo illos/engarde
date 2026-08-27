@@ -150,7 +150,10 @@ describe('lossless squad tier compilation', () => {
     expect(compiled.abilities).toHaveLength(1);
     expect(compiled.abilities[0]?.tiers).toMatchObject({
       tier1: { kind: 'automatic', data: { damage: { amount: 2 } } },
-      tier2: { kind: 'residue', sourceText: '- **12-16:** 4 poison damage; teleport the target into tomorrow' },
+      tier2: {
+        kind: 'residue',
+        sourceText: '- **12-16:** 4 poison damage; teleport the target into tomorrow',
+      },
       tier3: { kind: 'automatic', data: { damage: { amount: 6 } } },
     });
   });

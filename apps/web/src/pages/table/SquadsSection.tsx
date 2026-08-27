@@ -6,7 +6,7 @@ import { Button } from '../../primitives';
 import type { SquadView } from './squad-contract';
 import { useRun } from './useRun';
 
-// Minion squad Stamina pools on the Table [R-0023..R-0028]. The pool is the
+// Minion squad Stamina pools and one-roll attack affordances [R-0023..R-0039]. The pool is the
 // one home for squad vitality — members render as chips, never per-member
 // Stamina. The only rule text shown is the statblock's With-Captain line,
 // passed through the view verbatim while a captain is attached. Director
@@ -18,6 +18,7 @@ import { useRun } from './useRun';
  * re-derives it from `vitals.organization`. */
 export interface SquadParticipantRef {
   id: string;
+  recordId: string | null;
   isMinion: boolean;
 }
 
@@ -35,9 +36,15 @@ export function SquadsSection({
   const resolvePendingKills = useMutation(api.encounters.resolvePendingKills);
   const attachCaptain = useMutation(api.encounters.attachCaptain);
   const detachCaptain = useMutation(api.encounters.detachCaptain);
+  const squadAttack = useMutation(api.encounters.squadAttack);
+  const squadFreeStrike = useMutation(api.encounters.squadFreeStrike);
   const { run, error, busy } = useRun();
   const [captainPicks, setCaptainPicks] = useState<Record<string, string>>({});
   const [victimPicks, setVictimPicks] = useState<Record<string, string[]>>({});
+  const [attackTargets, setAttackTargets] = useState<Record<string, string>>({});
+  const [attackOwners, setAttackOwners] = useState<Record<string, string>>({});
+  const [attackMembers, setAttackMembers] = useState<Record<string, string[]>>({});
+  const [abilitySlugs, setAbilitySlugs] = useState<Record<string, string>>({});
   if (squads.length === 0) return null;
 
   // Captain candidates: a captain is a separate non-minion participant —
@@ -60,6 +67,17 @@ export function SquadsSection({
           const victims = victimPicks[squad.squadId] ?? [];
           const atCap = victims.length >= squad.pendingKills;
           const captainPick = captainPicks[squad.squadId] ?? captainCandidates[0]?.id ?? '';
+          const targetCandidates = participants.filter(
+            (participant) => !squad.livingMemberIds.includes(participant.id),
+          );
+          const attackTarget = attackTargets[squad.squadId] ?? targetCandidates[0]?.id ?? '';
+          const attackOwner = attackOwners[squad.squadId] ?? squad.livingMemberIds[0] ?? '';
+          const pickedAttackMembers =
+            attackMembers[squad.squadId] ?? (attackOwner ? [attackOwner] : []);
+          const abilitySlug = abilitySlugs[squad.squadId] ?? '';
+          const ownerRecordId = participants.find(
+            (participant) => participant.id === attackOwner,
+          )?.recordId;
           return (
             <li key={squad.squadId} className="border border-line-soft bg-ink-2 p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -130,6 +148,17 @@ export function SquadsSection({
                       <p className="mt-1 whitespace-pre-wrap border border-line-soft bg-ink-1 p-2 font-mono text-xs">
                         {squad.withCaptain}
                       </p>
+                      {squad.withCaptainBenefit ? (
+                        <p className="mt-1 text-xs text-text-mute">
+                          <span className="type-label border border-line-soft px-1">
+                            {squad.withCaptainBenefit.kind === 'directive' ||
+                            squad.withCaptainBenefit.kind === 'residue'
+                              ? 'Table directive'
+                              : 'Automated live modifier'}
+                          </span>{' '}
+                          {squad.withCaptainBenefit.kind}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -168,6 +197,153 @@ export function SquadsSection({
                     Attach captain
                   </Button>
                 </div>
+              ) : null}
+              {viewerIsDirector &&
+              squad.livingMemberIds.length > 0 &&
+              targetCandidates.length > 0 ? (
+                <fieldset className="mt-3 border-t border-line-soft pt-2">
+                  <legend className="type-label text-xs text-text-mute">Squad attack</legend>
+                  <div className="mt-1 grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs text-text-mute">
+                      Target
+                      <select
+                        aria-label={`Squad attack target for ${squad.name}`}
+                        className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 text-sm"
+                        value={attackTarget}
+                        onChange={(event) =>
+                          setAttackTargets((current) => ({
+                            ...current,
+                            [squad.squadId]: event.target.value,
+                          }))
+                        }
+                      >
+                        {targetCandidates.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-xs text-text-mute">
+                      Instance owner
+                      <select
+                        aria-label={`Instance owner for ${squad.name}`}
+                        className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 text-sm"
+                        value={attackOwner}
+                        onChange={(event) => {
+                          const owner = event.target.value;
+                          setAttackOwners((current) => ({ ...current, [squad.squadId]: owner }));
+                          setAttackMembers((current) => ({
+                            ...current,
+                            [squad.squadId]: [
+                              ...new Set([...(current[squad.squadId] ?? []), owner]),
+                            ],
+                          }));
+                        }}
+                      >
+                        {squad.livingMemberIds.map((memberId) => (
+                          <option key={memberId} value={memberId}>
+                            {memberId}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label className="mt-2 block text-xs text-text-mute">
+                    Printed ability slug
+                    <input
+                      aria-label={`Ability slug for ${squad.name}`}
+                      className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 font-mono text-sm"
+                      placeholder="spit"
+                      value={abilitySlug}
+                      onChange={(event) =>
+                        setAbilitySlugs((current) => ({
+                          ...current,
+                          [squad.squadId]: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {squad.livingMemberIds.map((memberId) => (
+                      <label
+                        key={memberId}
+                        className="flex min-h-11 items-center gap-1 font-mono text-xs"
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Attack with ${memberId} in ${squad.name}`}
+                          checked={pickedAttackMembers.includes(memberId)}
+                          onChange={(event) =>
+                            setAttackMembers((current) => {
+                              const ids =
+                                current[squad.squadId] ?? (attackOwner ? [attackOwner] : []);
+                              return {
+                                ...current,
+                                [squad.squadId]: event.target.checked
+                                  ? [...new Set([...ids, memberId])]
+                                  : ids.filter((id) => id !== memberId),
+                              };
+                            })
+                          }
+                        />
+                        {memberId}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={
+                        busy ||
+                        !ownerRecordId ||
+                        !abilitySlug ||
+                        !attackTarget ||
+                        !pickedAttackMembers.includes(attackOwner)
+                      }
+                      onClick={() => {
+                        if (!ownerRecordId) return;
+                        run(() =>
+                          squadAttack({
+                            campaignId,
+                            artifactId: ownerRecordId,
+                            abilitySlug,
+                            squadId: squad.squadId,
+                            participation: [
+                              {
+                                targetId: attackTarget,
+                                instanceOwner: attackOwner,
+                                memberIds: pickedAttackMembers,
+                              },
+                            ],
+                          }),
+                        );
+                      }}
+                    >
+                      Roll signature
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy || !attackTarget || pickedAttackMembers.length === 0}
+                      onClick={() =>
+                        run(() =>
+                          squadFreeStrike({
+                            campaignId,
+                            squadId: squad.squadId,
+                            targetId: attackTarget,
+                            contributions: pickedAttackMembers.map((memberId) => ({
+                              memberId,
+                              count: 1,
+                            })),
+                          }),
+                        )
+                      }
+                    >
+                      Free Strike Together
+                    </Button>
+                  </div>
+                </fieldset>
               ) : null}
               {viewerIsDirector && squad.pendingKills > 0 ? (
                 <div className="mt-2">

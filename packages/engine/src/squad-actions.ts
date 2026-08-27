@@ -1,9 +1,9 @@
-import { debitActionCost } from './action-economy.js';
 import {
   bindDamageCharacteristic,
   bindRollValue,
   resolveAbilityRoll,
 } from './ability-execution.js';
+import { debitActionCost } from './action-economy.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type PendingSquadContribution,
@@ -17,8 +17,8 @@ import {
 import type { RandomSource } from './determinism.js';
 import { appendGrant } from './grant-lifecycle.js';
 import { hashPayload } from './payload-hash.js';
-import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
 import { resolvePotency } from './potency.js';
+import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
 import type {
   DamageType,
   EncounterState,
@@ -56,7 +56,11 @@ function entry(
   return { kind, intentId: context.intentId, actor: context.actor, canonRefs, message, data };
 }
 
-function refuse(state: EncounterState, context: LifecycleContext, message: string): ExecutionResult {
+function refuse(
+  state: EncounterState,
+  context: LifecycleContext,
+  message: string,
+): ExecutionResult {
   return { state, log: [entry(context, 'refusal', message, [], {})] };
 }
 
@@ -207,7 +211,12 @@ export function executeSquadSignatureAttack(
 ): ExecutionResult {
   const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
   const payload = intent.payload;
-  const problem = validateParticipation(state, payload.squadId, payload.ability, payload.participation);
+  const problem = validateParticipation(
+    state,
+    payload.squadId,
+    payload.ability,
+    payload.participation,
+  );
   if (problem) return refuse(state, context, problem);
   const squad = state.squads.find((candidate) => candidate.squadId === payload.squadId);
   if (!squad) return refuse(state, context, `unknown squad ${payload.squadId}`);
@@ -252,11 +261,21 @@ export function executeSquadSignatureAttack(
     benefit?.kind === 'strike-edge'
       ? [{ sourceText: benefit.sourceText, edges: benefit.magnitude, banes: 0 }]
       : [];
-  const rolled = resolveAbilityRoll(nextState, rollInput(payload, firstOwner.id), binding, random, context, {
-    actorLabel: squad.squadId,
-    outboundBindings: [...targetIdsByMember].map(([memberId, targetIds]) => ({ memberId, targetIds })),
-    derivedModifiers,
-  });
+  const rolled = resolveAbilityRoll(
+    nextState,
+    rollInput(payload, firstOwner.id),
+    binding,
+    random,
+    context,
+    {
+      actorLabel: squad.squadId,
+      outboundBindings: [...targetIdsByMember].map(([memberId, targetIds]) => ({
+        memberId,
+        targetIds,
+      })),
+      derivedModifiers,
+    },
+  );
   nextState = rolled.state;
   log.push(...rolled.log);
   const isArea = payload.ability.keywords.some(
@@ -376,11 +395,25 @@ export function executeSquadFreeStrike(
       'informational',
       `${squad.name} combines ${summed.contributions.length} free-strike contribution(s) into one ${summed.total}-damage strike against ${target.id}`,
       [SQUAD_CANON.freeStrike],
-      { squadFreeStrike: { squadId: squad.squadId, targetId: target.id, ...summed, captainBonus: bonus } },
+      {
+        squadFreeStrike: {
+          squadId: squad.squadId,
+          targetId: target.id,
+          ...summed,
+          captainBonus: bonus,
+        },
+      },
     ),
   ];
   const pending = new Map<string, PendingSquadContribution[]>();
-  if (collectSquadContribution(state, target, { targetId: target.id, damage: summed.total, type: null }, pending)) {
+  if (
+    collectSquadContribution(
+      state,
+      target,
+      { targetId: target.id, damage: summed.total, type: null },
+      pending,
+    )
+  ) {
     const flushed = flushSquadContributions(
       state,
       pending,
@@ -476,9 +509,16 @@ export function executeSquadManeuver(
       log.push(...debited.log);
     }
   }
-  const rolled = resolveAbilityRoll(nextState, rollInput(signaturePayload, owner.id), binding, random, context, {
-    actorLabel: squad.squadId,
-  });
+  const rolled = resolveAbilityRoll(
+    nextState,
+    rollInput(signaturePayload, owner.id),
+    binding,
+    random,
+    context,
+    {
+      actorLabel: squad.squadId,
+    },
+  );
   nextState = rolled.state;
   log.push(...rolled.log);
   const breakdown = buildSquadBreakdown(nextState, signaturePayload, rolled.tierFor, false);
@@ -558,7 +598,14 @@ export function applySquadBreakdown(
         ),
       );
     }
-    if (collectSquadContribution(nextState, target, { targetId: row.targetId, damage: amount, type: damageType }, pending)) {
+    if (
+      collectSquadContribution(
+        nextState,
+        target,
+        { targetId: row.targetId, damage: amount, type: damageType },
+        pending,
+      )
+    ) {
       continue;
     }
     const blocker = damageAutomationBlocker(target);

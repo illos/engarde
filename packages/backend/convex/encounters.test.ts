@@ -884,6 +884,7 @@ test('squad pool E2E: seed → view card; non-area damage decrements, kills, pen
       pendingKills: 0,
       captainId: null,
       withCaptain: null, // R-0028: display only while a captain is attached
+      withCaptainBenefit: null,
     },
   ]);
   // The pool is the ONE home for squad vitality [R-0023]: member vitals are
@@ -986,6 +987,55 @@ test('squad pool E2E: seed → view card; non-area damage decrements, kills, pen
   expect(
     log.some((entry) => entry.kind === 'table-directive' && entry.message.includes('nearest')),
   ).toBe(true);
+});
+
+test('squad attack hosts: ordered participation and Free Strike Together execute end to end', async () => {
+  const t = makeHarness();
+  const table = await setupTable(t);
+  await table.owner.client.mutation(api.encounters.start, {
+    campaignId: table.campaignId,
+    participants: [...SK_PARTICIPANTS, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
+    squads: [SK_SQUAD],
+  });
+  await table.member.client.mutation(api.encounters.squadAttack, {
+    campaignId: table.campaignId,
+    artifactId: SKITTERLING.artifactId,
+    abilitySlug: 'claws',
+    squadId: 'squad-sk',
+    participation: [{ targetId: 'warrior', instanceOwner: 'sk1', memberIds: ['sk1', 'sk2'] }],
+    dice: [5, 5], // +2 → tier 2: 2 poison + one helper Free Strike 1
+  });
+  let view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    view?.participants.find((participant) => participant.id === 'warrior')?.vitals?.staminaCurrent,
+  ).toBe(12);
+
+  await table.member.client.mutation(api.encounters.squadFreeStrike, {
+    campaignId: table.campaignId,
+    squadId: 'squad-sk',
+    targetId: 'warrior',
+    contributions: [
+      { memberId: 'sk3', count: 1 },
+      { memberId: 'sk4', count: 1 },
+    ],
+  });
+  view = await table.owner.client.query(api.encounters.getActive, {
+    campaignId: table.campaignId,
+  });
+  expect(
+    view?.participants.find((participant) => participant.id === 'warrior')?.vitals?.staminaCurrent,
+  ).toBe(10);
+  if (!view) throw new Error('no active encounter');
+  const log = await table.owner.client.query(api.encounters.listLog, {
+    campaignId: table.campaignId,
+    encounterId: view.encounterId,
+  });
+  expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  expect(log.some((entry) => entry.message.includes('combines 2 free-strike contribution'))).toBe(
+    true,
+  );
 });
 
 test('squad pool E2E: dispatch-asserted area damage caps each contribution at per-minion Stamina [R-0025]', async () => {

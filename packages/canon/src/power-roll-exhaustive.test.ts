@@ -64,6 +64,7 @@ interface ExpectedTier {
   } | null;
   conditionIds: string[];
   ending: 'save-ends' | null;
+  forcedMovement?: { kind: 'push'; distance: number };
 }
 
 const ACTOR_STATS: ParticipantStats = {
@@ -131,6 +132,7 @@ function expectedTier(data: TierOutcomeData): ExpectedTier {
       : null,
     conditionIds: data.conditionIds,
     ending: data.ending,
+    ...(data.forcedMovement ? { forcedMovement: data.forcedMovement } : {}),
   };
 }
 
