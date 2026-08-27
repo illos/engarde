@@ -488,7 +488,7 @@ export function resolveAbilityRoll(
         // R-0034(d) per-target-scoping seam: outbound rides the roller's
         // own roll, inbound is answered per struck holder [R-0013, R-0014].
         grantConsumedByRoll(grant, rollShape, {
-          attackerId: payload.actorParticipantId,
+          attackerId: direction === 'outbound' ? holder.id : payload.actorParticipantId,
           targetId: direction === 'inbound' ? holder.id : null,
         }),
     );
@@ -537,10 +537,14 @@ export function resolveAbilityRoll(
       ? consumeGrantsFrom(liveActor, 'outbound')
       : { edges: 0, banes: 0, consumed: [] };
   const outboundByTarget = new Map<string, { edges: number; banes: number }>();
+  const memberOutboundConsumed: Array<{ holderId: string; grant: NextRollGrant }> = [];
   for (const binding of options.outboundBindings ?? []) {
     const holder = nextState.participants[binding.memberId];
     if (!holder) continue;
     const consumed = consumeGrantsFrom(holder, 'outbound');
+    memberOutboundConsumed.push(
+      ...consumed.consumed.map((grant) => ({ holderId: binding.memberId, grant })),
+    );
     for (const targetId of binding.targetIds) {
       const current = outboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
       outboundByTarget.set(targetId, {
@@ -642,6 +646,13 @@ export function resolveAbilityRoll(
             ...outbound.consumed.map((grant) => ({
               grantId: grant.grantId,
               holderId: payload.actorParticipantId,
+              direction: grant.direction,
+              polarity: grant.polarity,
+              contribution: grantContribution(grant.polarity),
+            })),
+            ...memberOutboundConsumed.map(({ holderId, grant }) => ({
+              grantId: grant.grantId,
+              holderId,
               direction: grant.direction,
               polarity: grant.polarity,
               contribution: grantContribution(grant.polarity),

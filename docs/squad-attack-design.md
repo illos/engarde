@@ -8,6 +8,14 @@
 > needed.") — folded into §3/§4 below; recorded in
 > `docs/canon-rulings.md`.
 
+> **BUILD CLOSEOUT 2026-08-27:** engine/canon/Convex/CLI/Table implementation
+> landed from action-economy base `5baaa39`; verification and dispositions are
+> in `docs/squad-attack-report.md`. The accepted R-0036 premise was partly
+> falsified by the bounded grammar attempt: Knockback's pure Push tiers compile,
+> but Grab's interleaved target free strike requires reaction nesting. Grab
+> therefore remains a verbatim, maneuver-debiting directive pending the exact
+> human amendment review; no support was invented.
+
 Rev 1 was red-teamed by four independent lanes (Gate-2 PDF confirmation,
 canon fidelity, substrate scalability, rules-lawyer counterexamples); the
 findings ledger is `docs/squad-attack-redteam.md`. Rev 2 folds in all

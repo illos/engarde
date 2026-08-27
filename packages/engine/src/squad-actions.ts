@@ -162,14 +162,13 @@ export function buildSquadBreakdown(
 function validateParticipation(
   state: EncounterState,
   squadId: string,
-  ability: SquadAbilityData,
   participation: readonly SquadParticipation[],
+  isArea: boolean,
 ): string | null {
   const squad = state.squads.find((candidate) => candidate.squadId === squadId);
   if (!squad) return `unknown squad ${squadId}`;
   const targets = participation.map((row) => row.targetId);
   if (new Set(targets).size !== targets.length) return 'participation targetIds must be distinct';
-  const isArea = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
   const globallyUsed = new Set<string>();
   for (const row of participation) {
     if (!state.participants[row.targetId]) return `unknown participant ${row.targetId}`;
@@ -204,6 +203,34 @@ function rollInput(payload: SquadSignatureAttackPayload, actorParticipantId: str
   };
 }
 
+function validateSquadDamageBindings(
+  state: EncounterState,
+  payload: SquadSignatureAttackPayload,
+): string | null {
+  const damagePackets = Object.values(payload.ability.tiers)
+    .filter((packet) => packet.kind === 'automatic')
+    .map((packet) => packet.data.damage)
+    .filter((damage) => damage !== null);
+  const offeredTypes = new Set(damagePackets.flatMap((damage) => damage.typeOptions));
+  if (damagePackets.some((damage) => damage.typeOptions.length > 1)) {
+    if (payload.damageTypeChoice === undefined) {
+      return `this ability's damage offers a type choice (${[...offeredTypes].join(' or ')}) — name damageTypeChoice`;
+    }
+  }
+  if (payload.damageTypeChoice !== undefined && !offeredTypes.has(payload.damageTypeChoice)) {
+    return `damageTypeChoice ${payload.damageTypeChoice} is not offered`;
+  }
+  for (const ownerId of new Set(payload.participation.map((row) => row.instanceOwner))) {
+    const owner = state.participants[ownerId];
+    if (!owner) return `unknown participant ${ownerId}`;
+    for (const damage of damagePackets) {
+      const binding = bindDamageCharacteristic(payload, owner, damage.characteristicOptions);
+      if ('error' in binding) return binding.error;
+    }
+  }
+  return null;
+}
+
 export function executeSquadSignatureAttack(
   state: EncounterState,
   intent: SquadSignatureIntent,
@@ -214,8 +241,8 @@ export function executeSquadSignatureAttack(
   const problem = validateParticipation(
     state,
     payload.squadId,
-    payload.ability,
     payload.participation,
+    payload.ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area'),
   );
   if (problem) return refuse(state, context, problem);
   const squad = state.squads.find((candidate) => candidate.squadId === payload.squadId);
@@ -225,6 +252,8 @@ export function executeSquadSignatureAttack(
   if (!firstOwner) return refuse(state, context, 'squad participation has no instance owner');
   const binding = bindRollValue(payload, firstOwner);
   if ('error' in binding) return refuse(state, context, binding.error);
+  const damageBindingProblem = validateSquadDamageBindings(state, payload);
+  if (damageBindingProblem) return refuse(state, context, damageBindingProblem);
 
   let nextState = state;
   const log: LogEntry[] = [];
@@ -452,9 +481,32 @@ export function executeSquadManeuver(
   const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
   const payload = intent.payload;
   if (payload.maneuver !== 'knockback' || payload.ability === null) {
+    const problem = validateParticipation(state, payload.squadId, payload.participation, false);
+    if (problem) return refuse(state, context, problem);
+    let nextState = state;
+    const debitLog: LogEntry[] = [];
+    if (state.turnState !== null) {
+      for (const memberId of uniqueParticipatingMembers(payload.participation)) {
+        const debited = debitActionCost(
+          nextState,
+          {
+            cost: 'maneuver',
+            payerId: memberId,
+            abilityKey: `squad-maneuver:${payload.maneuver}`,
+            usesPerRound: null,
+            partOf: null,
+            sharesAbilityUse: false,
+          },
+          context,
+        );
+        nextState = debited.state;
+        debitLog.push(...debited.log);
+      }
+    }
     return {
-      state,
+      state: nextState,
       log: [
+        ...debitLog,
         entry(
           context,
           'table-directive',
@@ -481,7 +533,7 @@ export function executeSquadManeuver(
     ability,
     partOfByMember: {},
   };
-  const problem = validateParticipation(state, payload.squadId, ability, payload.participation);
+  const problem = validateParticipation(state, payload.squadId, payload.participation, false);
   if (problem) return refuse(state, context, problem);
   const squad = state.squads.find((candidate) => candidate.squadId === payload.squadId);
   const ownerId = payload.participation[0]?.instanceOwner;
@@ -489,6 +541,8 @@ export function executeSquadManeuver(
   if (!squad || !owner) return refuse(state, context, 'invalid Knockback squad participation');
   const binding = bindRollValue(signaturePayload, owner);
   if ('error' in binding) return refuse(state, context, binding.error);
+  const damageBindingProblem = validateSquadDamageBindings(state, signaturePayload);
+  if (damageBindingProblem) return refuse(state, context, damageBindingProblem);
   let nextState = state;
   const log: LogEntry[] = [];
   if (state.turnState !== null) {

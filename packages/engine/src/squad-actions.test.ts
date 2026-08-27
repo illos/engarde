@@ -176,6 +176,151 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     ]);
   });
 
+  it("narrows each member outbound grant to only that member's target", () => {
+    const before = stateWithBenefit();
+    const pit1 = before.participants['pit-1'];
+    const pit2 = before.participants['pit-2'];
+    if (!pit1 || !pit2) throw new Error('fixture');
+    before.participants['pit-1'] = {
+      ...pit1,
+      grants: [
+        {
+          kind: 'next-roll',
+          grantId: 'edge-pit-1',
+          polarity: 'edge',
+          scope: 'strike',
+          direction: 'outbound',
+          window: null,
+          source: { participantId: 'captain', effectArtifactId: 'test/edge' },
+        },
+      ],
+    };
+    before.participants['pit-2'] = {
+      ...pit2,
+      grants: [
+        {
+          kind: 'next-roll',
+          grantId: 'bane-pit-2',
+          polarity: 'bane',
+          scope: 'strike',
+          direction: 'outbound',
+          window: null,
+          source: { participantId: 'captain', effectArtifactId: 'test/bane' },
+        },
+      ],
+    };
+    const result = dispatch(before, {
+      intentId: 'member-grants',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability: SPIT,
+        dice: [6, 5],
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
+          { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
+        ],
+      },
+    });
+    expect(result.state.participants.shadow?.stamina?.current).toBe(16); // edge: tier 2
+    expect(result.state.participants.conduit?.stamina?.current).toBe(18); // bane: tier 1
+    const roll = result.log.find((row) => row.data.powerRoll)?.data.powerRoll as
+      | { grantsConsumed?: Array<{ holderId: string }>; perTarget?: unknown }
+      | undefined;
+    expect(roll?.grantsConsumed?.map((row) => row.holderId)).toEqual(['pit-1', 'pit-2']);
+    expect(roll?.perTarget).toMatchObject({
+      shadow: { resolution: { tier: 2 } },
+      conduit: { resolution: { tier: 1 } },
+    });
+  });
+
+  it('keeps a bespoke tier and its helper stacking as explicit residue', () => {
+    const before = stateWithBenefit();
+    const residueAbility: SquadAbilityData = {
+      ...SPIT,
+      tiers: {
+        ...SPIT.tiers,
+        tier2: { kind: 'residue', sourceText: '- **12-16:** 4 poison damage; bespoke rider' },
+      },
+    };
+    const result = dispatch(before, {
+      intentId: 'residue-tier',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability: residueAbility,
+        dice: [6, 6],
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] },
+        ],
+      },
+    });
+    expect(result.state.participants.shadow?.stamina?.current).toBe(20);
+    expect(result.log.some((row) => row.data.squadTierResidue !== undefined)).toBe(true);
+    expect(result.log.some((row) => row.data.squadStackingResidue !== undefined)).toBe(true);
+  });
+
+  it('refuses an unbound later instance owner before any member debit', () => {
+    let before = stateWithBenefit();
+    const pit2 = before.participants['pit-2'];
+    const tier2 = SPIT.tiers.tier2;
+    if (!pit2 || tier2.kind !== 'automatic' || tier2.data.damage === null) {
+      throw new Error('fixture');
+    }
+    before = dispatch(before, {
+      intentId: 'begin-binding-test',
+      kind: 'begin-combat',
+      actor: { kind: 'director' },
+      payload: { firstSide: 'director', roll: 7 },
+    }).state;
+    before = dispatch(before, {
+      intentId: 'turn-binding-test',
+      kind: 'start-turn',
+      actor: { kind: 'director' },
+      payload: { turnId: 'pitlings' },
+    }).state;
+    const livePit2 = before.participants['pit-2'];
+    if (!livePit2) throw new Error('fixture');
+    before.participants['pit-2'] = { ...livePit2, stats: null };
+    const ability: SquadAbilityData = {
+      ...SPIT,
+      tiers: {
+        ...SPIT.tiers,
+        tier2: {
+          ...tier2,
+          data: {
+            ...tier2.data,
+            damage: { ...tier2.data.damage, characteristicOptions: ['I'] },
+          },
+        },
+      },
+    };
+    const result = applyIntent(
+      before,
+      {
+        intentId: 'binding-refusal',
+        kind: 'squad-signature-attack',
+        actor: { kind: 'director' },
+        payload: {
+          squadId: 'pitlings',
+          ability,
+          dice: [6, 6],
+          participation: [
+            { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
+            { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
+          ],
+        },
+      },
+      { random: createSeededRandomSource(39) },
+    );
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.log[0]?.message).toContain('pit-2 has no tracked characteristics');
+    expect(result.state).toBe(before);
+  });
+
   it('applies captain edge once per roll and grants every participant a crit action', () => {
     const before = stateWithBenefit({
       kind: 'strike-edge',
@@ -221,6 +366,39 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
       },
     });
     expect(result.state.participants.shadow?.stamina?.current).toBe(12); // 2+2+2, then weakness 2 once
+  });
+
+  it('debits every participant even when a together maneuver stays directive', () => {
+    let before = stateWithBenefit();
+    before = dispatch(before, {
+      intentId: 'begin',
+      kind: 'begin-combat',
+      actor: { kind: 'director' },
+      payload: { firstSide: 'director', roll: 7 },
+    }).state;
+    before = dispatch(before, {
+      intentId: 'turn',
+      kind: 'start-turn',
+      actor: { kind: 'director' },
+      payload: { turnId: 'pitlings' },
+    }).state;
+    const result = dispatch(before, {
+      intentId: 'grab-together',
+      kind: 'squad-maneuver',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        maneuver: 'grab',
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] },
+        ],
+        ability: null,
+        sourceText: 'Grab together; the interleaved free strike remains table-resolved.',
+      },
+    });
+    expect(result.state.participants['pit-1']?.actionBudget.maneuver?.used).toBe(1);
+    expect(result.state.participants['pit-2']?.actionBudget.maneuver?.used).toBe(1);
+    expect(result.log.some((row) => row.data.squadManeuverDirective !== undefined)).toBe(true);
   });
 
   it('moves Stamina benefits with the pool and auto-detaches a dead captain', () => {

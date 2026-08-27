@@ -239,6 +239,32 @@ describe('SquadsSection', () => {
     });
   });
 
+  test('queues multiple target rows in presentation order', () => {
+    setScene(activeEncounter);
+    render(<EncounterPanel campaignId={campaignId} />);
+    fireEvent.change(screen.getByLabelText('Ability slug for goblin spinecleavers'), {
+      target: { value: 'axe' },
+    });
+    fireEvent.click(screen.getByText('Queue target')); // fury ← sc1
+    fireEvent.change(screen.getByLabelText('Squad attack target for goblin spinecleavers'), {
+      target: { value: 'goblin-warrior' },
+    });
+    fireEvent.change(screen.getByLabelText('Instance owner for goblin spinecleavers'), {
+      target: { value: 'sc3' },
+    });
+    fireEvent.click(screen.getByText('Roll signature'));
+    expect(spyFor(api.encounters.squadAttack)).toHaveBeenCalledWith({
+      campaignId,
+      artifactId: SPINECLEAVER,
+      abilitySlug: 'axe',
+      squadId: 'squad-sc',
+      participation: [
+        { targetId: 'fury', instanceOwner: 'sc1', memberIds: ['sc1'] },
+        { targetId: 'goblin-warrior', instanceOwner: 'sc3', memberIds: ['sc3'] },
+      ],
+    });
+  });
+
   test('attach: candidates exclude squad members and minions; dispatch shape', () => {
     setScene(activeEncounter);
     render(<EncounterPanel campaignId={campaignId} />);

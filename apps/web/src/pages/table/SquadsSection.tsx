@@ -22,6 +22,12 @@ export interface SquadParticipantRef {
   isMinion: boolean;
 }
 
+interface ParticipationDraft {
+  targetId: string;
+  instanceOwner: string;
+  memberIds: string[];
+}
+
 export function SquadsSection({
   campaignId,
   squads,
@@ -45,6 +51,9 @@ export function SquadsSection({
   const [attackOwners, setAttackOwners] = useState<Record<string, string>>({});
   const [attackMembers, setAttackMembers] = useState<Record<string, string[]>>({});
   const [abilitySlugs, setAbilitySlugs] = useState<Record<string, string>>({});
+  const [queuedParticipation, setQueuedParticipation] = useState<
+    Record<string, ParticipationDraft[]>
+  >({});
   if (squads.length === 0) return null;
 
   // Captain candidates: a captain is a separate non-minion participant —
@@ -78,6 +87,12 @@ export function SquadsSection({
           const ownerRecordId = participants.find(
             (participant) => participant.id === attackOwner,
           )?.recordId;
+          const queued = queuedParticipation[squad.squadId] ?? [];
+          const currentParticipation = {
+            targetId: attackTarget,
+            instanceOwner: attackOwner,
+            memberIds: pickedAttackMembers,
+          };
           return (
             <li key={squad.squadId} className="border border-line-soft bg-ink-2 p-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -235,9 +250,7 @@ export function SquadsSection({
                           setAttackOwners((current) => ({ ...current, [squad.squadId]: owner }));
                           setAttackMembers((current) => ({
                             ...current,
-                            [squad.squadId]: [
-                              ...new Set([...(current[squad.squadId] ?? []), owner]),
-                            ],
+                            [squad.squadId]: [owner],
                           }));
                         }}
                       >
@@ -294,6 +307,31 @@ export function SquadsSection({
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button
                       size="sm"
+                      variant="ghost"
+                      disabled={
+                        busy ||
+                        !attackTarget ||
+                        !pickedAttackMembers.includes(attackOwner) ||
+                        queued.some((row) => row.targetId === attackTarget)
+                      }
+                      onClick={() => {
+                        setQueuedParticipation((current) => ({
+                          ...current,
+                          [squad.squadId]: [
+                            ...(current[squad.squadId] ?? []),
+                            currentParticipation,
+                          ],
+                        }));
+                        setAttackMembers((current) => ({
+                          ...current,
+                          [squad.squadId]: attackOwner ? [attackOwner] : [],
+                        }));
+                      }}
+                    >
+                      Queue target
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={
                         busy ||
                         !ownerRecordId ||
@@ -309,13 +347,7 @@ export function SquadsSection({
                             artifactId: ownerRecordId,
                             abilitySlug,
                             squadId: squad.squadId,
-                            participation: [
-                              {
-                                targetId: attackTarget,
-                                instanceOwner: attackOwner,
-                                memberIds: pickedAttackMembers,
-                              },
-                            ],
+                            participation: [...queued, currentParticipation],
                           }),
                         );
                       }}
@@ -343,6 +375,30 @@ export function SquadsSection({
                       Free Strike Together
                     </Button>
                   </div>
+                  {queued.length > 0 ? (
+                    <ol className="mt-2 flex flex-col gap-1 text-xs text-text-mute">
+                      {queued.map((row, index) => (
+                        <li key={`${row.targetId}-${index}`}>
+                          {index + 1}. {row.memberIds.join(' + ')} → {row.targetId} (owner{' '}
+                          {row.instanceOwner}){' '}
+                          <button
+                            type="button"
+                            className="text-foe underline"
+                            onClick={() =>
+                              setQueuedParticipation((current) => ({
+                                ...current,
+                                [squad.squadId]: (current[squad.squadId] ?? []).filter(
+                                  (_, at) => at !== index,
+                                ),
+                              }))
+                            }
+                          >
+                            remove
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
                 </fieldset>
               ) : null}
               {viewerIsDirector && squad.pendingKills > 0 ? (
