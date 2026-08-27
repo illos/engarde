@@ -89,9 +89,15 @@ function highestCharacteristic(stats: NonNullable<ParticipantState['stats']>): n
   );
 }
 
+interface AbilityBindingPayload {
+  ability: Pick<UseAbilityPayload['ability'], 'powerRollBonus'>;
+  characteristicChoice?: CharacteristicLetter;
+  damageCharacteristicChoice?: CharacteristicLetter;
+}
+
 /** Bind the roll's added value per the compiled power-roll bonus. */
-function bindRollValue(
-  payload: UseAbilityPayload,
+export function bindRollValue(
+  payload: AbilityBindingPayload,
   actor: ParticipantState,
 ): { value: number; label: string } | { error: string } {
   const bonus = payload.ability.powerRollBonus;
@@ -125,8 +131,8 @@ function bindRollValue(
 
 /** Bind the damage-time characteristic ("N + M or A damage") — defaults to
  * the actor's highest among the offered options, logged as defaulted (PL-5). */
-function bindDamageCharacteristic(
-  payload: UseAbilityPayload,
+export function bindDamageCharacteristic(
+  payload: AbilityBindingPayload,
   actor: ParticipantState,
   options: readonly CharacteristicLetter[],
 ): { value: number; label: string; defaulted: boolean } | { error: string } {
@@ -415,17 +421,40 @@ export interface AbilityRollOutcome {
   rollReceipt: RollReceipt;
 }
 
+export interface AbilityRollInput {
+  actorParticipantId: string;
+  ability: { abilityArtifactId: string; keywords: string[] };
+  targets: string[];
+  dice?: [number, number];
+  edges: number;
+  banes: number;
+  bonuses: UseAbilityPayload['bonuses'];
+  penalties: UseAbilityPayload['penalties'];
+  automaticOutcomes: UseAbilityPayload['automaticOutcomes'];
+  downgradeToTier?: 1 | 2;
+}
+
+export interface AbilityRollOptions {
+  /** Omitted on ordinary participant rolls. A squad roll consumes each
+   * listed member's outbound grants once, then contributes them only to the
+   * targets that member attacks [R-0034(d)]. */
+  outboundBindings?: Array<{ memberId: string; targetIds: string[] }>;
+  derivedModifiers?: Array<{ sourceText: string; edges: number; banes: number }>;
+  actorLabel?: string;
+}
+
 export function resolveAbilityRoll(
   state: EncounterState,
-  payload: UseAbilityPayload,
+  payload: AbilityRollInput,
   rollBinding: { value: number; label: string },
   random: RandomSource,
   context: LifecycleContext,
+  options: AbilityRollOptions = {},
 ): AbilityRollOutcome {
   const ability = payload.ability;
   const log: LogEntry[] = [];
   let nextState = state;
-  const actorLabel = payload.actorParticipantId;
+  const actorLabel = options.actorLabel ?? payload.actorParticipantId;
   // ── grant consumption [R-0013..R-0015] ─────────────────────────────────
   // The actor's pending outbound grants whose scope matches this roll are
   // consumed and contribute to the (uniform) base pool; each target's
@@ -492,9 +521,23 @@ export function resolveAbilityRoll(
   };
 
   const liveActor = nextState.participants[payload.actorParticipantId];
-  const outbound = liveActor
-    ? consumeGrantsFrom(liveActor, 'outbound')
-    : { edges: 0, banes: 0, consumed: [] };
+  const outbound =
+    options.outboundBindings === undefined && liveActor
+      ? consumeGrantsFrom(liveActor, 'outbound')
+      : { edges: 0, banes: 0, consumed: [] };
+  const outboundByTarget = new Map<string, { edges: number; banes: number }>();
+  for (const binding of options.outboundBindings ?? []) {
+    const holder = nextState.participants[binding.memberId];
+    if (!holder) continue;
+    const consumed = consumeGrantsFrom(holder, 'outbound');
+    for (const targetId of binding.targetIds) {
+      const current = outboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      outboundByTarget.set(targetId, {
+        edges: current.edges + consumed.edges,
+        banes: current.banes + consumed.banes,
+      });
+    }
+  }
   const inboundByTarget = new Map<string, { edges: number; banes: number }>();
   for (const targetId of payload.targets) {
     const target = nextState.participants[targetId];
@@ -510,8 +553,11 @@ export function resolveAbilityRoll(
     random.roll(POWER_ROLL_DIE),
     random.roll(POWER_ROLL_DIE),
   ];
-  const baseEdges = payload.edges + outbound.edges;
-  const baseBanes = payload.banes + outbound.banes;
+  const derivedModifiers = options.derivedModifiers ?? [];
+  const derivedEdges = derivedModifiers.reduce((sum, modifier) => sum + modifier.edges, 0);
+  const derivedBanes = derivedModifiers.reduce((sum, modifier) => sum + modifier.banes, 0);
+  const baseEdges = payload.edges + outbound.edges + derivedEdges;
+  const baseBanes = payload.banes + outbound.banes + derivedBanes;
   const resolution = resolvePowerRoll({
     dice,
     characteristicValue: rollBinding.value,
@@ -529,10 +575,15 @@ export function resolveAbilityRoll(
     string,
     { edges: number; banes: number; resolution: PowerRollResolution }
   > | null = null;
-  if (inboundByTarget.size > 0) {
+  if (inboundByTarget.size > 0 || outboundByTarget.size > 0) {
     perTarget = {};
     for (const targetId of payload.targets) {
-      const extra = inboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      const inboundExtra = inboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      const outboundExtra = outboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      const extra = {
+        edges: inboundExtra.edges + outboundExtra.edges,
+        banes: inboundExtra.banes + outboundExtra.banes,
+      };
       const targetEdges = baseEdges + extra.edges;
       const targetBanes = baseBanes + extra.banes;
       perTarget[targetId] = {
@@ -575,6 +626,7 @@ export function resolveAbilityRoll(
           banes: baseBanes,
           assertedEdges: payload.edges,
           assertedBanes: payload.banes,
+          derivedModifiers,
           grantsConsumed: [
             ...outbound.consumed.map((grant) => ({
               grantId: grant.grantId,
@@ -626,6 +678,7 @@ export function resolveAbilityRoll(
         { edges: value.edges, banes: value.banes, tier: value.resolution.tier },
       ]),
     ),
+    derivedModifiers,
   };
   return { state: nextState, log, dice, resolution, perTarget, tierFor, rollReceipt };
 }
@@ -851,6 +904,7 @@ export function executeUseAbility(
   // [R-0032]; the explicit commit executes against commit-time state.
   if (nextState.turnState !== null) {
     const resolutionEntry: ResolutionEntry = {
+      kind: 'ability',
       resolutionId: intent.intentId,
       actorId: payload.actorParticipantId,
       abilityArtifactId: ability.abilityArtifactId,
@@ -860,6 +914,7 @@ export function executeUseAbility(
       phase: 'rolled',
       rollReceipt,
       modifications: [],
+      squadBreakdown: null,
     };
     nextState = { ...nextState, resolutionStack: [...nextState.resolutionStack, resolutionEntry] };
     log.push(

@@ -18,3 +18,4 @@ export * from './schemas.js';
 export * from './source.js';
 export * from './pilot-encounter.js';
 export * from './statblock-stats.js';
+export * from './benefit-phrase.js';

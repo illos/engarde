@@ -33,6 +33,8 @@ export interface TierOutcomeData {
   /** Condition artifact ids taken from the explicit scc.v1 links. */
   conditionIds: string[];
   ending: 'save-ends' | null;
+  /** Bounded common-Knockback grammar member [R-0036]. */
+  forcedMovement?: { kind: 'push'; distance: number } | null;
 }
 
 /** Structured power-roll bonus [rule.dice/ability-roll; monster stat blocks
@@ -438,6 +440,17 @@ function splitOptions(list: string): string[] {
 function parseTierPayload(payload: string): Omit<TierOutcomeData, 'band'> | null {
   const conditionIds = conditionIdsIn(payload);
   let rest = stripSccLinks(payload).trim();
+
+  const push = /^Push (\d+)$/.exec(rest);
+  if (push) {
+    return {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push', distance: Number(push[1]) },
+    };
+  }
 
   let ending: TierOutcomeData['ending'] = null;
   if (rest.endsWith('(save ends)')) {

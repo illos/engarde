@@ -11,7 +11,7 @@ import {
   upgradeEncounterState,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
-import { compileAbilities, compileAbility } from './effect-conformance.js';
+import { compileAbilities, compileAbility, compileSquadAbilities } from './effect-conformance.js';
 import { auditGrammarConservation, parseEffectText } from './effect-grammar.js';
 import { ingestStructuredRecord } from './extract.js';
 
@@ -110,6 +110,50 @@ describe.skipIf(!sourceRoot)('grammar: the measured damage/bonus shapes', () => 
       expect(tier.ending).toBe('save-ends');
     }
   });
+
+  it('common Knockback compiles only the bounded Push 1/2/3 tier grammar [R-0036]', async () => {
+    const text = await ingestText('en/books/heroes/md/feature/ability/common/knockback.md');
+    const compiled = compileAbility(
+      parseEffectText(text),
+      'mcdm.heroes.v1/feature.ability.common/knockback',
+    );
+    if (!('ability' in compiled))
+      throw new Error(`did not compile: ${compiled.missing.join(', ')}`);
+    expect(compiled.ability.actionCost).toBe('maneuver');
+    expect([
+      compiled.ability.tiers.tier1.forcedMovement,
+      compiled.ability.tiers.tier2.forcedMovement,
+      compiled.ability.tiers.tier3.forcedMovement,
+    ]).toEqual([
+      { kind: 'push', distance: 1 },
+      { kind: 'push', distance: 2 },
+      { kind: 'push', distance: 3 },
+    ]);
+  });
+});
+
+describe('lossless squad tier compilation', () => {
+  it('preserves one bespoke tier as residue without erasing the shared roll', () => {
+    const text = [
+      '**Spit (Signature Ability)**',
+      '| **Ranged, Strike** | **Main action** |',
+      '|---|---:|',
+      '| **Ranged 5** | **One creature** |',
+      '**Power Roll + 1:**',
+      '- **≤11:** 2 poison damage',
+      '- **12-16:** 4 poison damage; teleport the target into tomorrow',
+      '- **17+:** 6 poison damage',
+      '',
+    ].join('\n');
+    const compiled = compileSquadAbilities(parseEffectText(text), 'test.monster/pitling');
+    expect(compiled.incomplete).toEqual([]);
+    expect(compiled.abilities).toHaveLength(1);
+    expect(compiled.abilities[0]?.tiers).toMatchObject({
+      tier1: { kind: 'automatic', data: { damage: { amount: 2 } } },
+      tier2: { kind: 'residue', sourceText: '- **12-16:** 4 poison damage; teleport the target into tomorrow' },
+      tier3: { kind: 'automatic', data: { damage: { amount: 6 } } },
+    });
+  });
 });
 
 describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engine', () => {
@@ -123,7 +167,9 @@ describe.skipIf(!sourceRoot)('end to end: goblin warrior strike through the engi
     potencies: null,
     organization: 'Horde',
     recoveriesMax: null,
+    freeStrike: null,
     withCaptain: null,
+    withCaptainBenefit: null,
   };
 
   function freshState(): EncounterState {
@@ -252,7 +298,9 @@ describe.skipIf(!sourceRoot)(
         potencies: null,
         organization: 'Horde',
         recoveriesMax: null,
+        freeStrike: null,
         withCaptain: null,
+        withCaptainBenefit: null,
       };
 
       const runFight = () => {

@@ -36,7 +36,9 @@ const GOBLIN_WARRIOR_STATS: ParticipantStats = {
   potencies: null,
   organization: 'Horde',
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 /** Skitterling (monsters/md/monster/goblin/statblock/skitterling.md,
@@ -50,7 +52,9 @@ const SKITTERLING_STATS: ParticipantStats = {
   potencies: null,
   organization: 'Minion',
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 /** Spear Charge (goblin-warrior, verbatim fixture): "Charge, Melee, Strike,

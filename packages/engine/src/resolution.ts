@@ -3,7 +3,15 @@ import { ECONOMY_CANON, hasCondition } from './action-economy.js';
 import type { LifecycleContext } from './condition-lifecycle.js';
 import { hashPayload } from './payload-hash.js';
 import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
-import type { EncounterState, LogEntry, ResolutionEntry, UseAbilityPayload } from './schemas.js';
+import { applySquadBreakdown, type SquadBreakdown } from './squad-actions.js';
+import type {
+  EncounterState,
+  LogEntry,
+  ResolutionEntry,
+  ResolutionPayload,
+  SquadSignatureAttackPayload,
+  UseAbilityPayload,
+} from './schemas.js';
 
 /**
  * The two-phase commit executor (R-0032; red-team B1/B3/F10/F11): commit
@@ -31,7 +39,7 @@ function entry(
 
 export interface CommitArgs {
   resolutionId: string;
-  payload: UseAbilityPayload;
+  payload: ResolutionPayload;
   /** end-turn force-commit [design §3]: printed damage is never
    * discarded; the receipt names the forcing boundary. */
   forced: boolean;
@@ -42,6 +50,12 @@ export type CommitResult =
   | { ok: false; refusal: string };
 
 const clampTier = (value: number): Tier => (value < 1 ? 1 : value > 3 ? 3 : (value as Tier));
+
+type SquadResolutionPayload = Exclude<ResolutionPayload, UseAbilityPayload>;
+
+function isUseAbilityPayload(payload: ResolutionPayload): payload is UseAbilityPayload {
+  return 'actorParticipantId' in payload;
+}
 
 export function commitResolutionEntry(
   state: EncounterState,
@@ -102,7 +116,13 @@ export function commitResolutionEntry(
   const receipt = stackEntry.rollReceipt;
   const baseTierFor = (targetId: string): Tier => receipt.perTarget[targetId]?.tier ?? receipt.tier;
   let tierShift: (tier: Tier) => Tier = (tier) => tier;
-  let targets: string[] = [...args.payload.targets];
+  const ordinaryPayload = isUseAbilityPayload(args.payload) ? args.payload : null;
+  const squadPayload: SquadResolutionPayload | null = isUseAbilityPayload(args.payload)
+    ? null
+    : args.payload;
+  let targets: string[] = ordinaryPayload
+    ? [...ordinaryPayload.targets]
+    : (squadPayload?.participation.map((row) => row.targetId) ?? []);
   const halves = new Map<string | null, 'down' | 'up'>();
   const potencyExtras = new Map<string | null, number>();
   for (const modification of stackEntry.modifications) {
@@ -152,26 +172,85 @@ export function commitResolutionEntry(
   }
 
   const tierFor = (targetId: string): Tier => tierShift(baseTierFor(targetId));
-  const applied = applyAbilityOutcome(
-    state,
-    {
-      payload: args.payload,
-      targets,
-      tierFor,
-      damageTransform: (targetId, amount) => {
-        const rounding = halves.get(targetId) ?? halves.get(null);
-        if (rounding === undefined) return { amount, note: null };
-        const halved = rounding === 'down' ? Math.floor(amount / 2) : Math.ceil(amount / 2);
-        return {
-          amount: halved,
-          note: `damage against ${targetId} is halved by a recorded modification (${amount} → ${halved}, rounded ${rounding} as dispatch-asserted — the books state no general halving-rounding rule at the pin)`,
+  const applied = ordinaryPayload
+    ? applyAbilityOutcome(
+        state,
+        {
+          payload: ordinaryPayload,
+          targets,
+          tierFor,
+          damageTransform: (targetId, amount) => {
+            const rounding = halves.get(targetId) ?? halves.get(null);
+            if (rounding === undefined) return { amount, note: null };
+            const halved = rounding === 'down' ? Math.floor(amount / 2) : Math.ceil(amount / 2);
+            return {
+              amount: halved,
+              note: `damage against ${targetId} is halved by a recorded modification (${amount} → ${halved}, rounded ${rounding} as dispatch-asserted — the books state no general halving-rounding rule at the pin)`,
+            };
+          },
+          extraPotencyFor: (targetId) =>
+            (potencyExtras.get(targetId) ?? 0) + (potencyExtras.get(null) ?? 0),
+        },
+        context,
+      )
+    : (() => {
+        if (squadPayload === null) {
+          return {
+            state,
+            log: [entry(context, 'refusal', 'resolution payload kind is not executable', [], {})],
+          };
+        }
+        const livePayload = squadPayload;
+        if (livePayload.ability === null) {
+          return {
+            state,
+            log: [entry(context, 'refusal', 'squad maneuver resolution has no compiled ability', [], {})],
+          };
+        }
+        const ability = livePayload.ability;
+        const originalTargets = livePayload.participation.map((row) => row.targetId);
+        const targetMap = new Map(originalTargets.map((targetId, index) => [targetId, targets[index] ?? targetId]));
+        const stored = stackEntry.squadBreakdown;
+        if (stored === null) {
+          return {
+            state,
+            log: [entry(context, 'refusal', `resolution ${stackEntry.resolutionId} has no stored squad breakdown`, [], {})],
+          };
+        }
+        const effectiveBreakdown: SquadBreakdown = stored.map((row) => {
+          const targetId = targetMap.get(row.targetId) ?? row.targetId;
+          const tier = tierFor(row.targetId);
+          const packet = ability.tiers[`tier${tier}`] ?? row.packet;
+          const stacking =
+            packet.kind === 'residue'
+              ? {
+                  kind: 'residue' as const,
+                  reason: 'the modified tier packet is not in the closed single-damage grammar',
+                  sourceText: packet.sourceText,
+                }
+              : packet.data.damage === null && row.stacking.kind === 'applied'
+                ? {
+                    kind: 'residue' as const,
+                    reason: 'the modified tier result carries no ability damage packet',
+                    sourceText: packet.sourceText,
+                  }
+                : row.stacking;
+          return { ...row, targetId, tier, packet, stacking };
+        });
+        const signaturePayload: SquadSignatureAttackPayload = {
+          ...livePayload,
+          ability,
+          partOfByMember: 'partOfByMember' in livePayload ? livePayload.partOfByMember : {},
         };
-      },
-      extraPotencyFor: (targetId) =>
-        (potencyExtras.get(targetId) ?? 0) + (potencyExtras.get(null) ?? 0),
-    },
-    context,
-  );
+        return applySquadBreakdown(
+          state,
+          signaturePayload,
+          effectiveBreakdown,
+          context,
+          halves,
+          potencyExtras,
+        );
+      })();
   // A refusal inside application (binding drift) refuses the whole commit.
   const applyRefusal = applied.log.find((item) => item.kind === 'refusal');
   if (applyRefusal) return { ok: false, refusal: applyRefusal.message };

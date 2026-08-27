@@ -1,3 +1,6 @@
+import type { BenefitPhrase } from '@engarde/engine';
+import { parseWithCaptain } from './benefit-phrase.js';
+
 /**
  * Deterministic participant stats from a stat block's paired structured JSON
  * (DEC-0008: Markdown bytes are canonical; the paired JSON is checksummed
@@ -44,11 +47,15 @@ export interface StatblockStats {
    * don't have Recoveries or a recovery value" [rule.health/stamina
    * §No Recoveries]; hero values arrive via character data, never here. */
   recoveriesMax: null;
+  /** Printed Free Strike stat; null only for legacy/unreadable input. */
+  freeStrike: number | null;
   /** The stat block's VERBATIM "With Captain" entry (structured
    * `with_captain`) — every in-pin Minion-organization statblock carries
    * one; null otherwise. Surfaces verbatim while a captain is attached,
    * never automated [R-0028]. */
   withCaptain: string | null;
+  /** Deterministic closed-template compilation of `withCaptain`. */
+  withCaptainBenefit: BenefitPhrase | null;
   /** Upstream rows the deterministic parser cannot read — shown at the
    * table, never silently dropped or guessed. */
   unparsedRows: string[];
@@ -92,6 +99,17 @@ export function statblockStats(structuredData: Record<string, unknown>): Statblo
     characteristics[key] = value;
   }
   const unparsedRows: string[] = [];
+  const freeStrikeRaw = structuredData.free_strike;
+  const freeStrike =
+    typeof freeStrikeRaw === 'number' && Number.isInteger(freeStrikeRaw) && freeStrikeRaw >= 0
+      ? freeStrikeRaw
+      : typeof freeStrikeRaw === 'string' && /^\d+$/.test(freeStrikeRaw)
+        ? Number(freeStrikeRaw)
+        : null;
+  const withCaptain =
+    typeof structuredData.with_captain === 'string' && structuredData.with_captain !== ''
+      ? structuredData.with_captain
+      : null;
   return {
     staminaMax,
     characteristics: characteristics as StatblockStats['characteristics'],
@@ -99,14 +117,13 @@ export function statblockStats(structuredData: Record<string, unknown>): Statblo
     weaknesses: parseRows(structuredData.weaknesses, unparsedRows, 'weakness'),
     potencies: null,
     recoveriesMax: null,
+    freeStrike,
     organization:
       typeof structuredData.organization === 'string' && structuredData.organization !== ''
         ? structuredData.organization
         : null,
-    withCaptain:
-      typeof structuredData.with_captain === 'string' && structuredData.with_captain !== ''
-        ? structuredData.with_captain
-        : null,
+    withCaptain,
+    withCaptainBenefit: parseWithCaptain(structuredData),
     unparsedRows,
   };
 }

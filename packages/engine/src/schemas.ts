@@ -265,6 +265,44 @@ export const PotencyValuesSchema = z.object({
   strong: z.number().int(),
 });
 
+/**
+ * A deterministically classified persistent benefit phrase. Canon owns the
+ * closed-template parser; the engine receives this compiled data beside the
+ * verbatim source text and never parses rules prose itself [R-0038].
+ */
+export const BenefitPhraseSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('strike-edge'),
+    magnitude: z.union([z.literal(1), z.literal(2)]),
+    sourceText: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('strike-damage'),
+    amount: z.number().int().positive(),
+    sourceText: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('stamina'),
+    amount: z.number().int().positive(),
+    sourceText: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('directive'),
+    template: z.enum([
+      'speed',
+      'ranged-distance',
+      'melee-distance',
+      'forced-movement-distance',
+    ]),
+    amount: z.number().int().positive(),
+    sourceText: z.string().min(1),
+  }),
+  /** Unknown future strings and the one bespoke in-pin string remain
+   * lossless residue — automation never guesses from them. */
+  z.object({ kind: z.literal('residue'), sourceText: z.string().min(1) }),
+]);
+export type BenefitPhrase = z.infer<typeof BenefitPhraseSchema>;
+
 export const ParticipantStatsSchema = z.object({
   staminaMax: z.number().int().positive(),
   characteristics: CharacteristicsSchema,
@@ -282,12 +320,18 @@ export const ParticipantStatsSchema = z.object({
    * creatures don't have Recoveries or a recovery value" [Combat §No
    * Recoveries]; heroes without character data). */
   recoveriesMax: z.number().int().min(0).nullable().default(null),
+  /** Printed free-strike value. Nullable because hero character data and
+   * pre-family stored stats can legitimately predate this field. */
+  freeStrike: z.number().int().nonnegative().nullable().default(null),
   /** The stat block's VERBATIM "With Captain" entry, carried through so
    * hosts can display it while a captain is attached — display only, never
    * automated (benefit automation is a named follow-up family) [R-0028].
    * Null = the stat block carries none. Default keeps pre-v5 stats literals
    * valid. */
   withCaptain: z.string().nullable().default(null),
+  /** Closed-template compilation of `withCaptain`, produced by canon.
+   * Null when no phrase exists or old statsJson predates the lift. */
+  withCaptainBenefit: BenefitPhraseSchema.nullable().default(null),
 });
 
 export type ParticipantStats = z.infer<typeof ParticipantStatsSchema>;
@@ -544,6 +588,17 @@ export const RollReceiptSchema = z.object({
       }),
     )
     .default({}),
+  /** Persistent data-derived modifiers, separate from asserted counts and
+   * consumed grants on the roll receipt [R-0038]. */
+  derivedModifiers: z
+    .array(
+      z.object({
+        sourceText: z.string().min(1),
+        edges: z.number().int().min(0),
+        banes: z.number().int().min(0),
+      }),
+    )
+    .default([]),
 });
 export type RollReceipt = z.infer<typeof RollReceiptSchema>;
 
@@ -609,6 +664,7 @@ export type ResolutionModification = z.infer<typeof ResolutionModificationSchema
  * once per action", condition/bleeding].
  */
 export const ResolutionEntrySchema = z.object({
+  kind: z.enum(['ability', 'squad-signature', 'squad-maneuver']).default('ability'),
   resolutionId: z.string().min(1),
   /** The owning actor: a participant id OR a squad id — widened exactly
    * like `turnState.activeTurnId`, because a squad signature attack (the
@@ -628,6 +684,45 @@ export const ResolutionEntrySchema = z.object({
   phase: z.enum(['rolled', 'committed']),
   rollReceipt: RollReceiptSchema,
   modifications: z.array(ResolutionModificationSchema).default([]),
+  /** Roll-time packet/stacking data for squad-owned resolutions. Commit
+   * consumes this stored breakdown instead of recomputing against mutable
+   * state [R-0034]. */
+  squadBreakdown: z
+    .array(
+      z.object({
+        targetId: ParticipantIdSchema,
+        instanceOwner: ParticipantIdSchema,
+        memberIds: z.array(ParticipantIdSchema).min(1),
+        tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+        packet: z.union([
+          z.object({
+            kind: z.literal('automatic'),
+            data: z.lazy(() => TierEffectDataSchema),
+            sourceText: z.string(),
+          }),
+          z.object({ kind: z.literal('residue'), sourceText: z.string().min(1) }),
+        ]),
+        stacking: z.discriminatedUnion('kind', [
+          z.object({
+            kind: z.literal('applied'),
+            contributions: z.array(
+              z.object({ memberId: ParticipantIdSchema, value: z.number().int().nonnegative() }),
+            ),
+            total: z.number().int().nonnegative(),
+            damageType: DamageTypeSchema.nullable(),
+          }),
+          z.object({ kind: z.literal('none') }),
+          z.object({
+            kind: z.literal('residue'),
+            reason: z.string().min(1),
+            sourceText: z.string().min(1),
+          }),
+        ]),
+        strikeDamageBonus: z.number().int().nonnegative().default(0),
+      }),
+    )
+    .nullable()
+    .default(null),
 });
 export type ResolutionEntry = z.infer<typeof ResolutionEntrySchema>;
 
@@ -810,6 +905,13 @@ export const TierEffectDataSchema = z.object({
   /** Condition artifact ids from the explicit scc links in the tier line. */
   conditionIds: z.array(z.string().min(1)),
   ending: z.enum(['save-ends']).nullable(),
+  /** Bounded R-0036 grammar lift: the common Knockback tiers are exactly
+   * Push 1/2/3. Geometry is not engine state, so execution emits this as a
+   * compiled, receipt-visible movement directive. */
+  forcedMovement: z
+    .object({ kind: z.literal('push'), distance: z.number().int().positive() })
+    .nullable()
+    .optional(),
 });
 
 export type TierEffectData = z.infer<typeof TierEffectDataSchema>;
@@ -1085,6 +1187,103 @@ export const UseAbilityPayloadSchema = z
 export type UseAbilityPayload = z.infer<typeof UseAbilityPayloadSchema>;
 export type UseAbilityPayloadInput = z.input<typeof UseAbilityPayloadSchema>;
 
+export const SquadTierPacketSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('automatic'), data: TierEffectDataSchema, sourceText: z.string() }),
+  z.object({ kind: z.literal('residue'), sourceText: z.string().min(1) }),
+]);
+export type SquadTierPacket = z.infer<typeof SquadTierPacketSchema>;
+
+/** Lossless signature/common-maneuver cluster: individual tiers can remain
+ * residue without erasing the shared roll [R-0034(b/c), R-0036]. */
+export const SquadAbilityDataSchema = z.object({
+  abilityArtifactId: z.string().min(1),
+  actionType: z.string().nullable(),
+  actionCost: ActionCostSchema.nullable().default(null),
+  actionCostResidue: z.string().nullable().default(null),
+  keywords: z.array(z.string().min(1)).default([]),
+  targetsText: z.string().nullable(),
+  powerRollBonus: PowerRollBonusSchema,
+  tiers: z.object({
+    tier1: SquadTierPacketSchema,
+    tier2: SquadTierPacketSchema,
+    tier3: SquadTierPacketSchema,
+  }),
+});
+export type SquadAbilityData = z.infer<typeof SquadAbilityDataSchema>;
+export type SquadAbilityDataInput = z.input<typeof SquadAbilityDataSchema>;
+
+export const SquadParticipationSchema = z.object({
+  targetId: ParticipantIdSchema,
+  instanceOwner: ParticipantIdSchema,
+  memberIds: z
+    .array(ParticipantIdSchema)
+    .min(1)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'memberIds must be distinct per target',
+    }),
+});
+export type SquadParticipation = z.infer<typeof SquadParticipationSchema>;
+
+const squadRollFields = {
+  dice: z.tuple([dieRoll, dieRoll]).optional(),
+  characteristicChoice: CharacteristicLetterSchema.optional(),
+  damageCharacteristicChoice: CharacteristicLetterSchema.optional(),
+  damageTypeChoice: DamageTypeSchema.optional(),
+  edges: z.number().int().min(0).default(0),
+  banes: z.number().int().min(0).default(0),
+  bonuses: z.array(attributedValue).default([]),
+  penalties: z.array(attributedValue).default([]),
+  automaticOutcomes: z.array(z.union([z.literal(1), z.literal(2), z.literal(3)])).default([]),
+  downgradeToTier: z.union([z.literal(1), z.literal(2)]).optional(),
+  knockOut: z.boolean().default(false),
+};
+
+export const SquadSignatureAttackPayloadSchema = z.object({
+  squadId: z.string().min(1),
+  ability: SquadAbilityDataSchema,
+  participation: z.array(SquadParticipationSchema).min(1),
+  partOfByMember: z.record(ParticipantIdSchema, z.string().min(1)).default({}),
+  ...squadRollFields,
+});
+export type SquadSignatureAttackPayload = z.infer<typeof SquadSignatureAttackPayloadSchema>;
+export type SquadSignatureAttackPayloadInput = z.input<typeof SquadSignatureAttackPayloadSchema>;
+
+export const SquadFreeStrikePayloadSchema = z.object({
+  squadId: z.string().min(1),
+  targetId: ParticipantIdSchema,
+  contributions: z
+    .array(
+      z.object({
+        memberId: ParticipantIdSchema,
+        count: z.number().int().positive().default(1),
+      }),
+    )
+    .min(1)
+    .refine((rows) => new Set(rows.map((row) => row.memberId)).size === rows.length, {
+      message: 'free-strike contributors must be distinct',
+    }),
+  knockOut: z.boolean().default(false),
+});
+export type SquadFreeStrikePayload = z.infer<typeof SquadFreeStrikePayloadSchema>;
+
+export const SquadManeuverPayloadSchema = z.object({
+  squadId: z.string().min(1),
+  maneuver: z.enum(['grab', 'hide', 'knockback', 'search-for-hidden-creatures']),
+  participation: z.array(SquadParticipationSchema).min(1),
+  ability: SquadAbilityDataSchema.nullable(),
+  sourceText: z.string().min(1),
+  ...squadRollFields,
+});
+export type SquadManeuverPayload = z.infer<typeof SquadManeuverPayloadSchema>;
+
+export const ResolutionPayloadSchema = z.union([
+  UseAbilityPayloadSchema,
+  SquadSignatureAttackPayloadSchema,
+  SquadManeuverPayloadSchema,
+]);
+export type ResolutionPayload = z.infer<typeof ResolutionPayloadSchema>;
+export type ResolutionPayloadInput = z.input<typeof ResolutionPayloadSchema>;
+
 /**
  * The asserted-band ability reference (design §3, R-0029/R-0030 parity):
  * a manual tier assertion — the path Directors use for
@@ -1149,6 +1348,21 @@ export const IntentSchema = z.discriminatedUnion('kind', [
     ...intentBase,
     kind: z.literal('use-ability'),
     payload: UseAbilityPayloadSchema,
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('squad-signature-attack'),
+    payload: SquadSignatureAttackPayloadSchema,
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('squad-free-strike'),
+    payload: SquadFreeStrikePayloadSchema,
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('squad-maneuver'),
+    payload: SquadManeuverPayloadSchema,
   }),
   z.object({
     ...intentBase,
@@ -1317,7 +1531,7 @@ export const IntentSchema = z.discriminatedUnion('kind', [
        * them FIRST (printed damage is never discarded), then sweeps; a
        * missing payload is a structural refusal — the pure reducer cannot
        * execute an entry it cannot re-verify (red-team B1/F8). */
-      commitPayloads: z.record(z.string().min(1), UseAbilityPayloadSchema).default({}),
+      commitPayloads: z.record(z.string().min(1), ResolutionPayloadSchema).default({}),
     }),
   }),
   z.object({
@@ -1429,7 +1643,7 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       /** The re-supplied payload; the engine verifies its canonical hash
        * against the entry and executes against COMMIT-TIME state
        * [R-0032]. */
-      payload: UseAbilityPayloadSchema,
+      payload: ResolutionPayloadSchema,
     }),
   }),
   z.object({

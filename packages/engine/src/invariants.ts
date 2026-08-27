@@ -1,5 +1,6 @@
 import { BASE_TURN_BUDGET, withinMinionMoveMenu } from './action-economy.js';
 import type { ApplyResult } from './apply-intent.js';
+import { isDead } from './health.js';
 import { POWER_ROLL_DIE, type PowerRollResolution, resolvePowerRoll } from './power-roll.js';
 import {
   type EncounterState,
@@ -558,6 +559,11 @@ export function checkInvariants(
             code: 'squad-membership-mismatch',
             detail: `${squad.squadId} captain ${squad.captainId} is a minion [rule.monster/captain]`,
           });
+        } else if (isDead(captain)) {
+          violations.push({
+            code: 'squad-membership-mismatch',
+            detail: `${squad.squadId} retains dead captain ${squad.captainId}; R-0038 requires automatic detach`,
+          });
         }
       }
     }
@@ -600,6 +606,16 @@ export function checkInvariants(
     const poolClaims = collectClaimRows<SquadNumberClaim>(
       mutations,
       'squadPoolDeltas',
+      (claim) => claim?.squadId,
+    );
+    const poolMaxClaims = collectClaimRows<SquadNumberClaim>(
+      mutations,
+      'squadPoolMaxDeltas',
+      (claim) => claim?.squadId,
+    );
+    const perMinionClaims = collectClaimRows<SquadNumberClaim>(
+      mutations,
+      'squadPerMinionDeltas',
       (claim) => claim?.squadId,
     );
     const pendingClaims = collectClaimRows<SquadNumberClaim>(
@@ -653,6 +669,48 @@ export function checkInvariants(
             unattributed: (walked) => ({
               code: 'unattributed-squad-change',
               detail: `${squadId}: pool ended at ${afterSquad.pool.current}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
+      // R-0039 effective maximum walk.
+      violations.push(
+        ...walkClaims(
+          beforeSquad.pool.max,
+          afterSquad.pool.max,
+          poolMaxClaims.get(squadId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-squad-claim',
+              detail: `${squadId}: pool max claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-squad-change',
+              detail: `${squadId}: pool max ended at ${afterSquad.pool.max}; claims walk to ${walked}`,
+            }),
+          },
+        ),
+      );
+      // R-0039 effective per-minion divisor / area-cap walk.
+      violations.push(
+        ...walkClaims(
+          beforeSquad.perMinionStamina,
+          afterSquad.perMinionStamina,
+          perMinionClaims.get(squadId) ?? [],
+          {
+            from: (claim) => claim.from,
+            to: (claim) => claim.to,
+            equals: (a, b) => a === b,
+            phantom: (claim, walked) => ({
+              code: 'phantom-squad-claim',
+              detail: `${squadId}: per-minion claim starts at ${claim.from}, state was ${walked}`,
+            }),
+            unattributed: (walked) => ({
+              code: 'unattributed-squad-change',
+              detail: `${squadId}: per-minion Stamina ended at ${afterSquad.perMinionStamina}; claims walk to ${walked}`,
             }),
           },
         ),

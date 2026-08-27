@@ -27,7 +27,9 @@ const STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 /** Skitterling, Claws (monsters/md/monster/goblin/statblock/skitterling.md):

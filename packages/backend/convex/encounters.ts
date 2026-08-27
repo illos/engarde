@@ -305,6 +305,24 @@ const encounterView = v.union(
         pendingKills: v.number(),
         captainId: v.union(v.string(), v.null()),
         withCaptain: v.union(v.string(), v.null()),
+        withCaptainBenefit: v.union(
+          v.object({ kind: v.literal('strike-edge'), magnitude: v.number(), sourceText: v.string() }),
+          v.object({ kind: v.literal('strike-damage'), amount: v.number(), sourceText: v.string() }),
+          v.object({ kind: v.literal('stamina'), amount: v.number(), sourceText: v.string() }),
+          v.object({
+            kind: v.literal('directive'),
+            template: v.union(
+              v.literal('speed'),
+              v.literal('ranged-distance'),
+              v.literal('melee-distance'),
+              v.literal('forced-movement-distance'),
+            ),
+            amount: v.number(),
+            sourceText: v.string(),
+          }),
+          v.object({ kind: v.literal('residue'), sourceText: v.string() }),
+          v.null(),
+        ),
       }),
     ),
   }),
@@ -672,6 +690,10 @@ export const getActive = query({
         // carries it.
         withCaptain:
           squad.captainId !== null ? (squadMemberStats(state, squad)?.withCaptain ?? null) : null,
+        withCaptainBenefit:
+          squad.captainId !== null
+            ? (squadMemberStats(state, squad)?.withCaptainBenefit ?? null)
+            : null,
       })),
     };
   },
@@ -845,9 +867,11 @@ export const start = mutation({
           weaknesses: parsed.weaknesses,
           potencies: parsed.potencies,
           organization: parsed.organization,
+          freeStrike: parsed.freeStrike ?? null,
           // Verbatim "With Captain" entry [R-0028]; `?? null` lifts rows
           // whose statsJson predates the field.
           withCaptain: parsed.withCaptain ?? null,
+          withCaptainBenefit: parsed.withCaptainBenefit ?? null,
         });
         for (const row of parsed.unparsedRows) {
           statsReceipts.push(

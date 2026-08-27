@@ -7,6 +7,8 @@ import {
   EffectProgramDataSchema,
   type EncounterState,
   type Intent,
+  type SquadAbilityData,
+  SquadAbilityDataSchema,
   applyIntent,
 } from '@engarde/engine';
 import type { RandomSource } from '@engarde/engine';
@@ -121,6 +123,7 @@ function tierEffectOf(data: TierOutcomeData): unknown {
       : null,
     conditionIds: data.conditionIds,
     ending: data.ending,
+    forcedMovement: data.forcedMovement,
   };
 }
 
@@ -393,6 +396,70 @@ function testTierOf(bullet: AttachedTierBullet): unknown {
     return { kind: 'automatic', data: tierEffectOf(bullet.data), sourceText: bullet.sourceText };
   }
   return { kind: 'verbatim', sourceText: bullet.sourceText };
+}
+
+function squadTierOf(bullet: AttachedTierBullet): unknown {
+  return bullet.data === null
+    ? { kind: 'residue', sourceText: bullet.sourceText }
+    : { kind: 'automatic', data: tierEffectOf(bullet.data), sourceText: bullet.sourceText };
+}
+
+/** Lossless squad ability compiler [R-0034(b/c)]. One unparsed tier does
+ * not erase the shared roll: every physical tier line independently becomes
+ * automatic data or verbatim residue. */
+export function compileSquadAbilities(
+  parse: GrammarParse,
+  baseArtifactId: string,
+): { abilities: SquadAbilityData[]; incomplete: CompileMiss[] } {
+  const events: CompileEvent[] = [
+    ...parse.clauses.map(
+      (clause): CompileEvent => ({ kind: 'clause', clause, byteStart: clause.span.byteStart }),
+    ),
+    ...parse.residue.map(
+      (item): CompileEvent => ({
+        kind: 'residue',
+        text: item.span.text,
+        byteStart: item.span.byteStart,
+      }),
+    ),
+  ].sort((left, right) => left.byteStart - right.byteStart);
+  const annotations = annotateHeaderCosts(parse, baseArtifactId);
+  const abilities: SquadAbilityData[] = [];
+  const incomplete: CompileMiss[] = [];
+  let lastHeader: Extract<EffectClause, { kind: 'ability-header' }> | null = null;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event || event.kind !== 'clause') continue;
+    if (event.clause.kind === 'ability-header') {
+      lastHeader = event.clause;
+      continue;
+    }
+    if (event.clause.kind !== 'power-roll') continue;
+    const tiers = attachTestTiers(events, index + 1);
+    if (tiers === null) {
+      incomplete.push({ missing: ['exactly one physical tier line for each band'] });
+      continue;
+    }
+    const annotation = lastHeader ? annotations.get(lastHeader) : undefined;
+    const suffix = annotation?.abilitySlug;
+    abilities.push(
+      SquadAbilityDataSchema.parse({
+        abilityArtifactId: suffix ? `${baseArtifactId}#${suffix}` : baseArtifactId,
+        actionType: lastHeader?.actionType ?? null,
+        actionCost: annotation?.actionCost ?? null,
+        actionCostResidue: annotation?.actionCostResidue ?? null,
+        keywords: lastHeader?.keywords ?? [],
+        targetsText: lastHeader?.targets ?? null,
+        powerRollBonus: event.clause.bonusData,
+        tiers: {
+          tier1: squadTierOf(tiers.tier1),
+          tier2: squadTierOf(tiers.tier2),
+          tier3: squadTierOf(tiers.tier3),
+        },
+      }),
+    );
+  }
+  return { abilities, incomplete };
 }
 
 export function compileEffectPrograms(

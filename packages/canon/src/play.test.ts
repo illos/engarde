@@ -79,7 +79,9 @@ describe('play session shell mechanics', () => {
       potencies: null,
       organization: null,
       recoveriesMax: 8,
+      freeStrike: null,
       withCaptain: null,
+      withCaptainBenefit: null,
     };
     const session = createPlaySession({
       actors: [

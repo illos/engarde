@@ -308,7 +308,7 @@ describe.skipIf(!existsSync(BUNDLE_ROOT))('byte-defect repair against the pinned
     }
     // Frozen at the accepted pin: the honest baseline counts, then zero
     // residue on every compiled shape.
-    expect(abilityCount).toBe(583);
+    expect(abilityCount).toBe(587);
     expect(programCount).toBe(1688);
     expect(residues).toEqual([]);
   });

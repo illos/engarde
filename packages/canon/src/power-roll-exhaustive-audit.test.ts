@@ -94,7 +94,9 @@ function characteristicStats(): ParticipantStats {
     potencies: { weak: 1, average: 2, strong: 3 },
     organization: null,
     recoveriesMax: null,
+    freeStrike: null,
     withCaptain: null,
+    withCaptainBenefit: null,
   };
 }
 
@@ -229,7 +231,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
     // parseTierPayload (same day): 34 clusters whose bullets silently
     // swallowed middle clauses (forced movement, resource grants), potency
     // gates, or endings now correctly fail to residue and stay verbatim.
-    expect(fixtures.length).toBe(583);
+    expect(fixtures.length).toBe(587);
     expect(new Set(fixtures.map((fixture) => fixture.artifactId)).size).toBe(504);
     expect(malformed).toEqual([]);
   });
@@ -243,7 +245,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive power-roll corpus audit',
       );
       return cluster !== undefined && isExactlyOneOfEachBand(cluster) && !duplicateConditions;
     });
-    expect(complete.length).toBe(583);
+    expect(complete.length).toBe(587);
 
     for (const fixture of complete) {
       expect(sourceVersion(fixture.text)).toBe(fixture.artifactVersion);

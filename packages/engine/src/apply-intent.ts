@@ -6,6 +6,7 @@ import {
   sideOfParticipant,
 } from './action-economy.js';
 import { runBoundarySweeps } from './boundary-sweeps.js';
+import { shiftCaptainBenefit } from './captain-benefits.js';
 import {
   CANON,
   SAVING_THROW,
@@ -27,9 +28,14 @@ import {
 import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { appendGrant } from './grant-lifecycle.js';
-import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
+import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health.js';
 import { commitResolutionEntry, openResolutionsOwnedBy } from './resolution.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
+import {
+  executeSquadFreeStrike,
+  executeSquadManeuver,
+  executeSquadSignatureAttack,
+} from './squad-actions.js';
 
 /**
  * The pure reducer (engine-plan 3.1): state + intent (dice as input) → new
@@ -58,7 +64,7 @@ function refusal(intent: Intent, message: string): LogEntry {
   };
 }
 
-export function applyIntent(
+function applyIntentCore(
   state: EncounterState,
   rawIntent: Intent,
   context: EngineContext,
@@ -199,6 +205,12 @@ export function applyIntent(
     }
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);
+    case 'squad-signature-attack':
+      return executeSquadSignatureAttack(state, intent, context.random);
+    case 'squad-free-strike':
+      return executeSquadFreeStrike(state, intent);
+    case 'squad-maneuver':
+      return executeSquadManeuver(state, intent, context.random);
     case 'use-effect':
       return executeUseEffect(state, intent, context.random);
     case 'apply-damage': {
@@ -1238,7 +1250,10 @@ export function applyIntent(
             captainDeltas: [{ squadId: previousSquad.squadId, from: captain.id, to: null }],
           },
         });
-        nextState = withSquad(nextState, { ...previousSquad, captainId: null });
+        const shifted = shiftCaptainBenefit(nextState, previousSquad, 'detach', lifecycleContext);
+        nextState = shifted.state;
+        log.push(...shifted.log);
+        nextState = withSquad(nextState, { ...shifted.squad, captainId: null });
       }
       // The printed eligibility is "Any non-Mount, non-minion creature, who
       // speaks a language that a squad of minions can understand"
@@ -1256,7 +1271,14 @@ export function applyIntent(
           tableAssertedEligibility: ['non-Mount role', 'shared language'],
         },
       });
-      nextState = withSquad(nextState, { ...squad, captainId: captain.id });
+      const liveSquad =
+        nextState.squads.find((candidate) => candidate.squadId === squad.squadId) ?? squad;
+      nextState = withSquad(nextState, { ...liveSquad, captainId: captain.id });
+      if (liveSquad.captainId === null) {
+        const shifted = shiftCaptainBenefit(nextState, { ...liveSquad, captainId: captain.id }, 'attach', lifecycleContext);
+        nextState = shifted.state;
+        log.push(...shifted.log);
+      }
       return { state: nextState, log };
     }
     case 'detach-captain': {
@@ -1267,9 +1289,11 @@ export function applyIntent(
       if (squad.captainId === null) {
         return { state, log: [refusal(intent, `${squad.name} has no captain attached`)] };
       }
+      const shifted = shiftCaptainBenefit(state, squad, 'detach', lifecycleContext);
       return {
-        state: withSquad(state, { ...squad, captainId: null }),
+        state: withSquad(shifted.state, { ...shifted.squad, captainId: null }),
         log: [
+          ...shifted.log,
           {
             kind: 'mutation',
             intentId: intent.intentId,
@@ -1308,4 +1332,40 @@ export function applyIntent(
       };
     }
   }
+}
+
+/** Reducer wrapper for R-0038's only automatic captain transition: when a
+ * dispatch kills an attached captain, detach immediately and remove the
+ * live With-Captain benefit (including R-0039's pool shift). */
+export function applyIntent(
+  state: EncounterState,
+  rawIntent: Intent,
+  context: EngineContext,
+): ApplyResult {
+  const result = applyIntentCore(state, rawIntent, context);
+  if (result.state === state || result.log.some((item) => item.kind === 'refusal')) return result;
+  const lifecycleContext = { intentId: rawIntent.intentId, actor: rawIntent.actor };
+  let nextState = result.state;
+  const log = [...result.log];
+  for (const original of result.state.squads) {
+    if (original.captainId === null) continue;
+    const captain = nextState.participants[original.captainId];
+    if (!captain || !isDead(captain)) continue;
+    const liveSquad =
+      nextState.squads.find((candidate) => candidate.squadId === original.squadId) ?? original;
+    const shifted = shiftCaptainBenefit(nextState, liveSquad, 'detach', lifecycleContext);
+    nextState = withSquad(shifted.state, { ...shifted.squad, captainId: null });
+    log.push(...shifted.log, {
+      kind: 'mutation',
+      intentId: rawIntent.intentId,
+      actor: rawIntent.actor,
+      canonRefs: [MINION_CANON.captain],
+      message: `${original.captainId} died and is automatically detached from ${original.name}; a new allied creature can become captain at the start of the next round (no action required)`,
+      data: {
+        captainDeltas: [{ squadId: original.squadId, from: original.captainId, to: null }],
+        automaticCaptainDetach: { squadId: original.squadId, captainId: original.captainId },
+      },
+    });
+  }
+  return { state: nextState, log };
 }

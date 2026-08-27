@@ -18,7 +18,9 @@ const STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 function state() {

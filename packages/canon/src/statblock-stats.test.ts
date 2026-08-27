@@ -24,8 +24,23 @@ describe.skipIf(!sourceRoot)('statblockStats over real stat blocks', () => {
       potencies: null,
       organization: 'Horde',
       recoveriesMax: null,
+      freeStrike: 2,
       withCaptain: null,
+      withCaptainBenefit: null,
       unparsedRows: [],
+    });
+  });
+
+  it('goblin spinecleaver: free strike and With-Captain phrase lift together', async () => {
+    const stats = statblockStats(
+      await structured('en/books/monsters/json/monster/goblin/statblock/goblin-spinecleaver.json'),
+    );
+    expect(stats?.freeStrike).toBe(2);
+    expect(stats?.withCaptain).toBe('+1 damage bonus to strikes');
+    expect(stats?.withCaptainBenefit).toEqual({
+      kind: 'strike-damage',
+      amount: 1,
+      sourceText: '+1 damage bonus to strikes',
     });
   });
 

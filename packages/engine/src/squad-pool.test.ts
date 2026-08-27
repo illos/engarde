@@ -35,7 +35,9 @@ const SPINECLEAVER_STATS: ParticipantStats = {
   potencies: null,
   organization: 'Minion',
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 const SPINECLEAVER_RECORD = 'mcdm.monsters.v1/monster.goblin.statblock/goblin-spinecleaver';
@@ -50,7 +52,9 @@ const GOBLIN_WARRIOR_STATS: ParticipantStats = {
   potencies: null,
   organization: 'Horde',
   recoveriesMax: null,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 /** Host-asserted hero stats (test assertion, not rule content). */
@@ -62,7 +66,9 @@ const HERO_STATS: ParticipantStats = {
   potencies: null,
   organization: null,
   recoveriesMax: 8,
+  freeStrike: null,
   withCaptain: null,
+  withCaptainBenefit: null,
 };
 
 /**
