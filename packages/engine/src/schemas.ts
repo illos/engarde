@@ -1203,6 +1203,17 @@ export const SquadAbilityDataSchema = z.object({
     tier2: SquadTierPacketSchema,
     tier3: SquadTierPacketSchema,
   }),
+  /**
+   * Verbatim `**Effect:**` line(s) printed with this ability, carried so the
+   * squad path can never silently drop them. The squad compiler lifts only
+   * power-roll tiers; before this field existed an ability's Effect clause
+   * was parsed, passed grammar conservation, and then discarded — losing,
+   * for instance, Bugbear Snare's "the target is automatically grabbed".
+   * These are DIRECTIVES, not automation: the engine surfaces the printed
+   * text and the table resolves it. Defaults `[]` so payloads serialized
+   * before this field still parse.
+   */
+  effectLines: z.array(z.string().min(1)).default([]),
 });
 export type SquadAbilityData = z.infer<typeof SquadAbilityDataSchema>;
 export type SquadAbilityDataInput = z.input<typeof SquadAbilityDataSchema>;

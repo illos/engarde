@@ -58,6 +58,7 @@ const SPIT: SquadAbilityData = {
       },
     },
   },
+  effectLines: [],
 };
 
 function stateWithBenefit(benefit: ParticipantStats['withCaptainBenefit'] = null): EncounterState {
@@ -138,6 +139,21 @@ function stateWithBenefit(benefit: ParticipantStats['withCaptainBenefit'] = null
       },
     },
   });
+}
+
+/** Combat begun — the crit grant's disposition depends on it [R-0029/R-0035]. */
+function inCombat(state: EncounterState): EncounterState {
+  return {
+    ...state,
+    turnState: {
+      round: 1,
+      firstSide: 'director',
+      sideToChoose: 'director',
+      activeTurnId: null,
+      lastTurnId: null,
+      turnsTaken: {},
+    },
+  };
 }
 
 function dispatch(before: EncounterState, intent: Intent) {
@@ -321,30 +337,51 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     expect(result.state).toBe(before);
   });
 
+  const CRIT_INTENT: Intent = {
+    intentId: 'pitling-crit',
+    kind: 'squad-signature-attack',
+    actor: { kind: 'director' },
+    payload: {
+      squadId: 'pitlings',
+      ability: SPIT,
+      participation: [
+        { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] },
+      ],
+      dice: [10, 9],
+    },
+  };
+
   it('applies captain edge once per roll and grants every participant a crit action', () => {
-    const before = stateWithBenefit({
-      kind: 'strike-edge',
-      magnitude: 1,
-      sourceText: 'an edge on strikes',
-    });
-    const result = dispatch(before, {
-      intentId: 'pitling-crit',
-      kind: 'squad-signature-attack',
-      actor: { kind: 'director' },
-      payload: {
-        squadId: 'pitlings',
-        ability: SPIT,
-        participation: [
-          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1', 'pit-2'] },
-        ],
-        dice: [10, 9],
-      },
-    });
+    const before = inCombat(
+      stateWithBenefit({ kind: 'strike-edge', magnitude: 1, sourceText: 'an edge on strikes' }),
+    );
+    const result = dispatch(before, CRIT_INTENT);
     expect(result.state.participants['pit-1']?.grants).toHaveLength(1);
     expect(result.state.participants['pit-2']?.grants).toHaveLength(1);
+    // Non-participants earn nothing — R-0035 is per PARTICIPATING member,
+    // even though R-0033 debits every living member's main action.
+    expect(result.state.participants['pit-3']?.grants).toHaveLength(0);
+    expect(result.state.participants['pit-1']?.grants[0]?.source.effectArtifactId).toBe(
+      'mcdm.heroes.v1/rule.combat/critical-hit',
+    );
     expect(result.log.find((row) => row.data.powerRoll)?.data.powerRoll).toMatchObject({
       derivedModifiers: [{ edges: 1, banes: 0 }],
     });
+  });
+
+  it('leaves a crit rolled out of combat as a directive, never a persistent grant', () => {
+    // Regression: the squad path used to mint an `expiry: null` main-action
+    // grant with combat not begun. It survived begin-combat and handed every
+    // participant a free extra action in round 1.
+    const result = dispatch(stateWithBenefit(), CRIT_INTENT);
+    expect(result.state.participants['pit-1']?.grants).toEqual([]);
+    expect(result.state.participants['pit-2']?.grants).toEqual([]);
+    const directives = result.log.filter(
+      (row) => row.kind === 'table-directive' && row.data.criticalHit === true,
+    );
+    expect(directives).toHaveLength(2);
+    expect(directives[0]?.message).toContain('additional main action');
+    expect(directives[0]?.canonRefs).toContain('mcdm.heroes.v1/rule.combat/critical-hit');
   });
 
   it('combines Free Strike Together into one weakness/immunity instance', () => {
@@ -399,6 +436,101 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     expect(result.state.participants['pit-1']?.actionBudget.maneuver?.used).toBe(1);
     expect(result.state.participants['pit-2']?.actionBudget.maneuver?.used).toBe(1);
     expect(result.log.some((row) => row.data.squadManeuverDirective !== undefined)).toBe(true);
+  });
+
+  it('never drops a squad tier potency without a receipt', () => {
+    // Regression: the squad path `continue`d silently on BOTH the
+    // unresolvable and the resisted branch, so a gated condition vanished
+    // with no line in the log at all.
+    const potentWithThreshold = (value: number): SquadAbilityData => ({
+      ...SPIT,
+      tiers: {
+        ...SPIT.tiers,
+        tier2: {
+          kind: 'automatic',
+          sourceText: `- **12-16:** 4 poison damage; A < ${value} slowed (save ends)`,
+          data: {
+            damage: { amount: 4, characteristicOptions: [], typeOptions: ['poison'] },
+            potency: { characteristic: 'A', threshold: { kind: 'numeric', value } },
+            conditionIds: ['mcdm.heroes.v1/condition/slowed'],
+            ending: 'save-ends',
+          },
+        },
+      },
+    });
+    const POTENT = potentWithThreshold(3);
+    // shadow has Agility 1, so 1 < 3 → affected.
+    const affected = dispatch(stateWithBenefit(), {
+      intentId: 'potent-hit',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability: POTENT,
+        participation: [{ targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] }],
+        dice: [6, 6],
+      },
+    });
+    expect(affected.log.find((row) => row.data.potency)?.data.potency).toMatchObject({
+      targetId: 'shadow',
+      applies: true,
+    });
+    expect(affected.state.participants.shadow?.conditions).toHaveLength(1);
+
+    // Drop the threshold out of reach: resisted, and it must still speak.
+    const resistedAbility = potentWithThreshold(0);
+    const resisted = dispatch(stateWithBenefit(), {
+      intentId: 'potent-resist',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability: resistedAbility,
+        participation: [{ targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] }],
+        dice: [6, 6],
+      },
+    });
+    expect(resisted.state.participants.shadow?.conditions).toEqual([]);
+    expect(resisted.log.find((row) => row.data.potency)?.data.potency).toMatchObject({
+      targetId: 'shadow',
+      applies: false,
+    });
+    expect(resisted.log.find((row) => row.data.potency)?.message).toContain('resisted');
+  });
+
+  it("surfaces the ability's printed Effect line as a directive, once per resolution", () => {
+    // Regression: compileSquadAbilities lifts only power-roll tiers, so an
+    // ability's `**Effect:**` clause parsed, passed grammar conservation,
+    // and then vanished — Bugbear Snare's automatic grab among them.
+    const withEffect: SquadAbilityData = {
+      ...SPIT,
+      effectLines: [
+        '**Effect:** If the snare started their turn hidden from the target, the target is automatically grabbed.',
+      ],
+    };
+    const result = dispatch(stateWithBenefit(), {
+      intentId: 'effect-line',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability: withEffect,
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
+          { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
+        ],
+        dice: [6, 6],
+      },
+    });
+    const directives = result.log.filter(
+      (row) => row.data.squadAbilityEffectDirective !== undefined,
+    );
+    expect(directives).toHaveLength(1);
+    expect(directives[0]?.kind).toBe('table-directive');
+    expect(directives[0]?.message).toContain('automatically grabbed');
+    expect(directives[0]?.data.squadAbilityEffectDirective).toMatchObject({
+      targetIds: ['shadow', 'conduit'],
+    });
   });
 
   it('moves Stamina benefits with the pool and auto-detaches a dead captain', () => {

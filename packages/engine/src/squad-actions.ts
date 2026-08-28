@@ -3,7 +3,7 @@ import {
   bindRollValue,
   resolveAbilityRoll,
 } from './ability-execution.js';
-import { debitActionCost } from './action-economy.js';
+import { debitActionCost, grantCriticalHitAction } from './action-economy.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type PendingSquadContribution,
@@ -15,9 +15,8 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import { appendGrant } from './grant-lifecycle.js';
 import { hashPayload } from './payload-hash.js';
-import { resolvePotency } from './potency.js';
+import { gatePotencyWithReceipt } from './potency.js';
 import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
 import type {
   DamageType,
@@ -337,28 +336,21 @@ export function executeSquadSignatureAttack(
   }
 
   if (rolled.resolution.naturalTopEnd) {
-    for (const memberId of uniqueParticipatingMembers(payload.participation)) {
-      const member = nextState.participants[memberId];
-      if (!member) continue;
-      const granted = appendGrant(
-        nextState,
-        {
-          target: member,
-          grant: {
-            kind: 'action',
-            grantId: `squad-critical-hit#${intent.intentId}-${memberId}`,
-            cost: 'main-action',
-            magnitude: 1,
-            escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
-            expiry: null,
-            source: { participantId: memberId, effectArtifactId: SQUAD_CANON.action },
-          },
-        },
-        context,
-      );
-      nextState = granted.state;
-      log.push(...granted.log);
-    }
+    // R-0035, through the shared crit home: one grant per PARTICIPATING
+    // member, and out of combat a table directive rather than a persistent
+    // grant that would survive begin-combat.
+    const crit = grantCriticalHitAction(
+      nextState,
+      {
+        participantIds: uniqueParticipatingMembers(payload.participation),
+        grantIdPrefix: 'squad-critical-hit',
+        natural: rolled.resolution.natural,
+        extraCanonRefs: [SQUAD_CANON.action],
+      },
+      context,
+    );
+    nextState = crit.state;
+    log.push(...crit.log);
   }
 
   const resolutionEntry: ResolutionEntry = {
@@ -730,13 +722,22 @@ export function applySquadBreakdown(
     const target = nextState.participants[row.targetId];
     if (!owner || !target || tierData.conditionIds.length === 0) continue;
     if (tierData.potency) {
-      const gate = resolvePotency(
+      // Same gate, same receipts as the ordinary ability path — a resisted
+      // or unresolvable potency is never a silent drop.
+      const gate = gatePotencyWithReceipt(
         tierData.potency,
         owner,
         target,
         (potencyExtras.get(row.targetId) ?? 0) + (potencyExtras.get(null) ?? 0),
+        {
+          targetId: row.targetId,
+          conditionIds: tierData.conditionIds,
+          abilityArtifactId: payload.ability.abilityArtifactId,
+        },
+        context,
       );
-      if (!gate.resolved || !gate.applies) continue;
+      log.push(...gate.log);
+      if (!gate.applies) continue;
     }
     for (const conditionId of tierData.conditionIds) {
       const liveTarget = nextState.participants[row.targetId];
@@ -761,6 +762,29 @@ export function applySquadBreakdown(
       nextState = applied.state;
       log.push(...applied.log);
     }
+  }
+  // The ability's printed `**Effect:**` line(s) are DIRECTIVES, surfaced
+  // once per resolution rather than per target instance. The squad compiler
+  // automates only power-roll tiers, so without this the clause was parsed,
+  // passed grammar conservation, and then vanished — Bugbear Snare's
+  // "the target is automatically grabbed" among them.
+  for (const effectLine of payload.ability.effectLines) {
+    log.push(
+      entry(
+        context,
+        'table-directive',
+        `${payload.squadId}'s ${payload.ability.abilityArtifactId.split('/').pop()} carries a printed Effect the engine does not automate — resolve it at the table: ${effectLine}`,
+        [SQUAD_CANON.action, payload.ability.abilityArtifactId],
+        {
+          squadAbilityEffectDirective: {
+            squadId: payload.squadId,
+            abilityArtifactId: payload.ability.abilityArtifactId,
+            sourceText: effectLine,
+            targetIds: breakdown.map((row) => row.targetId),
+          },
+        },
+      ),
+    );
   }
   log.push(
     entry(

@@ -7,7 +7,12 @@ import {
   upgradeEncounterState,
 } from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
-import { compileAbilities, executeIntents, tierOutcomeToIntents } from './effect-conformance.js';
+import {
+  compileAbilities,
+  compileSquadAbilities,
+  executeIntents,
+  tierOutcomeToIntents,
+} from './effect-conformance.js';
 import { parseEffectText } from './effect-grammar.js';
 import { ingestStructuredRecord } from './extract.js';
 
@@ -317,3 +322,31 @@ describe.skipIf(!sourceRoot)('hero-format keyword compilation (R-0013)', () => {
     expect(abilities[0]?.keywords).toContain('Strike');
   });
 });
+
+describe.skipIf(!sourceRoot)(
+  'squad compiler carries printed Effect lines [R-0034 lossless]',
+  () => {
+    it("lifts Bugbear Snare's automatic-grab Effect clause instead of dropping it", async () => {
+      const text = await ingestText(
+        'en/books/monsters/md/monster/bugbear/statblock/bugbear-snare.md',
+      );
+      const compiled = compileSquadAbilities(parseEffectText(text), 'x/bugbear-snare');
+      const signature = compiled.abilities.find((ability) =>
+        ability.abilityArtifactId.includes('cut-em-low'),
+      );
+      expect(signature).toBeDefined();
+      expect(signature?.effectLines).toHaveLength(1);
+      expect(signature?.effectLines[0]).toContain('automatically');
+      expect(signature?.effectLines[0]).toContain('grabbed');
+    });
+
+    it('leaves effectLines empty for an ability that prints no Effect clause', async () => {
+      const text = await ingestText('en/books/heroes/md/feature/ability/common/knockback.md');
+      const compiled = compileSquadAbilities(parseEffectText(text), 'x/knockback');
+      // Knockback's own Effect line is the size restriction — it must be
+      // carried, not silently dropped, even though its tiers fully compile.
+      expect(compiled.abilities[0]?.effectLines).toHaveLength(1);
+      expect(compiled.abilities[0]?.effectLines[0]).toContain('size');
+    });
+  },
+);

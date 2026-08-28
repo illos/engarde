@@ -1,5 +1,5 @@
 import { normalizeActionCostValue } from './action-cost.js';
-import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
+import { ECONOMY_CANON, debitActionCost, grantCriticalHitAction } from './action-economy.js';
 import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
 import {
   type PendingSquadContribution,
@@ -12,13 +12,12 @@ import {
 import type { RandomSource } from './determinism.js';
 import {
   GRANT_CANON,
-  appendGrant,
   grantConsumedByRoll,
   grantContribution,
   splitGrants,
 } from './grant-lifecycle.js';
 import { hashPayload } from './payload-hash.js';
-import { CHARACTERISTIC_KEY, POTENCY_CANON, resolvePotency } from './potency.js';
+import { CHARACTERISTIC_KEY, gatePotencyWithReceipt } from './potency.js';
 import {
   POWER_ROLL_CANON,
   POWER_ROLL_DIE,
@@ -353,34 +352,19 @@ export function applyAbilityOutcome(
         payload.potencyAdjustments
           .filter((item) => item.target === undefined || item.target === targetId)
           .reduce((sum, item) => sum + item.delta, 0) + (args.extraPotencyFor?.(targetId) ?? 0);
-      const gate = resolvePotency(tierData.potency, actor, target, adjustment);
-      if (!gate.resolved) {
-        log.push(
-          entry(
-            context,
-            'table-directive',
-            `potency ${tierData.potency.characteristic} < ${tierData.potency.threshold.kind === 'named' ? tierData.potency.threshold.name.toUpperCase() : tierData.potency.threshold.value} on ${targetId} cannot be resolved — ${gate.reason}; effects not applied`,
-            [POTENCY_CANON, ability.abilityArtifactId],
-            {
-              potencyUnresolved: {
-                targetId,
-                reason: gate.reason,
-                conditionIds: tierData.conditionIds,
-              },
-            },
-          ),
-        );
-        continue;
-      }
-      log.push(
-        entry(
-          context,
-          'informational',
-          `potency vs ${targetId}: ${tierData.potency.characteristic} ${gate.targetScore} < ${gate.adjustedValue} → ${gate.applies ? 'affected' : 'resisted'}`,
-          [POTENCY_CANON],
-          { potency: { targetId, ...gate, conditionIds: tierData.conditionIds } },
-        ),
+      const gate = gatePotencyWithReceipt(
+        tierData.potency,
+        actor,
+        target,
+        adjustment,
+        {
+          targetId,
+          conditionIds: tierData.conditionIds,
+          abilityArtifactId: ability.abilityArtifactId,
+        },
+        context,
       );
+      log.push(...gate.log);
       if (!gate.applies) continue;
     }
 
@@ -848,42 +832,18 @@ export function executeUseAbility(
   // it stays a table directive (v5 behavior).
   const isMainAction = cost === 'main-action';
   if (resolution.naturalTopEnd && isMainAction) {
-    if (nextState.turnState !== null) {
-      const critActor = nextState.participants[payload.actorParticipantId];
-      if (critActor) {
-        const granted = appendGrant(
-          nextState,
-          {
-            target: critActor,
-            grant: {
-              kind: 'action',
-              grantId: `critical-hit#${intent.intentId}`,
-              cost: 'main-action',
-              magnitude: 1,
-              escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
-              expiry: null,
-              source: {
-                participantId: payload.actorParticipantId,
-                effectArtifactId: ECONOMY_CANON.criticalHit,
-              },
-            },
-          },
-          context,
-        );
-        nextState = granted.state;
-        log.push(...granted.log);
-      }
-    } else {
-      log.push(
-        entry(
-          context,
-          'table-directive',
-          `critical hit — ${actor.id} immediately takes an additional main action after this resolves (even off-turn, even dazed)`,
-          [POWER_ROLL_CANON.criticalHit, POWER_ROLL_CANON.naturalRoll],
-          { criticalHit: true, natural: resolution.natural },
-        ),
-      );
-    }
+    const crit = grantCriticalHitAction(
+      nextState,
+      {
+        participantIds: [payload.actorParticipantId],
+        grantIdPrefix: 'critical-hit',
+        natural: resolution.natural,
+        extraCanonRefs: [POWER_ROLL_CANON.naturalRoll],
+      },
+      context,
+    );
+    nextState = crit.state;
+    log.push(...crit.log);
   }
 
   // Target count beyond the ability's verbatim targets line is a

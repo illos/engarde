@@ -404,6 +404,30 @@ function squadTierOf(bullet: AttachedTierBullet): unknown {
     : { kind: 'automatic', data: tierEffectOf(bullet.data), sourceText: bullet.sourceText };
 }
 
+/**
+ * Verbatim `**Effect:**` lines belonging to the ability whose tiers just
+ * ended [R-0034 lossless posture]. Association boundary is the next
+ * ability-header or power-roll: an Effect line printed after those belongs
+ * to the NEXT ability, not this one. Carried as directives — the squad path
+ * surfaces the printed text; it never automates from it.
+ */
+function collectTrailingEffects(events: CompileEvent[], startIndex: number): string[] {
+  const lines: string[] = [];
+  for (let index = startIndex; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event) break;
+    if (event.kind === 'residue') continue;
+    const clause = event.clause;
+    if (clause.kind === 'whitespace' || clause.kind === 'tier-outcome') continue;
+    if (clause.kind === 'ability-header' || clause.kind === 'power-roll') break;
+    if (clause.kind === 'effect') {
+      const text = exactLineOf(clause.span.text);
+      if (text.length > 0) lines.push(text);
+    }
+  }
+  return lines;
+}
+
 /** Lossless squad ability compiler [R-0034(b/c)]. One unparsed tier does
  * not erase the shared roll: every physical tier line independently becomes
  * automatic data or verbatim residue. */
@@ -456,6 +480,7 @@ export function compileSquadAbilities(
           tier2: squadTierOf(tiers.tier2),
           tier3: squadTierOf(tiers.tier3),
         },
+        effectLines: collectTrailingEffects(events, index + 1),
       }),
     );
   }

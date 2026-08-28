@@ -1,5 +1,6 @@
 import type { LifecycleContext } from './condition-lifecycle.js';
 import { withParticipant } from './damage.js';
+import { appendGrant } from './grant-lifecycle.js';
 import type {
   ActionCost,
   ActionGrant,
@@ -669,4 +670,82 @@ function emitViolations(
       },
     ),
   );
+}
+
+/**
+ * The ONE home for the critical-hit action grant [R-0029/R-0030, R-0035].
+ *
+ * Both the ordinary main-action ability path and the squad signature path
+ * mint this grant, and before this home existed they disagreed: the squad
+ * copy granted unconditionally, so a crit rolled with combat not begun
+ * minted a persistent `expiry: null` main-action grant that survived
+ * `begin-combat` and handed every participant a free extra action in round
+ * 1, while the ordinary path correctly emitted a table directive. Callers
+ * now pass WHO earns the grant and nothing else; in-combat vs. out-of-combat
+ * disposition and the printed escapes live here.
+ *
+ * In combat the printed grant compiles to an escape-flagged action grant —
+ * "immediately take an additional main action after resolving the power
+ * roll, whether or not it's your turn and even if you are dazed"
+ * [rule.combat/critical-hit] — consumed silently [R-0030]. Outside combat
+ * there is no budget to grant against, so it stays a table directive.
+ *
+ * The squad case is R-0035: "If a minion squad scores a critical hit with
+ * their signature ability, all the minions who participated in using the
+ * ability can take another main action" [Monsters §Squad Action] — one
+ * grant per PARTICIPATING member, carrying the same printed escapes.
+ */
+export function grantCriticalHitAction(
+  state: EncounterState,
+  args: {
+    /** One entry for an ordinary actor; one per participating member for a
+     * squad roll. Unknown ids are skipped. */
+    participantIds: readonly string[];
+    /** Disambiguates grantIds when one intent mints several. */
+    grantIdPrefix: string;
+    natural: number;
+    /** Extra canon pointer for the granting mechanism (e.g. the squad-action
+     * rule). The critical-hit rule is always cited. */
+    extraCanonRefs?: readonly string[];
+  },
+  context: LifecycleContext,
+): { state: EncounterState; log: LogEntry[] } {
+  const refs = [ECONOMY_CANON.criticalHit, ...(args.extraCanonRefs ?? [])];
+  let nextState = state;
+  const log: LogEntry[] = [];
+  for (const participantId of args.participantIds) {
+    const target = nextState.participants[participantId];
+    if (!target) continue;
+    if (nextState.turnState === null) {
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `critical hit — ${participantId} immediately takes an additional main action after this resolves (even off-turn, even dazed); combat has not begun, so no budget is granted`,
+          refs,
+          { criticalHit: true, natural: args.natural, participantId },
+        ),
+      );
+      continue;
+    }
+    const granted = appendGrant(
+      nextState,
+      {
+        target,
+        grant: {
+          kind: 'action',
+          grantId: `${args.grantIdPrefix}#${context.intentId}-${participantId}`,
+          cost: 'main-action',
+          magnitude: 1,
+          escapes: { ignoresDazed: true, ignoresSurprised: false, offTurn: true },
+          expiry: null,
+          source: { participantId, effectArtifactId: ECONOMY_CANON.criticalHit },
+        },
+      },
+      context,
+    );
+    nextState = granted.state;
+    log.push(...granted.log);
+  }
+  return { state: nextState, log };
 }
