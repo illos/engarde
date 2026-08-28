@@ -66,7 +66,7 @@ export function commitResolutionEntry(
     (candidate) => candidate.resolutionId === args.resolutionId,
   );
   if (!stackEntry) return { ok: false, refusal: `unknown resolution ${args.resolutionId}` };
-  if (stackEntry.phase === 'committed') {
+  if (!isOpenResolution(stackEntry)) {
     return {
       ok: false,
       refusal: `resolution ${args.resolutionId} is already committed — a post-commit change is a warned table correction via modify-resolution, not a reopen [R-0032]`,
@@ -91,7 +91,7 @@ export function commitResolutionEntry(
 
   // LIFO discipline with named-insertion exceptions is a WARN, never
   // corruption — Breaking Point's inserted turn is printed play [R-0032].
-  const openEntries = state.resolutionStack.filter((candidate) => candidate.phase === 'rolled');
+  const openEntries = openResolutions(state);
   const top = openEntries[openEntries.length - 1];
   if (top !== undefined && top !== stackEntry) {
     log.push(
@@ -347,13 +347,37 @@ export function commitResolutionEntry(
   return { ok: true, state: nextState, log: [...log, ...commitLog] };
 }
 
+/**
+ * The ONE home for "is this resolution entry still open?" — open meaning
+ * the stack can still modify it, commit it, or force-commit it at a
+ * boundary. Membership is an explicit phase set, not `!== 'committed'`,
+ * so a new phase arm has to be RULED into openness deliberately at this
+ * one site rather than inheriting it by omission.
+ *
+ * Today the set is exactly `rolled` (schema v6). The reaction-effect
+ * family's phase-discriminated entry adds a pre-roll `declared` arm plus
+ * a declared-cancel path; when it lands, this set — and nothing else —
+ * decides which arms are open. Eleven hand-written `phase === 'rolled'`
+ * openness tests across engine/canon/backend were the alternative, and a
+ * rule with two implementations diverges [GOTCHA-0009].
+ */
+const OPEN_RESOLUTION_PHASES: ReadonlySet<ResolutionEntry['phase']> = new Set(['rolled']);
+
+/** True while `entry` can still be modified or committed. */
+export function isOpenResolution(entry: Pick<ResolutionEntry, 'phase'>): boolean {
+  return OPEN_RESOLUTION_PHASES.has(entry.phase);
+}
+
+/** Every open entry on the stack, bottom-up (stack order). */
+export function openResolutions(state: EncounterState): ResolutionEntry[] {
+  return state.resolutionStack.filter(isOpenResolution);
+}
+
 /** Open entries owned by any of `actorIds`, bottom-up; force-commit walks
  * them in reverse (LIFO) order. */
 export function openResolutionsOwnedBy(
   state: EncounterState,
   actorIds: readonly string[],
 ): ResolutionEntry[] {
-  return state.resolutionStack.filter(
-    (candidate) => candidate.phase === 'rolled' && actorIds.includes(candidate.actorId),
-  );
+  return openResolutions(state).filter((candidate) => actorIds.includes(candidate.actorId));
 }

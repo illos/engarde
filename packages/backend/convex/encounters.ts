@@ -31,6 +31,7 @@ import {
   isDead,
   isDying,
   isMinion,
+  isOpenResolution,
   isWinded,
   openResolutionsOwnedBy,
   squadMemberStats,
@@ -556,7 +557,7 @@ async function pruneOpenPayloads(ctx: MutationCtx, encounterId: Id<'encounters'>
   if (Object.keys(stored).length === 0) return;
   const open = new Set(
     upgradeEncounterState(fresh.state)
-      .resolutionStack.filter((entry) => entry.phase === 'rolled')
+      .resolutionStack.filter(isOpenResolution)
       .map((entry) => entry.resolutionId),
   );
   const kept = Object.fromEntries(Object.entries(stored).filter(([id]) => open.has(id)));
@@ -665,23 +666,21 @@ export const getActive = query({
         usedThisRound: state.villainActions.usedThisRound,
         usedByAbility: state.villainActions.usedByAbility,
       },
-      resolutions: state.resolutionStack
-        .filter((entry) => entry.phase === 'rolled')
-        .map((entry) => ({
-          resolutionId: entry.resolutionId,
-          actorId: entry.actorId,
-          abilityArtifactId: entry.abilityArtifactId,
-          abilitySlug: slugOf(entry.abilityArtifactId),
-          actionCost: entry.actionCost,
-          phase: entry.phase,
-          roll: {
-            dice: [...entry.rollReceipt.dice],
-            natural: entry.rollReceipt.natural,
-            total: entry.rollReceipt.total,
-            tier: entry.rollReceipt.tier,
-          },
-          modifications: entry.modifications.map(modificationToView),
-        })),
+      resolutions: state.resolutionStack.filter(isOpenResolution).map((entry) => ({
+        resolutionId: entry.resolutionId,
+        actorId: entry.actorId,
+        abilityArtifactId: entry.abilityArtifactId,
+        abilitySlug: slugOf(entry.abilityArtifactId),
+        actionCost: entry.actionCost,
+        phase: entry.phase,
+        roll: {
+          dice: [...entry.rollReceipt.dice],
+          natural: entry.rollReceipt.natural,
+          total: entry.rollReceipt.total,
+          tier: entry.rollReceipt.tier,
+        },
+        modifications: entry.modifications.map(modificationToView),
+      })),
       terrainFacts: state.terrainFacts.map((fact) => ({
         factId: fact.factId,
         terrain: fact.terrain,
@@ -1164,7 +1163,7 @@ export const useAbility = mutation({
     const afterRoll = await ctx.db.get(encounter._id);
     if (!afterRoll) return null;
     const opened = upgradeEncounterState(afterRoll.state).resolutionStack.find(
-      (entry) => entry.resolutionId === intentId && entry.phase === 'rolled',
+      (entry) => entry.resolutionId === intentId && isOpenResolution(entry),
     );
     if (!opened) return null;
     await ctx.db.patch(encounter._id, {
@@ -1272,7 +1271,7 @@ export const squadAttack = mutation({
     const afterRoll = await ctx.db.get(encounter._id);
     if (!afterRoll) return null;
     const opened = upgradeEncounterState(afterRoll.state).resolutionStack.find(
-      (candidate) => candidate.resolutionId === intentId && candidate.phase === 'rolled',
+      (candidate) => candidate.resolutionId === intentId && isOpenResolution(candidate),
     );
     if (!opened) return null;
     await ctx.db.patch(encounter._id, {

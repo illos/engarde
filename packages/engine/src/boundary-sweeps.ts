@@ -7,6 +7,7 @@ import {
   startOfRoundGrantSweep,
 } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDying, isHealthSourcedInstance } from './health.js';
+import { openResolutions } from './resolution.js';
 import type { EncounterState, LogEntry } from './schemas.js';
 
 /**
@@ -494,7 +495,7 @@ const BOUNDARY_SWEEP_REGISTRY: readonly SlotSweeps[] = [
     // stack — never silent, never corruption [R-0032].
     'end-of-encounter': (state, _boundary, context) => {
       if (state.resolutionStack.length === 0) return { state, log: [] };
-      const open = state.resolutionStack.filter((candidate) => candidate.phase === 'rolled');
+      const open = openResolutions(state);
       const log: LogEntry[] = [];
       if (open.length > 0) {
         log.push({

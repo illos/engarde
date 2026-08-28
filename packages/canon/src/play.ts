@@ -17,6 +17,8 @@ import {
   type UseAbilityPayloadInput,
   createDriver,
   createSeededRandomSource,
+  isOpenResolution,
+  openResolutions,
   openResolutionsOwnedBy,
   squadMemberStats,
 } from '@engarde/engine';
@@ -424,7 +426,7 @@ export function createPlaySession(options: {
     }
     // Open resolution entries [R-0032]: rolled, awaiting commit —
     // reactions and modifications may still cut in.
-    const openEntries = state.resolutionStack.filter((candidate) => candidate.phase === 'rolled');
+    const openEntries = openResolutions(state);
     if (openEntries.length > 0) {
       lines.push('open resolutions:');
       for (const candidate of openEntries) {
@@ -820,7 +822,7 @@ export function createPlaySession(options: {
     openOnly: boolean,
   ): { entry: ResolutionEntry } | { error: string } {
     const stack = driver.state().resolutionStack;
-    const candidates = openOnly ? stack.filter((candidate) => candidate.phase === 'rolled') : stack;
+    const candidates = openOnly ? stack.filter(isOpenResolution) : stack;
     if (query === undefined) {
       const top = candidates[candidates.length - 1];
       return top
@@ -1069,7 +1071,7 @@ export function createPlaySession(options: {
     const opened = driver
       .state()
       .resolutionStack.find(
-        (candidate) => candidate.resolutionId === intentId && candidate.phase === 'rolled',
+        (candidate) => candidate.resolutionId === intentId && isOpenResolution(candidate),
       );
     if (opened) {
       if (hold) {
@@ -1159,7 +1161,7 @@ export function createPlaySession(options: {
     const opened = driver
       .state()
       .resolutionStack.find(
-        (candidate) => candidate.resolutionId === intentId && candidate.phase === 'rolled',
+        (candidate) => candidate.resolutionId === intentId && isOpenResolution(candidate),
       );
     if (opened && !hold) {
       lines.push(

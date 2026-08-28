@@ -29,7 +29,7 @@ import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { appendGrant } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health.js';
-import { commitResolutionEntry, openResolutionsOwnedBy } from './resolution.js';
+import { commitResolutionEntry, isOpenResolution, openResolutionsOwnedBy } from './resolution.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 import {
   executeSquadFreeStrike,
@@ -1057,7 +1057,7 @@ function applyIntentCore(
         };
       }
       const log: LogEntry[] = [];
-      if (stackEntry.phase === 'committed') {
+      if (!isOpenResolution(stackEntry)) {
         // "Anything arriving after commit is a warned table correction,
         // not a reopen" [R-0032]: recorded on the entry's history with a
         // warning; nothing re-executes.
