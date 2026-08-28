@@ -829,7 +829,7 @@ it's your turn and even if you are dazed (see Conditions below)."
 **Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
 710a3fc2 verified), 2026-08-26.
 
-## R-0036 — Minion Maneuvers together: one roll for Grab/Knockback/Search; Hide and Search ride as directives where no roll compiles (approved 2026-08-26)
+## R-0036 — Minion Maneuvers together: one roll for Grab/Knockback/Search; AMENDED: Knockback and Grab both compile, Grab sequentially (approved 2026-08-26; amended 2026-08-28)
 
 **Ruling:** Grab, Knockback, and Search for Hidden Creatures dispatch
 squad-together with the participation shape: one roll for the whole
@@ -847,8 +847,64 @@ Creatures maneuvers together. For Grab, Knockback, and Search in
 particular, you make one roll for the whole squad, and each target of a
 minion's maneuver is only affected by one instance of the ability."
 
+**AMENDMENT (2026-08-28).** Build evidence falsified the accepted card's
+claim that Grab and Knockback both "resolve through their compiled common
+ability artifacts." Knockback does, through a deliberately bounded grammar
+accepting only a complete tier payload of `Push N`; its three pinned tiers
+become receipt-visible Push 1/2/3 forced-movement directives, and the engine
+invents no geometry. Grab was proposed to fall back to a whole-maneuver
+directive, on the premise that its tier-2 free strike needs nested reaction
+resolution. **That premise is rejected on user review: Grab compiles
+sequentially.** The printed "can" is not a live decision point — the free
+strike carries no printed cost, limit, or downside, opportunity attacks are
+printed as free triggered actions that "doesn't count against your limit of
+one triggered action per round," and Grab's free strike is not labeled a
+triggered action at all. Tier 1 is "No effect." On tier 2, the target's melee
+free strike against the grabber resolves first and always, then `grabbed`
+applies if the grabber remains. On tier 3, `grabbed` applies directly. Three
+adjudications of confirmed book silence, accepted with the amendment: (a) no
+decline option is offered; (b) the free strike is not a triggered action, so
+it applies even to a target who could not otherwise take one, including a
+surprised target; (c) it resolves before the grab, so if it removes the
+grabber, `grabbed` does not apply. The grabber's identity is **derived, never
+adjudicated**: it is the participation row's Director-selected `instanceOwner`,
+the free strike is attributed to that member, and "the minion who took the
+damage that reduced the pool dies" is already `applySquadDamage`'s shipped
+deterministic first step. Director kill-naming governs only residual
+nearest-neighbor kills and never decides whether the grabber fell. Search and
+Hide remain directives; nothing in this amendment changes those dispositions.
+
+**Amendment evidence (verbatim):** "You can grab the target, but if you do,
+the target can make a melee free strike against you before they are grabbed."
+· "The target is grabbed by you." · "No effect."
+[mcdm.heroes.v1/feature.ability.common/grab, tiers 2, 3, 1] · "≤11: Push 1 ·
+12-16: Push 2 · 17+: Push 3" [.../knockback] · "the creature can take
+advantage of that movement to quickly make a melee free strike against the
+enemy as a free triggered action" [rule.combat/opportunity-attack] · "A free
+triggered action follows the same rules as a triggered action, but it doesn't
+count against your limit of one triggered action per round."
+[rule.combat/triggered-action] · "A surprised creature can't take triggered
+actions or free triggered actions" [rule.combat/surprised] · "If a squad of
+goblin spinecleavers has its Stamina pool reduced from 40 to 35, the minion
+who took the damage that reduced the pool dies." · "If multiple minions take
+the damage that results in the pool dropping low enough to kill one minion,
+the creature who dealt the damage to the minions decides which of those
+minions dies." [Monsters §Dropping One Minion]
+
+**Implementation status (recorded, not waived):** Knockback's bounded compile
+is SHIPPED. Grab's tier-2 automation is DEFERRED behind hero free-strike
+mechanics — a hero's melee free strike is itself a power roll (2/5/7 + M or A)
+with a characteristic choice and kit modifiers, and the hero side is not
+seeded. Until that lands, all three Grab tiers stay a lossless directive
+carrying the verbatim tier text. Tiers 1 and 3 are unblocked and may compile
+ahead of tier 2 at implementation's discretion. Tracked in
+`docs/squad-attack-report.md` §Explicit follow-up boundaries.
+
 **Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
-7fe498ba verified), 2026-08-26.
+7fe498ba verified), 2026-08-26. **Amendment Gate 3:** amended-and-accepted via
+the squad-attack-r-0036-amendment surface, 2026-08-28 — proposed-card hash
+`8ade47da` verified, verdict `amend` with the sequential-compile ruling above
+(`.artifacts/canon/squad-attack/r-0036-amendment-verdict.json`).
 
 ## R-0037 — Free Strike Together: summed contributions, one strike (approved 2026-08-26)
 

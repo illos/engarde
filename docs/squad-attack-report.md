@@ -35,12 +35,15 @@ automatically detaches the captain and removes the live benefit.
 
 **Bounded common maneuver support.** The certified grammar now compiles only
 the pure `Push 1/2/3` tiers of Knockback and emits table-resolved movement
-directives. Hide and Search remain directives. Grab cannot truthfully compile:
-its middle tier contains a target free strike interleaved before the grab, which
-requires reaction/nested-resolution machinery outside this family. The exact
-R-0036 amendment review is prepared at
-`.artifacts/canon/squad-attack/r-0036-amendment-review.html`; it has no selected
-verdict and cannot export until a human chooses one. Artifact hashes:
+directives. Hide and Search remain directives. Grab does not compile in
+this slice, but NOT for the reason first proposed: the R-0036 amendment
+(accepted 2026-08-28, verdict `amend`) ruled the tier-2 free strike is not a
+player decision point, so Grab compiles sequentially rather than needing
+nested reaction machinery. Its automation is deferred behind hero free-strike
+mechanics instead — see §Explicit follow-up boundaries. The amendment review
+surface and the returned verdict are at
+`.artifacts/canon/squad-attack/r-0036-amendment-review.html` and
+`…/r-0036-amendment-verdict.json`. Artifact hashes:
 
 - review HTML: `f572b3149f318bdf07ddf851c5520919ac5b4c5be49bd9d25e84b48b4a6d0cf6`
 - expected-hashes JSON: `a97e572bbed2accb62ff5f7f9f80a2969296cefff5bd5cde7a7a959a286840b8`
@@ -81,7 +84,19 @@ state is lost.
 
 ## Explicit follow-up boundaries
 
-Reaction/nested-resolution support for Grab; map geometry; Feast's
-member-detach/transform mutation; triggered substitution traits; squad-vs-squad
-free strikes; and the inherited squad-owned bleeding qualifier remain named
-follow-ups. None is represented as automated by this slice.
+**Grab tier-2 automation — DEFERRED behind hero free-strike mechanics.**
+R-0036's 2026-08-28 amendment rejected the reaction-nesting premise: the
+target's free strike is not a decision point, so Grab compiles *sequentially*,
+not nested. The remaining blocker is that a hero's melee free strike is itself
+a power roll (2/5/7 + M or A) with a characteristic choice and kit modifiers,
+and the hero side is not seeded. Grab's tiers 1 ("No effect.") and 3 ("The
+target is grabbed by you.") are unblocked and may compile ahead of tier 2.
+Until then all three tiers stay a lossless directive carrying verbatim tier
+text. Grabber identity is NOT a blocker — it is the participation row's
+`instanceOwner`, and `applySquadDamage` already kills "the minion who took the
+damage that reduced the pool" deterministically.
+
+Also named: map geometry; Feast's member-detach/transform mutation; triggered
+substitution traits; squad-vs-squad free strikes; and the inherited
+squad-owned bleeding qualifier. None is represented as automated by this
+slice.
