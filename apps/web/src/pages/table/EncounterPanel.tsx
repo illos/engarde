@@ -363,25 +363,11 @@ function ActiveEncounter({
   const [triggeredRecord, setTriggeredRecord] = useState<SearchHits[number] | null>(null);
   const [triggeredAbilitySlug, setTriggeredAbilitySlug] = useState('');
   const [triggeredCostMode, setTriggeredCostMode] = useState<'' | 'free' | 'counts'>('');
-  // Trigger reference [I-6e]: a receipt-visible occurrence (a prior
-  // dispatch's intent id from the log) wins; asserted text is the fallback.
+  // Trigger reference [I-6e]: an exact engine-ledger occurrence wins;
+  // asserted text is the fallback.
   const [triggerOccurrenceId, setTriggerOccurrenceId] = useState('');
   const [triggerText, setTriggerText] = useState('');
-  const log = useQuery(api.encounters.listLog, {
-    campaignId,
-    encounterId: encounter.encounterId,
-  });
-  // Recent qualifying occurrences: engine-receipted rows carrying an
-  // intentId, deduped to one option per dispatch, most recent first.
-  const recentOccurrences = (() => {
-    const seen = new Map<string, string>();
-    for (const entry of log ?? []) {
-      if (typeof entry.intentId === 'string' && !seen.has(entry.intentId)) {
-        seen.set(entry.intentId, entry.message);
-      }
-    }
-    return [...seen.entries()].slice(-8).reverse();
-  })();
+  const recentOccurrences = encounter.occurrences.slice(-8).reverse();
   const first = encounter.participants[0]?.id ?? '';
   const second = encounter.participants[1]?.id ?? first;
   const [actorId, setActorId] = useState(first);
@@ -1123,8 +1109,8 @@ function ActiveEncounter({
               <option value="free">assert free (bypasses the round counter)</option>
               <option value="counts">assert counts against the round limit</option>
             </select>
-            {/* Occurrence receipts from the log [I-6e]: reference a prior
-                dispatch as the trigger; asserted text stays the fallback. */}
+            {/* Exact occurrence-ledger entries [R-0040/I-6e]; asserted text
+                stays the fallback for table-only events. */}
             <select
               aria-label="Trigger occurrence"
               className="h-11 max-w-72 border border-line bg-ink-1 px-2 text-sm"
@@ -1132,9 +1118,9 @@ function ActiveEncounter({
               onChange={(event) => setTriggerOccurrenceId(event.target.value)}
             >
               <option value="">no occurrence — assert the trigger below</option>
-              {recentOccurrences.map(([intentId, message]) => (
-                <option key={intentId} value={intentId}>
-                  {intentId} · {message.length > 60 ? `${message.slice(0, 60)}…` : message}
+              {recentOccurrences.map((occurrence) => (
+                <option key={occurrence.occurrenceId} value={occurrence.occurrenceId}>
+                  {occurrence.occurrenceId} · {occurrence.kind}
                 </option>
               ))}
             </select>
@@ -1166,7 +1152,7 @@ function ActiveEncounter({
                         ? { free: false }
                         : {}),
                     ...(triggerOccurrenceId !== ''
-                      ? { triggerIntentId: triggerOccurrenceId }
+                      ? { triggerOccurrenceId }
                       : text.length > 0
                         ? { triggerText: text }
                         : {}),

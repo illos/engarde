@@ -141,6 +141,14 @@ const baseView = {
   turnState: null as null | Record<string, unknown>,
   villainActions: { usedThisRound: false, usedByAbility: [] as string[] },
   resolutions: [] as unknown[],
+  occurrences: [] as Array<{
+    occurrenceId: string;
+    intentId: string;
+    kind: string;
+    round: number | null;
+    participantId: string | null;
+    actorId: string | null;
+  }>,
   participants: [fury, monarch, member('sc1'), member('sc2')],
   terrainFacts: [],
   squads: [squad],
@@ -461,8 +469,22 @@ describe('ParticipantEconomy', () => {
     });
   });
 
-  test('triggered cost override and occurrence reference: asserted free wins; a picked log occurrence rides triggerIntentId [I-6d/I-6e]', async () => {
-    setScene({ ...combatView, participants: [fury, monarch], squads: [] });
+  test('triggered cost override and occurrence reference: asserted free wins; an exact ledger occurrence rides triggerOccurrenceId [R-0040/I-6d/I-6e]', async () => {
+    setScene({
+      ...combatView,
+      participants: [fury, monarch],
+      squads: [],
+      occurrences: [
+        {
+          occurrenceId: 'd3-lash#2',
+          intentId: 'd3-lash',
+          kind: 'damage-taken',
+          round: 2,
+          participantId: 'goblin-monarch',
+          actorId: null,
+        },
+      ],
+    });
     setQuery(api.encounters.listLog, [
       logRow({
         intentId: 'd3-lash',
@@ -489,13 +511,13 @@ describe('ParticipantEconomy', () => {
       target: { value: 'monarch' },
     });
     fireEvent.click(screen.getByText('Pick triggered'));
-    // The occurrence picker offers the receipted dispatch exactly once.
+    // The picker offers the exact event, not merely its parent dispatch.
     const occurrencePicker = screen.getByLabelText('Trigger occurrence') as HTMLSelectElement;
     expect(Array.from(occurrencePicker.options).map((option) => option.value)).toEqual([
       '',
-      'd3-lash',
+      'd3-lash#2',
     ]);
-    fireEvent.change(occurrencePicker, { target: { value: 'd3-lash' } });
+    fireEvent.change(occurrencePicker, { target: { value: 'd3-lash#2' } });
     fireEvent.change(screen.getByLabelText('Triggered cost override'), {
       target: { value: 'free' },
     });
@@ -505,7 +527,7 @@ describe('ParticipantEconomy', () => {
       participantId: 'fury',
       abilityArtifactId: MONARCH,
       free: true,
-      triggerIntentId: 'd3-lash',
+      triggerOccurrenceId: 'd3-lash#2',
     });
     await act(() => Promise.resolve());
     // Back to no occurrence: asserted text is the fallback reference.

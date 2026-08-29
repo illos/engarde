@@ -14,9 +14,9 @@ import { OccurrenceSchema } from './schemas.js';
  * shipped three defects on this codebase [GOTCHA-0009].
  *
  * The distinctions here are canon, not bookkeeping:
- * - "takes damage" and "loses Stamina" are separate arms, because the
- *   books print them as separate triggers on one page [Heroes p.132] and
- *   never say a loss is damage.
+ * - "takes damage" and "loses Stamina" are separate, non-exclusive arms:
+ *   a hit that lowers current Stamina records both, while damage absorbed
+ *   entirely by temporary Stamina records only damage [Heroes p.132].
  * - `rolled` rides every damage occurrence, because "If an ability or
  *   effect deals damage without requiring a power roll, that is not
  *   rolled damage, and effects that add to or are triggered by rolled
@@ -98,7 +98,12 @@ export function deriveOccurrences(
             resolutionId: staminaEvent.resolutionId,
           }),
         );
-      } else if (staminaEvent.kind === 'loss') {
+      }
+      // Damage and Stamina loss are distinct trigger classes, not
+      // exclusive ones. Damage absorbed entirely by temporary Stamina has
+      // no current-Stamina loss; a hit that lowers current Stamina has both.
+      const staminaLost = Math.max(0, staminaEvent.from - staminaEvent.to);
+      if ((staminaEvent.kind === 'damage' || staminaEvent.kind === 'loss') && staminaLost > 0) {
         derived.push(
           OccurrenceSchema.parse({
             kind: 'stamina-lost',
@@ -106,12 +111,12 @@ export function deriveOccurrences(
             intentId,
             round,
             participantId: staminaEvent.participantId,
-            amount: staminaEvent.amount,
+            amount: staminaLost,
             sourceId: staminaEvent.sourceId,
             resolutionId: staminaEvent.resolutionId,
           }),
         );
-      } else if (staminaEvent.amount > 0) {
+      } else if (staminaEvent.kind === 'regain' && staminaEvent.amount > 0) {
         // A clamped-to-zero regain restored nothing; nothing occurred.
         derived.push(
           OccurrenceSchema.parse({
@@ -121,6 +126,49 @@ export function deriveOccurrences(
             round,
             participantId: staminaEvent.participantId,
             amount: staminaEvent.amount,
+          }),
+        );
+      }
+
+      // Individual creatures do not need a second claim: their exact
+      // current-Stamina crossing proves the printed event. Squad pool
+      // deaths use `zeroStaminaTrigger` below because the victim can be
+      // known or pending independently of the pool value.
+      if (
+        asRecord(item.data.squadDamage) === null &&
+        staminaEvent.from > 0 &&
+        staminaEvent.to <= 0
+      ) {
+        derived.push(
+          OccurrenceSchema.parse({
+            kind: 'stamina-reduced-to-zero',
+            occurrenceId: next(),
+            intentId,
+            round,
+            participantId: staminaEvent.participantId,
+            squadId: null,
+            pendingIdentity: false,
+          }),
+        );
+      }
+    }
+
+    const zeroed = asRecord(item.data.zeroStaminaTrigger);
+    if (zeroed !== null) {
+      const participantId = typeof zeroed.participantId === 'string' ? zeroed.participantId : null;
+      const pendingCount =
+        zeroed.pending === true && typeof zeroed.count === 'number' ? zeroed.count : 1;
+      const squadId = typeof zeroed.squadId === 'string' ? zeroed.squadId : null;
+      for (let ordinal = 0; ordinal < pendingCount; ordinal += 1) {
+        derived.push(
+          OccurrenceSchema.parse({
+            kind: 'stamina-reduced-to-zero',
+            occurrenceId: next(),
+            intentId,
+            round,
+            participantId,
+            squadId,
+            pendingIdentity: zeroed.pending === true,
           }),
         );
       }
@@ -216,6 +264,29 @@ export function deriveOccurrences(
           }),
         );
       }
+    }
+
+    // Characteristic tests are power rolls too [R-0006], but they do not
+    // open a resolution-stack entry. Their existing `testRoll` claim is
+    // therefore the exact source of a roll occurrence with resolutionId
+    // null.
+    const testRoll = asRecord(item.data.testRoll);
+    const testResolution = testRoll === null ? null : asRecord(testRoll.resolution);
+    if (testRoll !== null && testResolution !== null) {
+      derived.push(
+        OccurrenceSchema.parse({
+          kind: 'roll-made',
+          occurrenceId: next(),
+          intentId,
+          round,
+          actorId: testRoll.targetId,
+          resolutionId: null,
+          tier: testResolution.tier,
+          natural: testResolution.natural,
+          edges: testRoll.edges ?? 0,
+          banes: testRoll.banes ?? 0,
+        }),
+      );
     }
 
     for (const row of asRows(item.data.turnOccurrences)) {

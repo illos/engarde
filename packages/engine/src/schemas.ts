@@ -687,14 +687,6 @@ const resolutionEntryBase = {
   /** partOf composition root: the parent reference for a composed inner
    * ability (Charge), else this entry's own resolutionId. */
   actionKey: z.string().min(1),
-  /** SHA-256 hex of the canonical DECLARATION — who, which ability, and
-   * the targets as first named (v8, R-0041). Fixed at declaration and
-   * carried through the roll: it is the audit record of what was
-   * declared, distinct from `payloadHash`, which pins what was rolled.
-   * Target changes after declaration are tracked EDITS on `modifications`
-   * ("the declared target list can also legally GROW mid-resolution"),
-   * never a re-declaration, so this hash never moves. */
-  declarationHash: z.string().regex(/^[0-9a-f]{64}$/),
   modifications: z.array(ResolutionModificationSchema).default([]),
   /** Roll-time packet/stacking data for squad-owned resolutions. Commit
    * consumes this stored breakdown instead of recomputing against mutable
@@ -741,6 +733,16 @@ const resolutionEntryBase = {
 const rolledEntryFields = {
   /** SHA-256 hex of the canonical use-ability payload [R-0032]. */
   payloadHash: z.string().regex(/^[0-9a-f]{64}$/),
+  /** Targets the dice were actually thrown against, after pre-roll edits. */
+  rollTargets: z.array(ParticipantIdSchema).default([]),
+  /** Legacy v6/v7 entries did not retain enough declaration data for an
+   * honest reconstruction. New entries always carry a hash; null is the
+   * explicit legacy sentinel. */
+  declarationHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable()
+    .default(null),
   rollReceipt: RollReceiptSchema,
 };
 
@@ -755,6 +757,9 @@ const rolledEntryFields = {
  */
 export const DeclaredResolutionEntrySchema = z.object({
   ...resolutionEntryBase,
+  /** SHA-256 of actor, executable ability, payer context, and first-named
+   * targets. Required for every declaration created by v8. */
+  declarationHash: z.string().regex(/^[0-9a-f]{64}$/),
   phase: z.literal('declared'),
   /** The targets as they currently stand: as declared, plus any recorded
    * target edits. The roll is made against these. */
@@ -808,9 +813,9 @@ export function resolutionOpenedClaim(entry: ResolutionEntry): Record<string, un
     abilityArtifactId: entry.abilityArtifactId,
     phase: entry.phase,
     declarationHash: entry.declarationHash,
-    ...(entry.phase === 'declared'
-      ? { declaredTargets: [...entry.declaredTargets] }
-      : { rollReceipt: entry.rollReceipt }),
+    declaredTargets:
+      entry.phase === 'declared' ? [...entry.declaredTargets] : [...entry.rollTargets],
+    ...(entry.phase === 'declared' ? {} : { rollReceipt: entry.rollReceipt }),
   };
 }
 
@@ -821,9 +826,10 @@ export function resolutionOpenedClaim(entry: ResolutionEntry): Record<string, un
  * emits an occurrence directly; adding a kind here means teaching that
  * one function to read the claim that already proves it happened.
  *
- * `takes damage` and `loses Stamina` are DISTINCT arms, per the ruling:
- * the books print both phrasings as separate triggers on the same page
- * [Heroes p.132] and never say a Stamina loss is damage.
+ * `takes damage` and `loses Stamina` are DISTINCT, non-exclusive arms, per
+ * the ruling: the books print both phrasings as separate triggers on the
+ * same page [Heroes p.132]. A hit that lowers current Stamina produces
+ * both; damage absorbed by temporary Stamina produces only the first.
  */
 export const OccurrenceSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -857,6 +863,17 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     round: z.number().int().positive().nullable(),
     participantId: ParticipantIdSchema,
     amount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('stamina-reduced-to-zero'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    /** A squad kill can count before the table supplies the victim's
+     * identity [R-0027]. Null records that exact anonymous event. */
+    participantId: ParticipantIdSchema.nullable(),
+    squadId: z.string().min(1).nullable(),
+    pendingIdentity: z.boolean(),
   }),
   z.object({
     kind: z.literal('health-transition'),
@@ -900,7 +917,8 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     intentId: z.string().min(1),
     round: z.number().int().positive().nullable(),
     actorId: z.string().min(1),
-    resolutionId: z.string().min(1),
+    /** Characteristic tests are power rolls without stack entries. */
+    resolutionId: z.string().min(1).nullable(),
     tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     natural: z.number().int(),
     /** Net edges/banes as the one edge/bane home resolved them
@@ -955,8 +973,8 @@ export type EncounterState = z.infer<typeof EncounterStateSchema>;
 
 /** The occurrence-ledger stored shape, retained for migration (migrate.ts).
  * Its resolution entries are all `rolled`/`committed` — the v8 `declared`
- * arm did not exist — so they parse through the current union once the
- * declaration hash is supplied by the migration. */
+ * arm did not exist — and remain loose until migration marks their
+ * unreconstructable declaration hash explicitly as null. */
 export const EncounterStateV7Schema = z.object({
   schemaVersion: z.literal(7),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
@@ -981,7 +999,8 @@ export const EncounterStateV6Schema = z.object({
   squads: z.array(SquadStateSchema).default([]),
   turnState: TurnStateSchema.nullable().default(null),
   villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
-  resolutionStack: z.array(ResolutionEntrySchema).default([]),
+  // These bodies predate declarationHash and the declared phase.
+  resolutionStack: z.array(z.record(z.string(), z.unknown())).default([]),
 });
 
 export type EncounterStateV6 = z.infer<typeof EncounterStateV6Schema>;
@@ -1878,7 +1897,7 @@ export const IntentSchema = z.discriminatedUnion('kind', [
        * (Ride's triggerless free-trigger dispatches without one). */
       trigger: z
         .discriminatedUnion('kind', [
-          z.object({ kind: z.literal('occurrence'), intentId: z.string().min(1) }),
+          z.object({ kind: z.literal('occurrence'), occurrenceId: z.string().min(1) }),
           z.object({ kind: z.literal('asserted'), text: z.string().min(1) }),
         ])
         .nullable()

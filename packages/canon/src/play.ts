@@ -96,7 +96,7 @@ const HELP = `commands:
   commit [<resolutionId>]                 commit an open resolution (default: top of stack)
   mod [<resolution>] downgrade <1|2> | tier <±n> because <..> | retarget <from> <to> because <..>
       | halve <down|up> [<target>] because <..> | potency <±n> [<target>] because <..>
-  trigger <query> <actor> [free] [by <intentId>] [because <trigger ..>]
+  trigger <query> <actor> [free] [by <occurrenceId>] [because <trigger ..>]
                                           use a triggered action
   villain <query> <actor>                 use a villain action (director)
   convert [<actor>] main <maneuver|move>  turn the main action into a maneuver/move action
@@ -118,6 +118,7 @@ const HELP = `commands:
   detach <squad> [because <reason..>]     detach a squad's captain (director)
   end [keep <condition>..]                end the encounter (keeps are opt-in)
   log [n]                                 last n log entries (default 10)
+  occurrences [n]                         last n exact trigger events (default 10)
   quit`;
 
 function shortName(conditionOrInstanceId: string): string {
@@ -1382,7 +1383,7 @@ export function createPlaySession(options: {
     if (annotation?.actionCost === 'free-triggered-action') free = true;
     const trigger =
       occurrenceId !== undefined
-        ? ({ kind: 'occurrence', intentId: occurrenceId } as const)
+        ? ({ kind: 'occurrence', occurrenceId } as const)
         : assertedText !== undefined
           ? ({ kind: 'asserted', text: assertedText } as const)
           : null;
@@ -1709,6 +1710,24 @@ export function createPlaySession(options: {
     return entries.map(renderLogEntry).join('\n');
   }
 
+  function commandOccurrences(args: string[]): string {
+    const count = args[0] ? Number(args[0]) : 10;
+    if (Number.isNaN(count) || count < 1) return 'usage: occurrences [n]';
+    const occurrences = driver.state().occurrences.slice(-count);
+    if (occurrences.length === 0) return 'occurrence ledger is empty';
+    return occurrences
+      .map((occurrence) => {
+        const subject =
+          'participantId' in occurrence && occurrence.participantId !== null
+            ? ` participant=${occurrence.participantId}`
+            : 'actorId' in occurrence
+              ? ` actor=${occurrence.actorId}`
+              : '';
+        return `${occurrence.occurrenceId}  ${occurrence.kind}${subject}  (dispatch ${occurrence.intentId})`;
+      })
+      .join('\n');
+  }
+
   return {
     transcript: () => driver.transcript(),
     execute(line: string): PlayStepResult {
@@ -1777,6 +1796,8 @@ export function createPlaySession(options: {
             return { output: commandEnd(args), quit: false };
           case 'log':
             return { output: commandLog(args), quit: false };
+          case 'occurrences':
+            return { output: commandOccurrences(args), quit: false };
           case 'quit':
           case 'exit':
             return { output: 'bye', quit: true };

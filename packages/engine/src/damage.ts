@@ -603,7 +603,11 @@ export function applySquadDamage(
         [MINION_CANON.droppingOne],
         {
           squadDeaths: [{ squadId: squad.squadId, memberId }],
-          zeroStaminaTrigger: { participantId: memberId, ruling: 'R-0027' },
+          zeroStaminaTrigger: {
+            participantId: memberId,
+            squadId: squad.squadId,
+            ruling: 'R-0027',
+          },
         },
       ),
     );
@@ -662,7 +666,12 @@ export function applySquadDamage(
           // happens when the pool COUNTS the kill, so the trigger receipt
           // fires here, anonymously; resolve-pending-kills assigns identity
           // only, never a second trigger [R-0027].
-          zeroStaminaTrigger: { pending: true, count: remaining, ruling: 'R-0027' },
+          zeroStaminaTrigger: {
+            pending: true,
+            count: remaining,
+            squadId: squad.squadId,
+            ruling: 'R-0027',
+          },
         },
       ),
     );

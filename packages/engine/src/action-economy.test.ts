@@ -530,6 +530,43 @@ describe('dazed and the critical-hit grant (R-0030 escapes)', () => {
 });
 
 describe('triggered actions (R-0030; rule.combat/triggered-action)', () => {
+  it('references one exact ledger occurrence and refuses an unknown id [R-0040]', () => {
+    let state = beginCombat(baseEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
+    const damaged = dispatchChecked(
+      state,
+      director('apply-damage', { target: 'warrior', amount: 1, reason: 'triggering hit' }),
+    );
+    const occurrence = damaged.state.occurrences.find((row) => row.kind === 'damage-taken');
+    if (!occurrence) throw new Error('damage occurrence missing');
+    const used = dispatchChecked(
+      damaged.state,
+      director('use-triggered-action', {
+        participantId: 'warrior',
+        abilityArtifactId: TONGUE_SLAP,
+        trigger: { kind: 'occurrence', occurrenceId: occurrence.occurrenceId },
+      }),
+    );
+    expect(used.log[0]?.data.trigger).toEqual({
+      kind: 'occurrence',
+      occurrenceId: occurrence.occurrenceId,
+    });
+
+    const refused = applyIntent(
+      damaged.state,
+      director('use-triggered-action', {
+        participantId: 'warrior',
+        abilityArtifactId: TONGUE_SLAP,
+        trigger: { kind: 'occurrence', occurrenceId: 'missing#0' },
+      }),
+      { random: createSeededRandomSource(1) },
+    );
+    expect(refused.log.find((row) => row.kind === 'refusal')?.message).toContain(
+      'unknown trigger occurrence',
+    );
+    expect(refused.state).toEqual(damaged.state);
+  });
+
   it('one per round: the second warns and applies; free bypasses the counter but caps still warn', () => {
     let state = beginCombat(baseEncounter(), 'heroes');
     state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;

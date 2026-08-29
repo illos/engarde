@@ -712,6 +712,10 @@ export function executeUseAbility(
    * a second entry appended. Null on an ordinary dispatch. Rolling is the
    * ONE path either way; roll-resolution does not re-implement it. */
   declaredEntry: DeclaredResolutionEntry | null = null,
+  /** The caller re-supplies the original declaration when advancing a
+   * pre-roll edit. Commit must pin those bytes; the effective roll targets
+   * are separately recorded on `rollTargets`. */
+  payloadHashSource: UseAbilityPayload | null = null,
 ): ExecutionResult {
   const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
   const payload = intent.payload;
@@ -780,6 +784,44 @@ export function executeUseAbility(
 
   // ── action-economy debit (v6, R-0029/R-0030; combat only) ──────────────
   const cost = abilityCostOf(ability);
+
+  // ── hold at DECLARATION [R-0041] ──────────────────────────────────────
+  // No economy mutation happens until dice are thrown. A declaration that
+  // cancels at end of turn therefore really loses nothing.
+  if (payload.holdAtDeclaration && nextState.turnState !== null && declaredEntry === null) {
+    const declared: ResolutionEntry = {
+      kind: 'ability',
+      resolutionId: intent.intentId,
+      actorId: payload.actorParticipantId,
+      abilityArtifactId: ability.abilityArtifactId,
+      actionCost: cost,
+      declarationHash: hashDeclaration({
+        actorId: payload.actorParticipantId,
+        ability,
+        targets: payload.targets,
+        operatorId: payload.operatorId,
+        partOf: payload.partOf,
+      }),
+      actionKey: payload.partOf ?? intent.intentId,
+      phase: 'declared',
+      declaredTargets: [...payload.targets],
+      modifications: [],
+      squadBreakdown: null,
+    };
+    return {
+      state: { ...nextState, resolutionStack: [...nextState.resolutionStack, declared] },
+      log: [
+        entry(
+          context,
+          'mutation',
+          `${actor.id} DECLARES ${ability.abilityArtifactId.split('/').pop()} against ${payload.targets.join(', ')} — no dice yet; reactions triggered by being targeted may cut in, then roll-resolution throws [R-0041]`,
+          [ability.abilityArtifactId],
+          { resolutionOpened: resolutionOpenedClaim(declared) },
+        ),
+      ],
+    };
+  }
+
   // R-0029 honest residue: a header cell the closed vocabulary refused
   // carries no debit — never a guessed one. Surface the raw unnormalized
   // value as a table directive instead of skipping silently.
@@ -834,45 +876,6 @@ export function executeUseAbility(
       nextState = debited.state;
       log.push(...debited.log);
     }
-  }
-
-  // ── hold at DECLARATION [R-0041] ──────────────────────────────────────
-  // Targets named, dice not thrown, so a being-targeted reaction has a
-  // real moment to act. The action cost is NOT debited here: a declaration
-  // that never rolls cancels at end of turn and "nothing is lost", which
-  // would be false if the action had already been spent. The debit happens
-  // on the roll, below, exactly as it always has.
-  if (payload.holdAtDeclaration && nextState.turnState !== null && declaredEntry === null) {
-    const declared: ResolutionEntry = {
-      kind: 'ability',
-      resolutionId: intent.intentId,
-      actorId: payload.actorParticipantId,
-      abilityArtifactId: ability.abilityArtifactId,
-      actionCost: cost,
-      declarationHash: hashDeclaration({
-        actorId: payload.actorParticipantId,
-        abilityArtifactId: ability.abilityArtifactId,
-        targets: payload.targets,
-      }),
-      actionKey: payload.partOf ?? intent.intentId,
-      phase: 'declared',
-      declaredTargets: [...payload.targets],
-      modifications: [],
-      squadBreakdown: null,
-    };
-    return {
-      state: { ...nextState, resolutionStack: [...nextState.resolutionStack, declared] },
-      log: [
-        ...log,
-        entry(
-          context,
-          'mutation',
-          `${actor.id} DECLARES ${ability.abilityArtifactId.split('/').pop()} against ${payload.targets.join(', ')} — no dice yet; reactions triggered by being targeted may cut in, then roll-resolution throws [R-0041]`,
-          [ability.abilityArtifactId],
-          { resolutionOpened: resolutionOpenedClaim(declared) },
-        ),
-      ],
-    };
   }
 
   // ── the roll pipeline (grants → pools → resolve → receipt) ─────────────
@@ -952,13 +955,16 @@ export function executeUseAbility(
       actorId: payload.actorParticipantId,
       abilityArtifactId: ability.abilityArtifactId,
       actionCost: cost,
-      payloadHash: hashPayload(payload),
+      payloadHash: hashPayload(payloadHashSource ?? payload),
+      rollTargets: [...payload.targets],
       declarationHash:
         declaredEntry?.declarationHash ??
         hashDeclaration({
           actorId: payload.actorParticipantId,
-          abilityArtifactId: ability.abilityArtifactId,
+          ability,
           targets: payload.targets,
+          operatorId: payload.operatorId,
+          partOf: payload.partOf,
         }),
       actionKey: declaredEntry?.actionKey ?? payload.partOf ?? intent.intentId,
       phase: 'rolled',

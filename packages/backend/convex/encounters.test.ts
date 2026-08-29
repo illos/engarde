@@ -5,6 +5,7 @@ import { DEVIL_ADJUDICATOR } from '@engarde/canon/fixtures/devil-adjudicator';
 import { GOBLIN_SPINECLEAVER } from '@engarde/canon/fixtures/goblin-spinecleaver';
 import { GOBLIN_WARRIOR } from '@engarde/canon/fixtures/goblin-warrior';
 import { SKITTERLING } from '@engarde/canon/fixtures/skitterling';
+import { upgradeEncounterState } from '@engarde/engine';
 import { convexTest } from 'convex-test';
 import { describe, expect, test } from 'vitest';
 import { api } from './_generated/api';
@@ -1447,6 +1448,112 @@ describe('action economy host', () => {
         entry.message.includes("doesn't count against your limit of one triggered action"),
       ),
     ).toBe(true);
+  });
+
+  test('triggered action points at an exact exposed occurrence, not a dispatch id [R-0040]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [{ id: 'monarch', recordId: MONARCH }, ...WARRIORS],
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    await table.owner.client.mutation(api.encounters.applyDamage, {
+      campaignId: table.campaignId,
+      targetParticipantId: 'monarch',
+      amount: 1,
+      reason: 'triggering hit',
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    const occurrence = view?.occurrences.find((row) => row.kind === 'damage-taken');
+    if (!occurrence) throw new Error('damage occurrence missing from active view');
+    expect(occurrence.occurrenceId).toContain('#');
+
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: MEAT_SHIELD,
+      triggerOccurrenceId: occurrence.intentId,
+    });
+    const afterInvalid = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(afterInvalid?.participants.find((row) => row.id === 'monarch')?.triggeredThisRound).toBe(
+      0,
+    );
+    await table.owner.client.mutation(api.encounters.useTriggeredAction, {
+      campaignId: table.campaignId,
+      participantId: 'monarch',
+      abilityArtifactId: MEAT_SHIELD,
+      triggerOccurrenceId: occurrence.occurrenceId,
+    });
+  });
+
+  test('endTurn cancels a declared entry without demanding a held roll payload [R-0041]', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: WARRIORS,
+    });
+    await table.owner.client.mutation(api.encounters.beginCombat, {
+      campaignId: table.campaignId,
+      firstSide: 'director',
+    });
+    await table.owner.client.mutation(api.encounters.startTurn, {
+      campaignId: table.campaignId,
+      turnId: 'warrior-a',
+    });
+    await t.run(async (ctx) => {
+      const encounter = await ctx.db
+        .query('encounters')
+        .withIndex('by_campaignId_status', (q) =>
+          q.eq('campaignId', table.campaignId).eq('status', 'active'),
+        )
+        .unique();
+      if (!encounter) throw new Error('active encounter missing');
+      const state = upgradeEncounterState(encounter.state);
+      await ctx.db.patch(encounter._id, {
+        state: {
+          ...state,
+          resolutionStack: [
+            {
+              kind: 'ability',
+              resolutionId: 'declared-r1',
+              actorId: 'warrior-a',
+              abilityArtifactId: `${GOBLIN_WARRIOR.artifactId}#spear-charge`,
+              actionCost: 'main-action',
+              actionKey: 'declared-r1',
+              declarationHash: 'b'.repeat(64),
+              phase: 'declared',
+              declaredTargets: ['warrior-b'],
+              modifications: [],
+              squadBreakdown: null,
+            },
+          ],
+        },
+        openPayloads: {},
+      });
+    });
+
+    await table.owner.client.mutation(api.encounters.endTurn, {
+      campaignId: table.campaignId,
+      participantId: 'warrior-a',
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    expect(view?.resolutions).toEqual([]);
+    expect(view?.participants.find((row) => row.id === 'warrior-a')?.actionBudget).toEqual({});
   });
 
   test('critical hit grants an escape-flagged main action, consumed silently off-turn [R-0030]', async () => {

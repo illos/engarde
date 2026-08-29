@@ -361,9 +361,10 @@ export function executeSquadSignatureAttack(
     abilityArtifactId: payload.ability.abilityArtifactId,
     actionCost: 'main-action',
     payloadHash: hashPayload(payload),
+    rollTargets: payload.participation.map((row) => row.targetId),
     declarationHash: hashDeclaration({
       actorId: squad.squadId,
-      abilityArtifactId: payload.ability.abilityArtifactId,
+      ability: payload.ability,
       targets: payload.participation.map((row) => row.targetId),
     }),
     actionKey: intent.intentId,
@@ -592,9 +593,10 @@ export function executeSquadManeuver(
     abilityArtifactId: ability.abilityArtifactId,
     actionCost: 'maneuver',
     payloadHash: hashPayload(payload),
+    rollTargets: payload.participation.map((row) => row.targetId),
     declarationHash: hashDeclaration({
       actorId: squad.squadId,
-      abilityArtifactId: ability.abilityArtifactId,
+      ability,
       targets: payload.participation.map((row) => row.targetId),
     }),
     actionKey: intent.intentId,

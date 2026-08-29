@@ -289,6 +289,17 @@ const encounterView = v.union(
         modifications: v.array(modificationView),
       }),
     ),
+    /** Exact triggerable events from the engine occurrence ledger. */
+    occurrences: v.array(
+      v.object({
+        occurrenceId: v.string(),
+        intentId: v.string(),
+        kind: v.string(),
+        round: v.union(v.number(), v.null()),
+        participantId: v.union(v.string(), v.null()),
+        actorId: v.union(v.string(), v.null()),
+      }),
+    ),
     /** Recorded terrain alterations [R-0022]: attributed facts, displayed at
      * the table; the +1-square entry cost stays table-adjudicated. */
     terrainFacts: v.array(
@@ -448,9 +459,9 @@ interface LogRowInput {
   engineActorLabel?: string;
   /** Engine LogEntry.data — persisted verbatim (power-roll-design SE-3). */
   data?: Record<string, unknown>;
-  /** The engine dispatch this row receipts (LogEntry.intentId) — the
-   * occurrence handle a triggered action can reference [I-6e]. Host-level
-   * rows (table cards, NOT-AUTOMATED notes) carry none. */
+  /** The engine dispatch this row receipts (LogEntry.intentId). Exact
+   * reaction handles live in state.occurrences [R-0040]; host-level rows
+   * (table cards, NOT-AUTOMATED notes) carry none. */
   intentId?: string;
 }
 
@@ -692,6 +703,14 @@ export const getActive = query({
               },
         modifications: entry.modifications.map(modificationToView),
       })),
+      occurrences: state.occurrences.slice(-32).map((occurrence) => ({
+        occurrenceId: occurrence.occurrenceId,
+        intentId: occurrence.intentId,
+        kind: occurrence.kind,
+        round: occurrence.round,
+        participantId: 'participantId' in occurrence ? occurrence.participantId : null,
+        actorId: 'actorId' in occurrence ? occurrence.actorId : null,
+      })),
       terrainFacts: state.terrainFacts.map((fact) => ({
         factId: fact.factId,
         terrain: fact.terrain,
@@ -734,9 +753,8 @@ export const listLog = query({
       canonRefs: v.array(v.string()),
       engineActorLabel: v.union(v.string(), v.null()),
       data: v.union(v.any(), v.null()),
-      /** The engine dispatch this row receipts — the occurrence handle a
-       * use-triggered-action trigger can reference [I-6e]; null for
-       * host-level rows. */
+      /** Parent engine dispatch id; exact trigger handles are exposed by
+       * getActive.occurrences. Null for host-level rows. */
       intentId: v.union(v.string(), v.null()),
       actorName: v.string(),
       occurredAt: v.number(),
@@ -1423,8 +1441,9 @@ export const endTurn = mutation({
     const state = upgradeEncounterState(encounter.state);
     // end-turn FORCE-COMMITS the ending actor's open resolutions first
     // [design §3, R-0032] — printed damage is never discarded. The engine
-    // requires each payload re-supplied; this host holds them in the
-    // pending-commit store, so the client never ships payload bytes.
+    // requires each ROLLED payload re-supplied; DECLARED entries cancel and
+    // need none [R-0041]. This host holds rolled payloads in the pending-
+    // commit store, so the client never ships payload bytes.
     const endingSquad = state.squads.find((squad) => squad.squadId === args.participantId);
     const owned =
       state.turnState === null
@@ -1436,6 +1455,7 @@ export const endTurn = mutation({
     const stored = (encounter.openPayloads ?? {}) as Record<string, UseAbilityPayloadInput>;
     const commitPayloads: Record<string, UseAbilityPayloadInput> = {};
     for (const entry of owned) {
+      if (entry.phase === 'declared') continue;
       const payload = stored[entry.resolutionId];
       if (payload === undefined) {
         throw new ConvexError(
@@ -1941,9 +1961,8 @@ export const useTriggeredAction = mutation({
     /** Manual override for asserted cases; absent = derived from the
      * compiled header annotation on the loaded record [I-6d]. */
     free: v.optional(v.boolean()),
-    /** A receipt-visible trigger occurrence (a prior dispatch's intent id)
-     * — wins over an asserted-text trigger when both are given. */
-    triggerIntentId: v.optional(v.string()),
+    /** Exact engine-ledger occurrence id — wins over asserted text. */
+    triggerOccurrenceId: v.optional(v.string()),
     /** A table-asserted trigger (Ride's triggerless free-trigger
      * dispatches without an occurrence). */
     triggerText: v.optional(v.string()),
@@ -1992,8 +2011,8 @@ export const useTriggeredAction = mutation({
             abilityArtifactId: args.abilityArtifactId,
             free,
             trigger:
-              args.triggerIntentId !== undefined
-                ? { kind: 'occurrence', intentId: args.triggerIntentId }
+              args.triggerOccurrenceId !== undefined
+                ? { kind: 'occurrence', occurrenceId: args.triggerOccurrenceId }
                 : args.triggerText !== undefined
                   ? { kind: 'asserted', text: args.triggerText }
                   : null,

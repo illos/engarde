@@ -303,7 +303,16 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
           );
           const golden = goldenTiers[slot];
           if (golden.kind === 'verbatim') {
-            expect(tierResult.state, `${fixture.fixtureId} ${slot}`).toEqual(tierBefore);
+            expect(tierResult.state.participants, `${fixture.fixtureId} ${slot}`).toEqual(
+              tierBefore.participants,
+            );
+            expect(tierResult.state.occurrences, `${fixture.fixtureId} ${slot}`).toContainEqual(
+              expect.objectContaining({
+                kind: 'roll-made',
+                actorId: 'target',
+                resolutionId: null,
+              }),
+            );
             const directive = tierResult.log.find(
               (entry) => entry.data.testTierDirective !== undefined,
             );

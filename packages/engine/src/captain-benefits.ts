@@ -60,7 +60,12 @@ export function shiftCaptainBenefit(
     data.pendingKillsDeltas = [
       { squadId: squad.squadId, from: squad.pendingKills, to: pendingKills },
     ];
-    data.zeroStaminaTrigger = { pending: true, count: newlyPending, ruling: 'R-0039' };
+    data.zeroStaminaTrigger = {
+      pending: true,
+      count: newlyPending,
+      squadId: squad.squadId,
+      ruling: 'R-0039',
+    };
   }
   const log: LogEntry[] = [
     {

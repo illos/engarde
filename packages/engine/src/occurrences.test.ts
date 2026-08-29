@@ -4,7 +4,13 @@ import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import { deriveOccurrences } from './occurrences.js';
-import type { EncounterState, Intent, LogEntry, ParticipantStats } from './schemas.js';
+import type {
+  EncounterState,
+  Intent,
+  LogEntry,
+  NextRollGrant,
+  ParticipantStats,
+} from './schemas.js';
 
 /**
  * Occurrence derivation [R-0040] — fires-in-anger dispatch tests: real
@@ -66,8 +72,11 @@ describe('occurrence derivation [R-0040]', () => {
         sourceId: 'hero',
       }),
     );
-    expect(result.state.occurrences).toHaveLength(1);
-    const occurrence = result.state.occurrences[0];
+    expect(result.state.occurrences.map((row) => row.kind)).toEqual([
+      'damage-taken',
+      'stamina-lost',
+    ]);
+    const occurrence = result.state.occurrences.find((row) => row.kind === 'damage-taken');
     expect(occurrence).toMatchObject({
       kind: 'damage-taken',
       participantId: 'warrior',
@@ -125,9 +134,9 @@ describe('occurrence derivation [R-0040]', () => {
       state,
       director('apply-damage', { target: 'warrior', amount: 3, reason: 'second' }),
     ).state;
-    expect(state.occurrences).toHaveLength(2);
+    expect(state.occurrences).toHaveLength(4);
     // Ids are unique and deterministic — a reaction points at exactly one.
-    expect(new Set(state.occurrences.map((row) => row.occurrenceId)).size).toBe(2);
+    expect(new Set(state.occurrences.map((row) => row.occurrenceId)).size).toBe(4);
 
     const ended = dispatch(state, director('end-encounter', {}));
     expect(ended.state.occurrences).toEqual([]);
@@ -203,6 +212,7 @@ describe('occurrences through the two-phase resolution flow [R-0040/R-0032]', ()
     const rolled = dispatch(state, rollIntent);
     const kinds = rolled.state.occurrences.map((row) => row.kind);
     expect(kinds).toContain('ability-used');
+    expect(kinds).toContain('targeted');
     expect(kinds).toContain('roll-made');
     const used = rolled.state.occurrences.find((row) => row.kind === 'ability-used');
     expect(used).toMatchObject({
@@ -288,6 +298,10 @@ describe('the declared phase [R-0041]', () => {
     expect(kinds).not.toContain('roll-made');
     expect(kinds).not.toContain('damage-taken');
     expect(declared.state.participants.hero?.stamina?.current).toBe(15);
+    expect(declared.state.participants.warrior?.actionBudget['main-action']).toBeUndefined();
+    expect(declared.state.participants.warrior?.abilityUses[SPEAR_CHARGE.abilityArtifactId]).toBe(
+      undefined,
+    );
   });
 
   it('a declared entry refuses commit — there is no roll to apply', () => {
@@ -321,6 +335,10 @@ describe('the declared phase [R-0041]', () => {
     expect(entry?.resolutionId).toBe('declare-spear-charge');
     expect(entry?.declarationHash).toBe(declared.state.resolutionStack[0]?.declarationHash);
     expect(rolled.state.occurrences.map((row) => row.kind)).toContain('roll-made');
+    expect(rolled.state.participants.warrior?.actionBudget['main-action']?.used).toBe(1);
+    expect(
+      rolled.state.participants.warrior?.abilityUses[SPEAR_CHARGE.abilityArtifactId]?.round,
+    ).toBe(1);
   });
 
   it('the roll must re-supply what was DECLARED', () => {
@@ -337,10 +355,52 @@ describe('the declared phase [R-0041]', () => {
     expect(refusal?.message).toContain('does not match');
   });
 
+  it('the declaration hash pins the executable ability, not only its artifact id', () => {
+    const declared = declare(inCombat());
+    const altered = {
+      ...SPEAR_CHARGE,
+      tiers: {
+        ...SPEAR_CHARGE.tiers,
+        tier1: {
+          ...SPEAR_CHARGE.tiers.tier1,
+          damage: { ...SPEAR_CHARGE.tiers.tier1.damage, amount: 19 },
+        },
+      },
+    };
+    const result = applyIntent(
+      declared.state,
+      director('roll-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: { ...declaration, ability: altered },
+      }),
+      context,
+    );
+    expect(result.log.find((row) => row.kind === 'refusal')?.message).toContain('does not match');
+    expect(result.state).toEqual(declared.state);
+  });
+
   it('a target swapped before the roll is the target rolled against [Meat Shield]', () => {
     // "A creature targets the monarch with a strike. Effect: The ally is
     // the target of the triggering strike instead." [Monsters p.164]
-    const declared = declare(inCombat());
+    const mark: NextRollGrant = {
+      kind: 'next-roll',
+      grantId: 'hero-inbound-edge',
+      polarity: 'edge',
+      scope: 'strike',
+      direction: 'inbound',
+      source: { participantId: 'hero' },
+      window: null,
+    };
+    const before = inCombat();
+    const hero = before.participants.hero;
+    if (!hero) throw new Error('hero fixture missing');
+    const declared = declare({
+      ...before,
+      participants: {
+        ...before.participants,
+        hero: { ...hero, grants: [mark] },
+      },
+    });
     const swapped = dispatch(
       declared.state,
       director('modify-resolution', {
@@ -361,6 +421,18 @@ describe('the declared phase [R-0041]', () => {
     // and the declaration hash still pins what was originally declared.
     expect(entry.modifications).toHaveLength(1);
     expect(entry.declarationHash).toBe(declared.state.resolutionStack[0]?.declarationHash);
+    expect(entry.rollTargets).toEqual(['warrior']);
+    expect(entry.rollReceipt.perTarget.hero).toBeUndefined();
+    expect(rolled.state.participants.hero?.grants).toEqual([mark]);
+    const committed = dispatch(
+      rolled.state,
+      director('commit-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: declaration,
+      }),
+    );
+    expect(committed.state.participants.hero?.stamina?.current).toBe(15);
+    expect(committed.state.participants.warrior?.stamina?.current).toBeLessThan(15);
   });
 
   it('a declaration that never rolls cancels at end of turn — nothing is lost', () => {
@@ -373,6 +445,7 @@ describe('the declared phase [R-0041]', () => {
     // target took nothing.
     expect(ended.state.resolutionStack).toEqual([]);
     expect(ended.state.participants.hero?.stamina?.current).toBe(15);
+    expect(ended.state.participants.warrior?.actionBudget['main-action']).toBeUndefined();
     expect(ended.log.some((entry) => entry.data.resolutionCancelled !== undefined)).toBe(true);
   });
 });
@@ -403,9 +476,9 @@ describe('the "loses Stamina" / "takes damage" distinction [R-0040]', () => {
     },
   });
 
-  it('a damage claim derives damage-taken', () => {
+  it('damage that lowers current Stamina derives both distinct trigger classes', () => {
     const derived = deriveOccurrences([claim('damage')], { intentId: 'i1', round: 1 });
-    expect(derived.map((row) => row.kind)).toEqual(['damage-taken']);
+    expect(derived.map((row) => row.kind)).toEqual(['damage-taken', 'stamina-lost']);
   });
 
   it('a loss claim derives stamina-lost and NEVER damage-taken', () => {
@@ -418,6 +491,50 @@ describe('the "loses Stamina" / "takes damage" distinction [R-0040]', () => {
     const first = deriveOccurrences([claim('damage'), claim('loss')], args);
     const second = deriveOccurrences([claim('damage'), claim('loss')], args);
     expect(first).toEqual(second);
-    expect(first.map((row) => row.occurrenceId)).toEqual(['i1#0', 'i1#1']);
+    expect(first.map((row) => row.occurrenceId)).toEqual(['i1#0', 'i1#1', 'i1#2']);
+  });
+
+  it('temporary-only absorption is damage without current-Stamina loss', () => {
+    const row = claim('damage');
+    row.data.staminaEvent = { ...(row.data.staminaEvent as object), from: 15, to: 15 };
+    expect(deriveOccurrences([row], { intentId: 'i1', round: 1 }).map((item) => item.kind)).toEqual(
+      ['damage-taken'],
+    );
+  });
+
+  it('reaching 0 Stamina and characteristic tests have exact occurrences', () => {
+    const zero = claim('loss');
+    zero.data.staminaEvent = { ...(zero.data.staminaEvent as object), from: 5, to: 0 };
+    const test: LogEntry = {
+      kind: 'informational',
+      intentId: 'i1',
+      actor: { kind: 'director' },
+      canonRefs: [],
+      message: 'a test',
+      data: {
+        testRoll: {
+          targetId: 'warrior',
+          edges: 1,
+          banes: 0,
+          resolution: { tier: 2, natural: 12 },
+        },
+      },
+    };
+    const derived = deriveOccurrences([zero, test], { intentId: 'i1', round: 1 });
+    expect(derived).toContainEqual(
+      expect.objectContaining({
+        kind: 'stamina-reduced-to-zero',
+        participantId: 'warrior',
+        pendingIdentity: false,
+      }),
+    );
+    expect(derived).toContainEqual(
+      expect.objectContaining({
+        kind: 'roll-made',
+        actorId: 'warrior',
+        resolutionId: null,
+        tier: 2,
+      }),
+    );
   });
 });

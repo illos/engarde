@@ -24,6 +24,36 @@ const V8_ENCOUNTER_DEFAULTS = {
   occurrences: [],
 };
 
+const LEGACY_ROLL_RECEIPT = {
+  dice: [5, 5],
+  characteristicValue: 0,
+  characteristicLabel: 'M',
+  bonuses: [],
+  penalties: [],
+  edges: 0,
+  banes: 0,
+  automaticOutcomes: [],
+  downgradeToTier: null,
+  natural: 10,
+  total: 10,
+  tier: 1,
+  naturalTopEnd: false,
+};
+
+const LEGACY_ROLLED_ENTRY = {
+  kind: 'ability',
+  resolutionId: 'r1',
+  actorId: 'goblin',
+  abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#spear-charge',
+  actionCost: 'main-action',
+  payloadHash: 'a'.repeat(64),
+  actionKey: 'r1',
+  phase: 'rolled',
+  rollReceipt: LEGACY_ROLL_RECEIPT,
+  modifications: [],
+  squadBreakdown: null,
+};
+
 describe('upgradeEncounterState (design SE-2)', () => {
   it('lifts a stored v1 state losslessly into v8 table-mode participants', () => {
     const v1 = {
@@ -182,7 +212,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       squads: [],
       turnState: null,
       villainActions: { usedThisRound: false, usedByAbility: [] },
-      resolutionStack: [],
+      resolutionStack: [LEGACY_ROLLED_ENTRY],
       participants: {
         goblin: {
           id: 'goblin',
@@ -197,28 +227,26 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
     };
     const lifted = upgradeEncounterState(v6);
-    expect(lifted).toEqual({ ...v6, schemaVersion: 8, occurrences: [] });
+    expect(lifted).toEqual({
+      ...v6,
+      schemaVersion: 8,
+      occurrences: [],
+      resolutionStack: [
+        {
+          ...LEGACY_ROLLED_ENTRY,
+          declarationHash: null,
+          rollTargets: [],
+          rollReceipt: {
+            ...LEGACY_ROLL_RECEIPT,
+            perTarget: {},
+            derivedModifiers: [],
+          },
+        },
+      ],
+    });
   });
 
-  it('lifts a v7 state by reconstructing each entry declaration hash (R-0041)', () => {
-    // A stored v7 entry was rolled with no declaration phase, so its
-    // declaration is exactly what it rolled — reconstructed from the
-    // entry's own actor and ability, never invented.
-    const receipt = {
-      dice: [5, 5],
-      characteristicValue: 0,
-      characteristicLabel: 'M',
-      bonuses: [],
-      penalties: [],
-      edges: 0,
-      banes: 0,
-      automaticOutcomes: [],
-      downgradeToTier: null,
-      natural: 10,
-      total: 10,
-      tier: 1,
-      naturalTopEnd: false,
-    };
+  it('lifts a v7 entry with an honest unknown declaration hash (R-0041)', () => {
     const v7 = {
       schemaVersion: 7,
       terrainFacts: [],
@@ -233,22 +261,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
       villainActions: { usedThisRound: false, usedByAbility: [] },
       occurrences: [],
-      resolutionStack: [
-        {
-          kind: 'ability',
-          resolutionId: 'r1',
-          actorId: 'goblin',
-          abilityArtifactId:
-            'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#spear-charge',
-          actionCost: 'main-action',
-          payloadHash: 'a'.repeat(64),
-          actionKey: 'r1',
-          phase: 'rolled',
-          rollReceipt: receipt,
-          modifications: [],
-          squadBreakdown: null,
-        },
-      ],
+      resolutionStack: [LEGACY_ROLLED_ENTRY],
       participants: {
         goblin: {
           id: 'goblin',
@@ -266,8 +279,9 @@ describe('upgradeEncounterState (design SE-2)', () => {
     expect(lifted.schemaVersion).toBe(8);
     const entry = lifted.resolutionStack[0];
     expect(entry?.phase).toBe('rolled');
-    expect(entry?.declarationHash).toMatch(/^[0-9a-f]{64}$/);
-    // Re-upgrading is a no-op: the reconstructed hash is stable.
+    expect(entry?.declarationHash).toBeNull();
+    expect(entry?.phase === 'rolled' ? entry.rollTargets : null).toEqual([]);
+    // Re-upgrading is a no-op: the explicit legacy sentinel is stable.
     expect(upgradeEncounterState(lifted)).toEqual(lifted);
   });
 

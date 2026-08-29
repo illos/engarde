@@ -506,11 +506,12 @@ describe('two-phase combat with real corpus abilities (verbatim fixtures)', () =
     // Spear Charge auto-commits: 3+4+2 = 9 → tier 1 ("3 damage").
     const rolled = session.execute('roll goblin-warrior warrior adjudicator 1 dice 3,4').output;
     expect(rolled).toContain('adjudicator takes 3 damage');
+    expect(session.execute('occurrences').output).toContain('cli-3#1  targeted');
     // Devilish Charm (Triggered action) against the strike occurrence: the
     // compiled annotation classifies its tier-1 retarget template onto the
     // 'targeting' interception point [R-0031].
-    const triggered = session.execute('trigger devil-adjudicator adjudicator by cli-2').output;
-    expect(triggered).toContain('triggered by dispatch cli-2');
+    const triggered = session.execute('trigger devil-adjudicator adjudicator by cli-3#1').output;
+    expect(triggered).toContain('triggered by occurrence cli-3#1');
     expect(triggered).toContain('uses a triggered action');
     expect(triggered).toContain('1 of 1 this round');
     expect(triggered).toContain('interception point: targeting [R-0031]');

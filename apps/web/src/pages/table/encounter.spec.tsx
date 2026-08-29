@@ -86,6 +86,7 @@ const activeEncounter = {
   turnState: null,
   villainActions: { usedThisRound: false, usedByAbility: [] },
   resolutions: [],
+  occurrences: [],
   participants: [
     {
       id: 'fury',

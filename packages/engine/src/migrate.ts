@@ -1,4 +1,3 @@
-import { hashDeclaration } from './payload-hash.js';
 import {
   type EncounterState,
   EncounterStateSchema,
@@ -47,28 +46,13 @@ import {
  * slot's default is the lossless upgrade; the migration re-stamps the
  * version.
  */
-/** The targets a stored (pre-v8) entry rolled against: an ability entry's
- * squad breakdown names them; an entry without one has no stored target
- * list, and an empty declaration is the honest reconstruction — the roll
- * receipt's per-target keys are the audit trail, not a target list. */
-function declaredTargetsOf(entry: Record<string, unknown>): string[] {
-  const breakdown = entry.squadBreakdown;
-  if (!Array.isArray(breakdown)) return [];
-  return breakdown.flatMap((row) => {
-    const targetId = (row as Record<string, unknown> | null)?.targetId;
-    return typeof targetId === 'string' ? [targetId] : [];
-  });
-}
-
 export function upgradeEncounterState(stored: unknown): EncounterState {
   const v8 = EncounterStateSchema.safeParse(stored);
   if (v8.success) return v8.data;
-  // v7 → v8 (R-0041): entries gain a `declarationHash`. A stored entry was
-  // rolled without a declaration phase, so its declaration is exactly what
-  // it rolled against — reconstructed from the entry's own actor, ability,
-  // and squad participation where present. Nothing is invented: if an
-  // entry does not carry what the hash needs, the parse below rejects it
-  // rather than stamping a fabricated hash.
+  // v7 → v8 (R-0041): old rolled entries did not retain the executable
+  // ability or an ordinary target list, so an exact declaration hash cannot
+  // be reconstructed. Preserve that fact as null; fabricating an empty-
+  // target hash would claim integrity the stored bytes cannot prove.
   const v7 = EncounterStateV7Schema.safeParse(stored);
   if (v7.success) {
     return EncounterStateSchema.parse({
@@ -76,14 +60,7 @@ export function upgradeEncounterState(stored: unknown): EncounterState {
       schemaVersion: 8,
       resolutionStack: v7.data.resolutionStack.map((entry) => ({
         ...entry,
-        declarationHash:
-          typeof entry.declarationHash === 'string'
-            ? entry.declarationHash
-            : hashDeclaration({
-                actorId: String(entry.actorId),
-                abilityArtifactId: String(entry.abilityArtifactId),
-                targets: declaredTargetsOf(entry),
-              }),
+        declarationHash: typeof entry.declarationHash === 'string' ? entry.declarationHash : null,
       })),
     });
   }

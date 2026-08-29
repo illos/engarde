@@ -104,8 +104,9 @@ export function hashPayload(payload: unknown): string {
 }
 
 /**
- * The DECLARATION [R-0041]: who is acting, which ability, and the targets
- * as first named. These are exactly the facts a being-targeted reaction
+ * The DECLARATION [R-0041]: who is acting, the executable ability bytes,
+ * payer/composition context, and the targets as first named. These are the
+ * facts a being-targeted reaction
  * conditions on ("A creature targets the monarch with a strike" — Goblin
  * Monarch, Meat Shield), and they are fixed at declaration: later target
  * changes are recorded EDITS on the entry, never a re-declaration, so the
@@ -113,15 +114,19 @@ export function hashPayload(payload: unknown): string {
  */
 export interface Declaration {
   actorId: string;
-  abilityArtifactId: string;
+  ability: unknown;
   targets: readonly string[];
+  operatorId?: string | null;
+  partOf?: string | null;
 }
 
 /** The one declaration-hash home — the roll-time `hashPayload` twin. */
 export function hashDeclaration(declaration: Declaration): string {
   return hashPayload({
     actorId: declaration.actorId,
-    abilityArtifactId: declaration.abilityArtifactId,
+    ability: declaration.ability,
     targets: [...declaration.targets],
+    operatorId: declaration.operatorId ?? null,
+    partOf: declaration.partOf ?? null,
   });
 }

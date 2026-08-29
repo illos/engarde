@@ -235,8 +235,10 @@ function applyIntentCore(
       }
       const supplied = hashDeclaration({
         actorId: intent.payload.payload.actorParticipantId,
-        abilityArtifactId: intent.payload.payload.ability.abilityArtifactId,
+        ability: intent.payload.payload.ability,
         targets: intent.payload.payload.targets,
+        operatorId: intent.payload.payload.operatorId,
+        partOf: intent.payload.payload.partOf,
       });
       if (supplied !== stackEntry.declarationHash) {
         return {
@@ -257,7 +259,13 @@ function applyIntentCore(
         kind: 'use-ability' as const,
         payload: { ...intent.payload.payload, targets: [...stackEntry.declaredTargets] },
       };
-      return executeUseAbility(state, rollIntent, context.random, stackEntry);
+      return executeUseAbility(
+        state,
+        rollIntent,
+        context.random,
+        stackEntry,
+        intent.payload.payload,
+      );
     }
     case 'squad-signature-attack':
       return executeSquadSignatureAttack(state, intent, context.random);
@@ -1066,6 +1074,24 @@ function applyIntentCore(
           log: [refusal(intent, `unknown participant ${intent.payload.participantId}`)],
         };
       }
+      const occurrenceTrigger =
+        intent.payload.trigger?.kind === 'occurrence' ? intent.payload.trigger : null;
+      if (
+        occurrenceTrigger !== null &&
+        !state.occurrences.some(
+          (occurrence) => occurrence.occurrenceId === occurrenceTrigger.occurrenceId,
+        )
+      ) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `unknown trigger occurrence ${occurrenceTrigger.occurrenceId} — reactions must point at the exact recorded event [R-0040]`,
+            ),
+          ],
+        };
+      }
       const log: LogEntry[] = [
         {
           kind: 'informational',
@@ -1076,7 +1102,7 @@ function applyIntentCore(
             intent.payload.trigger === null
               ? `${participant.id} uses ${intent.payload.abilityArtifactId} with no recorded trigger occurrence — the trigger is table-asserted ("only when the action's trigger occurs")`
               : intent.payload.trigger.kind === 'occurrence'
-                ? `${participant.id} uses ${intent.payload.abilityArtifactId}, triggered by dispatch ${intent.payload.trigger.intentId}`
+                ? `${participant.id} uses ${intent.payload.abilityArtifactId}, triggered by occurrence ${intent.payload.trigger.occurrenceId}`
                 : `${participant.id} uses ${intent.payload.abilityArtifactId}; asserted trigger: ${intent.payload.trigger.text}`,
           data: { trigger: intent.payload.trigger },
         },
@@ -1159,6 +1185,8 @@ function applyIntentCore(
         };
       }
       const log: LogEntry[] = [];
+      const modification = intent.payload.modification;
+      const retarget = modification.kind === 'retarget' ? modification : null;
       if (!isOpenResolution(stackEntry)) {
         // "Anything arriving after commit is a warned table correction,
         // not a reopen" [R-0032]: recorded on the entry's history with a
@@ -1183,7 +1211,14 @@ function applyIntentCore(
           candidate.resolutionId === stackEntry.resolutionId
             ? {
                 ...candidate,
-                modifications: [...candidate.modifications, intent.payload.modification],
+                ...(candidate.phase === 'declared' && retarget !== null
+                  ? {
+                      declaredTargets: candidate.declaredTargets.map((targetId) =>
+                        targetId === retarget.from ? retarget.to : targetId,
+                      ),
+                    }
+                  : {}),
+                modifications: [...candidate.modifications, modification],
               }
             : candidate,
         ),
@@ -1459,7 +1494,10 @@ export function applyIntent(
   const refusedOutright = result.log.some(
     (item) => item.kind === 'refusal' && item.data.perBinding !== true,
   );
-  if (result.state === state || refusedOutright) return result;
+  // A roll can be an occurrence even when its tier mutates no game field
+  // (for example, a characteristic test whose verbatim tier is routed to
+  // the table). Do not use state identity as an occurrence short-circuit.
+  if (refusedOutright) return result;
   const lifecycleContext = { intentId: rawIntent.intentId, actor: rawIntent.actor };
   let nextState = result.state;
   const log = [...result.log];

@@ -367,6 +367,17 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     expect(result.log.find((row) => row.data.powerRoll)?.data.powerRoll).toMatchObject({
       derivedModifiers: [{ edges: 1, banes: 0 }],
     });
+    expect(result.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'targeted',
+        participantId: 'shadow',
+        actorId: 'pitlings',
+      }),
+    );
+    const opened = result.state.resolutionStack.find(
+      (entry) => entry.resolutionId === CRIT_INTENT.intentId,
+    );
+    expect(opened?.phase === 'rolled' ? opened.rollTargets : null).toEqual(['shadow']);
   });
 
   it('leaves a crit rolled out of combat as a directive, never a persistent grant', () => {

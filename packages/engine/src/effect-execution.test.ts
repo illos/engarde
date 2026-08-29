@@ -334,7 +334,10 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
     });
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
-    expect(result.state).toEqual(before);
+    expect(result.state.participants).toEqual(before.participants);
+    expect(result.state.occurrences).toContainEqual(
+      expect.objectContaining({ kind: 'roll-made', actorId: 'target', resolutionId: null }),
+    );
     const directive = result.log.find((entry) => entry.data.testTierDirective !== undefined);
     expect(directive?.kind).toBe('table-directive');
     expect(directive?.message).toBe(INTERDICTION_TIER1);
@@ -468,7 +471,10 @@ describe('test rolls bind the TARGET’s characteristic, never the actor’s (R-
     expect(roll.resolution.total).toBe(12);
     expect(roll.resolution.tier).toBe(2);
     // Tier 2 is a verbatim bullet — no state change, exact directive.
-    expect(result.state).toEqual(seeded);
+    expect(result.state.participants).toEqual(seeded.participants);
+    expect(result.state.occurrences).toContainEqual(
+      expect.objectContaining({ kind: 'roll-made', actorId: 'target', resolutionId: null }),
+    );
     expect(checkInvariants(seeded, dispatched, result)).toEqual([]);
   });
 });
