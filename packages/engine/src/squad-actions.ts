@@ -15,7 +15,7 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import { hashPayload } from './payload-hash.js';
+import { hashDeclaration, hashPayload } from './payload-hash.js';
 import { gatePotencyWithReceipt } from './potency.js';
 import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
 import type {
@@ -361,6 +361,11 @@ export function executeSquadSignatureAttack(
     abilityArtifactId: payload.ability.abilityArtifactId,
     actionCost: 'main-action',
     payloadHash: hashPayload(payload),
+    declarationHash: hashDeclaration({
+      actorId: squad.squadId,
+      abilityArtifactId: payload.ability.abilityArtifactId,
+      targets: payload.participation.map((row) => row.targetId),
+    }),
     actionKey: intent.intentId,
     phase: 'rolled',
     rollReceipt: rolled.rollReceipt,
@@ -587,6 +592,11 @@ export function executeSquadManeuver(
     abilityArtifactId: ability.abilityArtifactId,
     actionCost: 'maneuver',
     payloadHash: hashPayload(payload),
+    declarationHash: hashDeclaration({
+      actorId: squad.squadId,
+      abilityArtifactId: ability.abilityArtifactId,
+      targets: payload.participation.map((row) => row.targetId),
+    }),
     actionKey: intent.intentId,
     phase: 'rolled',
     rollReceipt: rolled.rollReceipt,

@@ -16,7 +16,7 @@ import {
   grantContribution,
   splitGrants,
 } from './grant-lifecycle.js';
-import { hashPayload } from './payload-hash.js';
+import { hashDeclaration, hashPayload } from './payload-hash.js';
 import { CHARACTERISTIC_KEY, gatePotencyWithReceipt } from './potency.js';
 import {
   POWER_ROLL_CANON,
@@ -29,6 +29,7 @@ import type {
   ActionCost,
   CharacteristicLetter,
   DamageType,
+  DeclaredResolutionEntry,
   EncounterState,
   LogEntry,
   NextRollGrant,
@@ -705,6 +706,12 @@ export function executeUseAbility(
   state: EncounterState,
   intent: UseAbilityIntent,
   random: RandomSource,
+  /** Rolling a previously DECLARED entry [R-0041]: the entry being
+   * advanced. Its slot on the stack is REPLACED — same resolutionId, same
+   * declaration hash, recorded modifications carried forward — rather than
+   * a second entry appended. Null on an ordinary dispatch. Rolling is the
+   * ONE path either way; roll-resolution does not re-implement it. */
+  declaredEntry: DeclaredResolutionEntry | null = null,
 ): ExecutionResult {
   const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
   const payload = intent.payload;
@@ -829,6 +836,45 @@ export function executeUseAbility(
     }
   }
 
+  // ── hold at DECLARATION [R-0041] ──────────────────────────────────────
+  // Targets named, dice not thrown, so a being-targeted reaction has a
+  // real moment to act. The action cost is NOT debited here: a declaration
+  // that never rolls cancels at end of turn and "nothing is lost", which
+  // would be false if the action had already been spent. The debit happens
+  // on the roll, below, exactly as it always has.
+  if (payload.holdAtDeclaration && nextState.turnState !== null && declaredEntry === null) {
+    const declared: ResolutionEntry = {
+      kind: 'ability',
+      resolutionId: intent.intentId,
+      actorId: payload.actorParticipantId,
+      abilityArtifactId: ability.abilityArtifactId,
+      actionCost: cost,
+      declarationHash: hashDeclaration({
+        actorId: payload.actorParticipantId,
+        abilityArtifactId: ability.abilityArtifactId,
+        targets: payload.targets,
+      }),
+      actionKey: payload.partOf ?? intent.intentId,
+      phase: 'declared',
+      declaredTargets: [...payload.targets],
+      modifications: [],
+      squadBreakdown: null,
+    };
+    return {
+      state: { ...nextState, resolutionStack: [...nextState.resolutionStack, declared] },
+      log: [
+        ...log,
+        entry(
+          context,
+          'mutation',
+          `${actor.id} DECLARES ${ability.abilityArtifactId.split('/').pop()} against ${payload.targets.join(', ')} — no dice yet; reactions triggered by being targeted may cut in, then roll-resolution throws [R-0041]`,
+          [ability.abilityArtifactId],
+          { resolutionOpened: resolutionOpenedClaim(declared) },
+        ),
+      ],
+    };
+  }
+
   // ── the roll pipeline (grants → pools → resolve → receipt) ─────────────
   const rolled = resolveAbilityRoll(nextState, payload, rollBinding, random, context);
   nextState = rolled.state;
@@ -899,25 +945,55 @@ export function executeUseAbility(
   if (nextState.turnState !== null) {
     const resolutionEntry: ResolutionEntry = {
       kind: 'ability',
-      resolutionId: intent.intentId,
+      // Advancing a declaration keeps its identity and its recorded
+      // edits: the entry a reaction already modified is the entry that
+      // rolls [R-0041].
+      resolutionId: declaredEntry?.resolutionId ?? intent.intentId,
       actorId: payload.actorParticipantId,
       abilityArtifactId: ability.abilityArtifactId,
       actionCost: cost,
       payloadHash: hashPayload(payload),
-      actionKey: payload.partOf ?? intent.intentId,
+      declarationHash:
+        declaredEntry?.declarationHash ??
+        hashDeclaration({
+          actorId: payload.actorParticipantId,
+          abilityArtifactId: ability.abilityArtifactId,
+          targets: payload.targets,
+        }),
+      actionKey: declaredEntry?.actionKey ?? payload.partOf ?? intent.intentId,
       phase: 'rolled',
       rollReceipt,
-      modifications: [],
+      modifications: declaredEntry?.modifications ?? [],
       squadBreakdown: null,
     };
-    nextState = { ...nextState, resolutionStack: [...nextState.resolutionStack, resolutionEntry] };
+    nextState = {
+      ...nextState,
+      resolutionStack:
+        declaredEntry === null
+          ? [...nextState.resolutionStack, resolutionEntry]
+          : nextState.resolutionStack.map((candidate) =>
+              candidate.resolutionId === declaredEntry.resolutionId ? resolutionEntry : candidate,
+            ),
+    };
     log.push(
       entry(
         context,
         'mutation',
         `${actor.id}'s ${ability.abilityArtifactId.split('/').pop()} is rolled and OPEN on the resolution stack — reactions and modifications may cut in; commit-resolution applies it [R-0032]`,
         [POWER_ROLL_CANON.powerRoll, ability.abilityArtifactId],
-        { resolutionOpened: resolutionOpenedClaim(resolutionEntry) },
+        // Advancing a declaration is a PHASE change on an entry that
+        // already existed, not a birth: it claims `resolutionRolled`, not
+        // `resolutionOpened`. The ability was used and its targets were
+        // named back at the declaration, and those occurrences already
+        // fired — only the ROLL is new here [R-0041].
+        declaredEntry === null
+          ? { resolutionOpened: resolutionOpenedClaim(resolutionEntry) }
+          : {
+              resolutionRolled: resolutionOpenedClaim(resolutionEntry),
+              resolutionPhaseDeltas: [
+                { resolutionId: resolutionEntry.resolutionId, from: 'declared', to: 'rolled' },
+              ],
+            },
       ),
     );
     return { state: nextState, log };

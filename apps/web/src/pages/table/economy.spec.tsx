@@ -693,6 +693,7 @@ describe('ResolutionsSection', () => {
     abilitySlug: 'blood-for-blood',
     actionCost: 'main-action' as const,
     phase: 'rolled' as const,
+    declaredTargets: null,
     roll: { dice: [7, 4], natural: 11, total: 13, tier: 2 },
     modifications: [],
   };
@@ -707,7 +708,7 @@ describe('ResolutionsSection', () => {
       ],
     });
     render(<EncounterPanel campaignId={campaignId} />);
-    expect(screen.getByText('Open rolls — commit pending')).toBeTruthy();
+    expect(screen.getByText('Open resolutions')).toBeTruthy();
     expect(screen.getByText('blood-for-blood')).toBeTruthy();
     expect(screen.getByText(/7\+4 · total 13 → tier 2/)).toBeTruthy();
     // Recorded modifications list in dispatch order.

@@ -59,7 +59,7 @@ export function ResolutionsSection({
 
   return (
     <div className="mt-4 border-t border-line-soft pt-4">
-      <h3 className="type-label text-xs text-text-mute">Open rolls — commit pending</h3>
+      <h3 className="type-label text-xs text-text-mute">Open resolutions</h3>
       <ul className="mt-2 flex flex-col gap-2">
         {resolutions.map((entry) => {
           const downgradePick = downgradePicks[entry.resolutionId] ?? '2';
@@ -72,9 +72,18 @@ export function ResolutionsSection({
                   <span className="type-label text-xs text-text-mute">{entry.actionCost}</span>
                 ) : null}
               </div>
-              <p className="mt-1 font-mono text-xs text-text-mute">
-                {entry.roll.dice.join('+')} · total {entry.roll.total} → tier {entry.roll.tier}
-              </p>
+              {entry.roll === null ? (
+                // DECLARED [R-0041]: targets named, dice not thrown. Rolling
+                // is dispatched by the host that held the declaration; the
+                // table controls for it land with the reaction surfaces.
+                <p className="mt-1 font-mono text-xs text-text-mute">
+                  declared against {(entry.declaredTargets ?? []).join(', ') || '—'} · roll pending
+                </p>
+              ) : (
+                <p className="mt-1 font-mono text-xs text-text-mute">
+                  {entry.roll.dice.join('+')} · total {entry.roll.total} → tier {entry.roll.tier}
+                </p>
+              )}
               {entry.modifications.length > 0 ? (
                 <ul className="mt-1 flex flex-col gap-1">
                   {entry.modifications.map((modification, index) => (
@@ -124,7 +133,7 @@ export function ResolutionsSection({
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={busy}
+                  disabled={busy || entry.roll === null}
                   onClick={() =>
                     run(() =>
                       commitResolution({

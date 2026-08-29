@@ -35,6 +35,12 @@ import { z } from 'zod';
  * DERIVED from the log claim stream in one home (occurrences.ts), never
  * emitted per call site, and clear with the encounter like the
  * resolution stack.
+ * schemaVersion 8 (reaction effects, R-0041): the resolution entry becomes
+ * phase-DISCRIMINATED and gains a pre-roll `declared` arm, so reactions
+ * triggered by being targeted have a lifecycle home. A declared entry has
+ * no roll receipt and the union makes that unrepresentable; it carries
+ * `declaredTargets` and a `declarationHash` (what was declared) alongside
+ * the rolled arms' `payloadHash` (what was rolled).
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -664,7 +670,8 @@ export type ResolutionModification = z.infer<typeof ResolutionModificationSchema
  * can key on `actionKey` across a composed Charge [rule: "only happens
  * once per action", condition/bleeding].
  */
-export const ResolutionEntrySchema = z.object({
+/** Fields every phase of a resolution entry carries. */
+const resolutionEntryBase = {
   kind: z.enum(['ability', 'squad-signature', 'squad-maneuver']).default('ability'),
   resolutionId: z.string().min(1),
   /** The owning actor: a participant id OR a squad id — widened exactly
@@ -677,13 +684,17 @@ export const ResolutionEntrySchema = z.object({
   /** The compiled action cost the dispatch carried (bleeding fires on main
    * actions, triggered actions, and M/A power rolls). */
   actionCost: ActionCostSchema.nullable(),
-  /** SHA-256 hex of the canonical use-ability payload [R-0032]. */
-  payloadHash: z.string().regex(/^[0-9a-f]{64}$/),
   /** partOf composition root: the parent reference for a composed inner
    * ability (Charge), else this entry's own resolutionId. */
   actionKey: z.string().min(1),
-  phase: z.enum(['rolled', 'committed']),
-  rollReceipt: RollReceiptSchema,
+  /** SHA-256 hex of the canonical DECLARATION — who, which ability, and
+   * the targets as first named (v8, R-0041). Fixed at declaration and
+   * carried through the roll: it is the audit record of what was
+   * declared, distinct from `payloadHash`, which pins what was rolled.
+   * Target changes after declaration are tracked EDITS on `modifications`
+   * ("the declared target list can also legally GROW mid-resolution"),
+   * never a re-declaration, so this hash never moves. */
+  declarationHash: z.string().regex(/^[0-9a-f]{64}$/),
   modifications: z.array(ResolutionModificationSchema).default([]),
   /** Roll-time packet/stacking data for squad-owned resolutions. Commit
    * consumes this stored breakdown instead of recomputing against mutable
@@ -724,7 +735,62 @@ export const ResolutionEntrySchema = z.object({
     )
     .nullable()
     .default(null),
+};
+
+/** Fields that only exist once dice have been thrown. */
+const rolledEntryFields = {
+  /** SHA-256 hex of the canonical use-ability payload [R-0032]. */
+  payloadHash: z.string().regex(/^[0-9a-f]{64}$/),
+  rollReceipt: RollReceiptSchema,
+};
+
+/**
+ * DECLARED (v8, R-0041): targets named, dice not yet thrown. This phase
+ * exists so reactions triggered by being TARGETED have a real moment to
+ * act — "A creature targets the monarch with a strike" [Monsters p.164,
+ * Goblin Monarch, Meat Shield] fires before any roll exists, and under a
+ * roll-first stack there was nowhere for it to cut in. There is no roll
+ * receipt here, and the union makes that unrepresentable rather than a
+ * null check every reader has to remember.
+ */
+export const DeclaredResolutionEntrySchema = z.object({
+  ...resolutionEntryBase,
+  phase: z.literal('declared'),
+  /** The targets as they currently stand: as declared, plus any recorded
+   * target edits. The roll is made against these. */
+  declaredTargets: z.array(ParticipantIdSchema),
 });
+
+/** ROLLED: dice thrown, awaiting the explicit commit [R-0032]. */
+export const RolledResolutionEntrySchema = z.object({
+  ...resolutionEntryBase,
+  ...rolledEntryFields,
+  phase: z.literal('rolled'),
+});
+
+/** COMMITTED: applied. Stays on the stack so a post-commit modification is
+ * distinguishable from an unknown id [R-0032]. */
+export const CommittedResolutionEntrySchema = z.object({
+  ...resolutionEntryBase,
+  ...rolledEntryFields,
+  phase: z.literal('committed'),
+});
+
+export const ResolutionEntrySchema = z.discriminatedUnion('phase', [
+  DeclaredResolutionEntrySchema,
+  RolledResolutionEntrySchema,
+  CommittedResolutionEntrySchema,
+]);
+
+/** A resolution entry that has been rolled (rolled or committed) — the
+ * shape every consumer of a roll receipt actually wants. */
+export type RolledResolutionEntry =
+  | z.infer<typeof RolledResolutionEntrySchema>
+  | z.infer<typeof CommittedResolutionEntrySchema>;
+
+/** A resolution entry awaiting its dice [R-0041]. */
+export type DeclaredResolutionEntry = z.infer<typeof DeclaredResolutionEntrySchema>;
+
 export type ResolutionEntry = z.infer<typeof ResolutionEntrySchema>;
 
 /**
@@ -740,7 +806,11 @@ export function resolutionOpenedClaim(entry: ResolutionEntry): Record<string, un
     resolutionId: entry.resolutionId,
     actorId: entry.actorId,
     abilityArtifactId: entry.abilityArtifactId,
-    rollReceipt: entry.rollReceipt,
+    phase: entry.phase,
+    declarationHash: entry.declarationHash,
+    ...(entry.phase === 'declared'
+      ? { declaredTargets: [...entry.declaredTargets] }
+      : { rollReceipt: entry.rollReceipt }),
   };
 }
 
@@ -813,6 +883,18 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     resolutionId: z.string().min(1),
   }),
   z.object({
+    kind: z.literal('targeted'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    /** The creature that was named as a target. */
+    participantId: ParticipantIdSchema,
+    /** Who is targeting them, and with what. */
+    actorId: z.string().min(1),
+    abilityArtifactId: z.string().min(1),
+    resolutionId: z.string().min(1),
+  }),
+  z.object({
     kind: z.literal('roll-made'),
     occurrenceId: z.string().min(1),
     intentId: z.string().min(1),
@@ -845,7 +927,7 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
 
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(7),
+  schemaVersion: z.literal(8),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
   /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
    * literals valid while migration stamps the version. */
@@ -870,6 +952,23 @@ export const EncounterStateSchema = z.object({
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The occurrence-ledger stored shape, retained for migration (migrate.ts).
+ * Its resolution entries are all `rolled`/`committed` — the v8 `declared`
+ * arm did not exist — so they parse through the current union once the
+ * declaration hash is supplied by the migration. */
+export const EncounterStateV7Schema = z.object({
+  schemaVersion: z.literal(7),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  terrainFacts: z.array(TerrainFactSchema).default([]),
+  squads: z.array(SquadStateSchema).default([]),
+  turnState: TurnStateSchema.nullable().default(null),
+  villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
+  resolutionStack: z.array(z.record(z.string(), z.unknown())).default([]),
+  occurrences: z.array(OccurrenceSchema).default([]),
+});
+
+export type EncounterStateV7 = z.infer<typeof EncounterStateV7Schema>;
 
 /** The action-economy stored shape, retained for migration (migrate.ts).
  * Participant bodies parse through the current schema — the v7
@@ -1319,6 +1418,13 @@ export const UseAbilityPayloadSchema = z
       .default([]),
     /** rule.health/stamina §Knocking Creatures Out. */
     knockOut: z.boolean().default(false),
+    /** Hold at DECLARATION instead of rolling in the same dispatch
+     * (v8, R-0041). Default false keeps the one-tap declare-roll-commit
+     * the table actually uses; a host sets it when a reaction wants in
+     * before the dice — "the app still does declare-roll-commit in one
+     * tap unless a reaction wants in". The engine never decides this: it
+     * cannot know who is holding a triggered action. */
+    holdAtDeclaration: z.boolean().default(false),
   })
   .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
     message: 'targets must be distinct',
@@ -1712,6 +1818,19 @@ export const IntentSchema = z.discriminatedUnion('kind', [
        * Director decides"); a deviation is warn-and-apply (project
        * permissive policy, NOT printed authority — red-team ledger). */
       chosenBy: z.enum(['players', 'director']).optional(),
+    }),
+  }),
+  z.object({
+    ...intentBase,
+    kind: z.literal('roll-resolution'),
+    payload: z.object({
+      /** The DECLARED entry to roll. */
+      resolutionId: z.string().min(1),
+      /** The declaration payload, re-supplied so the engine can verify it
+       * against the stored declaration hash — the same integrity
+       * discipline commit already uses [R-0032/R-0041]. Recorded target
+       * EDITS are applied on top; they never change what was declared. */
+      payload: UseAbilityPayloadSchema,
     }),
   }),
   z.object({

@@ -424,8 +424,9 @@ export function createPlaySession(options: {
         );
       }
     }
-    // Open resolution entries [R-0032]: rolled, awaiting commit —
-    // reactions and modifications may still cut in.
+    // Open resolution entries [R-0032/R-0041]: declared (awaiting dice) or
+    // rolled (awaiting commit) — reactions and modifications may cut in at
+    // either point.
     const openEntries = openResolutions(state);
     if (openEntries.length > 0) {
       lines.push('open resolutions:');
@@ -434,8 +435,12 @@ export function createPlaySession(options: {
           candidate.modifications.length > 0
             ? candidate.modifications.map(describeModification).join(', ')
             : 'none';
+        const status =
+          candidate.phase === 'declared'
+            ? `DECLARED against ${candidate.declaredTargets.join(', ')}, roll pending [R-0041]`
+            : `rolled tier ${candidate.rollReceipt.tier}, commit pending [R-0032]`;
         lines.push(
-          `  [${candidate.resolutionId}] ${shortName(candidate.abilityArtifactId)} by ${candidate.actorId} — rolled tier ${candidate.rollReceipt.tier}, commit pending [R-0032] — mods: ${mods}`,
+          `  [${candidate.resolutionId}] ${shortName(candidate.abilityArtifactId)} by ${candidate.actorId} — ${status} — mods: ${mods}`,
         );
       }
     }

@@ -156,6 +156,27 @@ export function deriveOccurrences(
           resolutionId: opened.resolutionId,
         }),
       );
+      // Being TARGETED is its own trigger class, and it fires before any
+      // roll exists — "A creature targets the monarch with a strike"
+      // [Monsters p.164, Meat Shield]. The declared phase is what gives it
+      // a moment; this is that moment, recorded [R-0041].
+      if (Array.isArray(opened.declaredTargets)) {
+        for (const targetId of opened.declaredTargets) {
+          if (typeof targetId !== 'string') continue;
+          derived.push(
+            OccurrenceSchema.parse({
+              kind: 'targeted',
+              occurrenceId: next(),
+              intentId,
+              round,
+              participantId: targetId,
+              actorId: opened.actorId,
+              abilityArtifactId: opened.abilityArtifactId,
+              resolutionId: opened.resolutionId,
+            }),
+          );
+        }
+      }
       if (receipt !== null) {
         derived.push(
           OccurrenceSchema.parse({
@@ -165,6 +186,29 @@ export function deriveOccurrences(
             round,
             actorId: opened.actorId,
             resolutionId: opened.resolutionId,
+            tier: receipt.tier,
+            natural: receipt.natural,
+            edges: receipt.edges ?? 0,
+            banes: receipt.banes ?? 0,
+          }),
+        );
+      }
+    }
+
+    // A declaration that has now ROLLED: the ability-used and targeted
+    // occurrences already fired at the declaration; only the roll is new.
+    const rolledClaim = asRecord(item.data.resolutionRolled);
+    if (rolledClaim !== null) {
+      const receipt = asRecord(rolledClaim.rollReceipt);
+      if (receipt !== null) {
+        derived.push(
+          OccurrenceSchema.parse({
+            kind: 'roll-made',
+            occurrenceId: next(),
+            intentId,
+            round,
+            actorId: rolledClaim.actorId,
+            resolutionId: rolledClaim.resolutionId,
             tier: receipt.tier,
             natural: receipt.natural,
             edges: receipt.edges ?? 0,

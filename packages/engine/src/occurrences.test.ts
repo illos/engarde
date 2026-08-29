@@ -247,6 +247,136 @@ describe('occurrences through the two-phase resolution flow [R-0040/R-0032]', ()
   });
 });
 
+describe('the declared phase [R-0041]', () => {
+  function inCombat(): EncounterState {
+    let state = dispatch(
+      base(),
+      director('begin-combat', { firstSide: 'director', roll: 7 }),
+    ).state;
+    state = dispatch(state, director('start-turn', { turnId: 'warrior' })).state;
+    return state;
+  }
+
+  const declaration = {
+    actorParticipantId: 'warrior',
+    ability: SPEAR_CHARGE,
+    targets: ['hero'],
+    dice: [5, 5] as [number, number],
+  };
+
+  function declare(state: EncounterState) {
+    return dispatch(state, {
+      intentId: 'declare-spear-charge',
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: 'warrior' },
+      payload: { ...declaration, holdAtDeclaration: true },
+    } as Intent);
+  }
+
+  it('holding at declaration opens an entry with targets and no dice', () => {
+    const declared = declare(inCombat());
+    const entry = declared.state.resolutionStack[0];
+    expect(entry?.phase).toBe('declared');
+    if (entry?.phase !== 'declared') throw new Error('expected a declared entry');
+    expect(entry.declaredTargets).toEqual(['hero']);
+    // The whole point: a being-targeted reaction has a moment to act.
+    expect(declared.state.occurrences).toContainEqual(
+      expect.objectContaining({ kind: 'targeted', participantId: 'hero', actorId: 'warrior' }),
+    );
+    // No dice were thrown, so no roll occurred and no damage landed.
+    const kinds = declared.state.occurrences.map((row) => row.kind);
+    expect(kinds).not.toContain('roll-made');
+    expect(kinds).not.toContain('damage-taken');
+    expect(declared.state.participants.hero?.stamina?.current).toBe(15);
+  });
+
+  it('a declared entry refuses commit — there is no roll to apply', () => {
+    const declared = declare(inCombat());
+    const result = applyIntent(
+      declared.state,
+      director('commit-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: declaration,
+      }),
+      context,
+    );
+    const refusal = result.log.find((entry) => entry.kind === 'refusal');
+    expect(refusal?.message).toContain('DECLARED but not rolled');
+    expect(result.state).toEqual(declared.state);
+  });
+
+  it('roll-resolution advances the SAME entry, keeping its id and its edits', () => {
+    const declared = declare(inCombat());
+    const rolled = dispatch(
+      declared.state,
+      director('roll-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: declaration,
+      }),
+    );
+    // One entry, not two: the declaration is what rolled.
+    expect(rolled.state.resolutionStack).toHaveLength(1);
+    const entry = rolled.state.resolutionStack[0];
+    expect(entry?.phase).toBe('rolled');
+    expect(entry?.resolutionId).toBe('declare-spear-charge');
+    expect(entry?.declarationHash).toBe(declared.state.resolutionStack[0]?.declarationHash);
+    expect(rolled.state.occurrences.map((row) => row.kind)).toContain('roll-made');
+  });
+
+  it('the roll must re-supply what was DECLARED', () => {
+    const declared = declare(inCombat());
+    const result = applyIntent(
+      declared.state,
+      director('roll-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: { ...declaration, targets: ['warrior'] },
+      }),
+      context,
+    );
+    const refusal = result.log.find((entry) => entry.kind === 'refusal');
+    expect(refusal?.message).toContain('does not match');
+  });
+
+  it('a target swapped before the roll is the target rolled against [Meat Shield]', () => {
+    // "A creature targets the monarch with a strike. Effect: The ally is
+    // the target of the triggering strike instead." [Monsters p.164]
+    const declared = declare(inCombat());
+    const swapped = dispatch(
+      declared.state,
+      director('modify-resolution', {
+        resolutionId: 'declare-spear-charge',
+        modification: { kind: 'retarget', from: 'hero', to: 'warrior', reason: 'Meat Shield' },
+      }),
+    );
+    const rolled = dispatch(
+      swapped.state,
+      director('roll-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: declaration,
+      }),
+    );
+    const entry = rolled.state.resolutionStack[0];
+    if (entry?.phase !== 'rolled') throw new Error('expected a rolled entry');
+    // The recorded edit rode through: the swap is on the entry's history
+    // and the declaration hash still pins what was originally declared.
+    expect(entry.modifications).toHaveLength(1);
+    expect(entry.declarationHash).toBe(declared.state.resolutionStack[0]?.declarationHash);
+  });
+
+  it('a declaration that never rolls cancels at end of turn — nothing is lost', () => {
+    const declared = declare(inCombat());
+    const ended = dispatch(
+      declared.state,
+      director('end-turn', { participantId: 'warrior', commitPayloads: {} }),
+    );
+    // Cancelled, not force-committed: no payload was required, and the
+    // target took nothing.
+    expect(ended.state.resolutionStack).toEqual([]);
+    expect(ended.state.participants.hero?.stamina?.current).toBe(15);
+    expect(ended.log.some((entry) => entry.data.resolutionCancelled !== undefined)).toBe(true);
+  });
+});
+
 describe('the "loses Stamina" / "takes damage" distinction [R-0040]', () => {
   // The books print both phrasings as separate triggers on one page
   // [Heroes p.132], and never say a loss is damage. Derivation keeps the

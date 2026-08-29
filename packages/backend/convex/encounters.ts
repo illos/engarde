@@ -274,13 +274,18 @@ const encounterView = v.union(
         abilityArtifactId: v.string(),
         abilitySlug: v.string(),
         actionCost: v.union(actionCostView, v.null()),
-        phase: v.union(v.literal('rolled'), v.literal('committed')),
-        roll: v.object({
-          dice: v.array(v.number()),
-          natural: v.number(),
-          total: v.number(),
-          tier: v.number(),
-        }),
+        phase: v.union(v.literal('declared'), v.literal('rolled'), v.literal('committed')),
+        /** Named targets, present only while DECLARED [R-0041]. */
+        declaredTargets: v.union(v.array(v.string()), v.null()),
+        roll: v.union(
+          v.null(),
+          v.object({
+            dice: v.array(v.number()),
+            natural: v.number(),
+            total: v.number(),
+            tier: v.number(),
+          }),
+        ),
         modifications: v.array(modificationView),
       }),
     ),
@@ -673,12 +678,18 @@ export const getActive = query({
         abilitySlug: slugOf(entry.abilityArtifactId),
         actionCost: entry.actionCost,
         phase: entry.phase,
-        roll: {
-          dice: [...entry.rollReceipt.dice],
-          natural: entry.rollReceipt.natural,
-          total: entry.rollReceipt.total,
-          tier: entry.rollReceipt.tier,
-        },
+        /** DECLARED entries have no dice yet [R-0041]; the card shows the
+         * named targets and the reactions that can still cut in. */
+        declaredTargets: entry.phase === 'declared' ? [...entry.declaredTargets] : null,
+        roll:
+          entry.phase === 'declared'
+            ? null
+            : {
+                dice: [...entry.rollReceipt.dice],
+                natural: entry.rollReceipt.natural,
+                total: entry.rollReceipt.total,
+                tier: entry.rollReceipt.tier,
+              },
         modifications: entry.modifications.map(modificationToView),
       })),
       terrainFacts: state.terrainFacts.map((fact) => ({

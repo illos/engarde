@@ -102,3 +102,26 @@ export function sha256Hex(text: string): string {
 export function hashPayload(payload: unknown): string {
   return sha256Hex(canonicalJson(payload));
 }
+
+/**
+ * The DECLARATION [R-0041]: who is acting, which ability, and the targets
+ * as first named. These are exactly the facts a being-targeted reaction
+ * conditions on ("A creature targets the monarch with a strike" — Goblin
+ * Monarch, Meat Shield), and they are fixed at declaration: later target
+ * changes are recorded EDITS on the entry, never a re-declaration, so the
+ * declaration hash never moves.
+ */
+export interface Declaration {
+  actorId: string;
+  abilityArtifactId: string;
+  targets: readonly string[];
+}
+
+/** The one declaration-hash home — the roll-time `hashPayload` twin. */
+export function hashDeclaration(declaration: Declaration): string {
+  return hashPayload({
+    actorId: declaration.actorId,
+    abilityArtifactId: declaration.abilityArtifactId,
+    targets: [...declaration.targets],
+  });
+}

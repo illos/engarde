@@ -30,6 +30,7 @@ import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { appendGrant } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health.js';
 import { deriveOccurrences } from './occurrences.js';
+import { hashDeclaration } from './payload-hash.js';
 import { commitResolutionEntry, isOpenResolution, openResolutionsOwnedBy } from './resolution.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 import {
@@ -206,6 +207,58 @@ function applyIntentCore(
     }
     case 'use-ability':
       return executeUseAbility(state, intent, context.random);
+    case 'roll-resolution': {
+      // Advance a DECLARED entry to rolled [R-0041]. The roll itself is
+      // NOT re-implemented here: this re-enters the one roll path with the
+      // declared entry as context, so grants, pools, receipts, the
+      // critical-hit grant, and the economy debit all behave identically
+      // to a one-tap dispatch.
+      const stackEntry = state.resolutionStack.find(
+        (candidate) => candidate.resolutionId === intent.payload.resolutionId,
+      );
+      if (!stackEntry) {
+        return {
+          state,
+          log: [refusal(intent, `unknown resolution ${intent.payload.resolutionId}`)],
+        };
+      }
+      if (stackEntry.phase !== 'declared') {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `resolution ${stackEntry.resolutionId} is already ${stackEntry.phase} — only a declared resolution can be rolled [R-0041]`,
+            ),
+          ],
+        };
+      }
+      const supplied = hashDeclaration({
+        actorId: intent.payload.payload.actorParticipantId,
+        abilityArtifactId: intent.payload.payload.ability.abilityArtifactId,
+        targets: intent.payload.payload.targets,
+      });
+      if (supplied !== stackEntry.declarationHash) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `re-supplied declaration hash ${supplied.slice(0, 8)}… does not match resolution ${stackEntry.resolutionId} (${stackEntry.declarationHash.slice(0, 8)}…) — the roll must re-supply what was DECLARED; target changes ride the modification list, never a re-declaration [R-0041]`,
+            ),
+          ],
+        };
+      }
+      // Recorded target edits are what the dice are thrown against: a
+      // Meat Shield that swapped itself in before the roll is the target
+      // rolled against [Monsters p.164].
+      const rollIntent = {
+        ...intent,
+        kind: 'use-ability' as const,
+        payload: { ...intent.payload.payload, targets: [...stackEntry.declaredTargets] },
+      };
+      return executeUseAbility(state, rollIntent, context.random, stackEntry);
+    }
     case 'squad-signature-attack':
       return executeSquadSignatureAttack(state, intent, context.random);
     case 'squad-free-strike':
@@ -390,7 +443,12 @@ function applyIntentCore(
         // [design §3, red-team F8]: printed damage is never discarded. A
         // missing re-supplied payload is a structural refusal, checked
         // before any mutation.
-        const owned = openResolutionsOwnedBy(state, [turnId, ...endingIds]);
+        // Declared-but-never-rolled entries CANCEL rather than commit
+        // [R-0041]: "nothing was rolled, so nothing is lost." They carry no
+        // outcome, so there is nothing to force and nothing to re-supply.
+        const allOwned = openResolutionsOwnedBy(state, [turnId, ...endingIds]);
+        const owned = allOwned.filter((candidate) => candidate.phase !== 'declared');
+        const cancelled = allOwned.filter((candidate) => candidate.phase === 'declared');
         for (const open of owned) {
           if (intent.payload.commitPayloads[open.resolutionId] === undefined) {
             return {
@@ -402,6 +460,32 @@ function applyIntentCore(
                 ),
               ],
             };
+          }
+        }
+        if (cancelled.length > 0) {
+          const cancelledIds = new Set(cancelled.map((candidate) => candidate.resolutionId));
+          nextState = {
+            ...nextState,
+            resolutionStack: nextState.resolutionStack.filter(
+              (candidate) => !cancelledIds.has(candidate.resolutionId),
+            ),
+          };
+          for (const open of cancelled) {
+            log.push({
+              kind: 'mutation',
+              intentId: intent.intentId,
+              actor: intent.actor,
+              canonRefs: [],
+              message: `${open.actorId}'s ${open.abilityArtifactId.split('/').pop()} was declared but never rolled — it cancels at the end of the turn; nothing was rolled, so nothing is lost [R-0041]`,
+              data: {
+                resolutionCancelled: {
+                  resolutionId: open.resolutionId,
+                  actorId: open.actorId,
+                  abilityArtifactId: open.abilityArtifactId,
+                  declarationHash: open.declarationHash,
+                },
+              },
+            });
           }
         }
         const preCommitInstances = new Map<string, Set<string>>();

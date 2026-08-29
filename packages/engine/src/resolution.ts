@@ -72,6 +72,16 @@ export function commitResolutionEntry(
       refusal: `resolution ${args.resolutionId} is already committed — a post-commit change is a warned table correction via modify-resolution, not a reopen [R-0032]`,
     };
   }
+  // A DECLARED entry has no dice yet, so there is no outcome to apply
+  // [R-0041]. This is a structural refusal, not a rule violation: the
+  // engine cannot represent committing a roll that was never made. Roll it
+  // first (roll-resolution), or let end-turn cancel it.
+  if (stackEntry.phase === 'declared') {
+    return {
+      ok: false,
+      refusal: `resolution ${args.resolutionId} is DECLARED but not rolled — roll it before committing, or let the end of the turn cancel it (nothing was rolled, so nothing is lost) [R-0041]`,
+    };
+  }
   const suppliedHash = hashPayload(args.payload);
   if (suppliedHash !== stackEntry.payloadHash) {
     return {
@@ -279,8 +289,11 @@ export function commitResolutionEntry(
   nextState = {
     ...nextState,
     resolutionStack: nextState.resolutionStack.map((candidate) =>
+      // Spread the NARROWED entry, not the union member: only a rolled
+      // entry reaches here (the declared guard above refused), and a
+      // declared candidate has no receipt to carry into `committed`.
       candidate.resolutionId === stackEntry.resolutionId
-        ? { ...candidate, phase: 'committed' as const }
+        ? { ...stackEntry, phase: 'committed' as const }
         : candidate,
     ),
   };
@@ -356,16 +369,22 @@ export function commitResolutionEntry(
  * so a new phase arm has to be RULED into openness deliberately at this
  * one site rather than inheriting it by omission.
  *
- * Today the set is exactly `rolled` (schema v6). The reaction-effect
- * family's phase-discriminated entry adds a pre-roll `declared` arm plus
- * a declared-cancel path; when it lands, this set — and nothing else —
- * decides which arms are open. Eleven hand-written `phase === 'rolled'`
- * openness tests across engine/canon/backend were the alternative, and a
- * rule with two implementations diverges [GOTCHA-0009].
+ * The set is `declared` and `rolled` (schema v8, R-0041). `declared` was
+ * RULED in here, at this one site, when the pre-roll arm landed: a
+ * declared entry can still be retargeted, cursed, rolled, or cancelled,
+ * so it is open in every sense this predicate means. Cancellation is a
+ * REMOVAL with a receipt, not a fourth phase — "nothing was rolled, so
+ * nothing is lost" — which is why no closed arm needs adding for it.
+ * Eleven hand-written `phase === 'rolled'` openness tests across
+ * engine/canon/backend were the alternative to this set, and a rule with
+ * two implementations diverges [GOTCHA-0009].
  */
-const OPEN_RESOLUTION_PHASES: ReadonlySet<ResolutionEntry['phase']> = new Set(['rolled']);
+const OPEN_RESOLUTION_PHASES: ReadonlySet<ResolutionEntry['phase']> = new Set([
+  'declared',
+  'rolled',
+]);
 
-/** True while `entry` can still be modified or committed. */
+/** True while `entry` can still be modified, rolled, or committed. */
 export function isOpenResolution(entry: Pick<ResolutionEntry, 'phase'>): boolean {
   return OPEN_RESOLUTION_PHASES.has(entry.phase);
 }

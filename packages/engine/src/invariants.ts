@@ -1186,9 +1186,20 @@ export function checkInvariants(
       seenResolutionIds.add(stackEntry.resolutionId);
     }
     const openedClaims: string[] = [];
+    // The phase an entry is BORN at comes from its opening claim, not a
+    // constant: v8 births can be `declared` or `rolled` [R-0041].
+    const bornAt = new Map<string, string>();
+    const cancelledClaims: string[] = [];
     for (const logEntry of mutations) {
-      const opened = logEntry.data.resolutionOpened as { resolutionId?: unknown } | undefined;
-      if (typeof opened?.resolutionId === 'string') openedClaims.push(opened.resolutionId);
+      const opened = logEntry.data.resolutionOpened as
+        | { resolutionId?: unknown; phase?: unknown }
+        | undefined;
+      if (typeof opened?.resolutionId === 'string') {
+        openedClaims.push(opened.resolutionId);
+        if (typeof opened.phase === 'string') bornAt.set(opened.resolutionId, opened.phase);
+      }
+      const cancelled = logEntry.data.resolutionCancelled as { resolutionId?: unknown } | undefined;
+      if (typeof cancelled?.resolutionId === 'string') cancelledClaims.push(cancelled.resolutionId);
     }
     violations.push(
       ...reconcileSetClaims(
@@ -1202,6 +1213,8 @@ export function checkInvariants(
               id,
             })),
           ),
+          // A declaration that never rolled cancels off the stack [R-0041].
+          ...cancelledClaims.map((id) => ({ op: 'removed' as const, id })),
         ],
         {
           unattributed: (op, id) => ({
@@ -1242,7 +1255,7 @@ export function checkInvariants(
       const beforeEntry = beforeEntries.get(stackEntry.resolutionId);
       violations.push(
         ...walkClaims(
-          beforeEntry?.phase ?? 'rolled',
+          beforeEntry?.phase ?? bornAt.get(stackEntry.resolutionId) ?? 'rolled',
           stackEntry.phase,
           phaseClaims.get(stackEntry.resolutionId) ?? [],
           {

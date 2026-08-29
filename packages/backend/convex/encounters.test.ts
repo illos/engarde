@@ -1666,6 +1666,8 @@ describe('action economy host', () => {
         abilitySlug: 'goblin-warrior',
         actionCost: 'main-action',
         phase: 'rolled',
+        // A rolled entry names no declared targets [R-0041].
+        declaredTargets: null,
         roll: { dice: [8, 9], natural: 17, total: 19, tier: 3 },
         modifications: [],
       },

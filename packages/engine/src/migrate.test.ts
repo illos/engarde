@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { upgradeEncounterState } from './migrate.js';
 
 /** The lossless v6 participant additions every lift supplies by default. */
-const V7_PARTICIPANT_DEFAULTS = {
+const V8_PARTICIPANT_DEFAULTS = {
   traits: {
     turnAllowance: 1,
     noConsecutiveTurns: false,
@@ -15,7 +15,7 @@ const V7_PARTICIPANT_DEFAULTS = {
 };
 
 /** The lossless v6 encounter-level additions. */
-const V7_ENCOUNTER_DEFAULTS = {
+const V8_ENCOUNTER_DEFAULTS = {
   turnState: null,
   villainActions: { usedThisRound: false, usedByAbility: [] },
   resolutionStack: [],
@@ -25,7 +25,7 @@ const V7_ENCOUNTER_DEFAULTS = {
 };
 
 describe('upgradeEncounterState (design SE-2)', () => {
-  it('lifts a stored v1 state losslessly into v7 table-mode participants', () => {
+  it('lifts a stored v1 state losslessly into v8 table-mode participants', () => {
     const v1 = {
       schemaVersion: 1,
       participants: {
@@ -44,7 +44,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
     };
     const lifted = upgradeEncounterState(v1);
-    expect(lifted.schemaVersion).toBe(7);
+    expect(lifted.schemaVersion).toBe(8);
     const fury = lifted.participants.fury;
     if (!fury) throw new Error('fury missing after upgrade');
     expect(fury.kind).toBe('director-creature');
@@ -53,7 +53,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
     expect(fury.grants).toEqual([]);
     expect(fury.conditions).toEqual(v1.participants.fury.conditions);
     expect(fury.sourceRecordId).toBe('mcdm.heroes.v1/class/fury');
-    expect(fury.traits).toEqual(V7_PARTICIPANT_DEFAULTS.traits);
+    expect(fury.traits).toEqual(V8_PARTICIPANT_DEFAULTS.traits);
     expect(lifted.turnState).toBeNull();
   });
 
@@ -73,12 +73,12 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v2);
     expect(lifted).toEqual({
-      schemaVersion: 7,
+      schemaVersion: 8,
       terrainFacts: [],
       squads: [],
-      ...V7_ENCOUNTER_DEFAULTS,
+      ...V8_ENCOUNTER_DEFAULTS,
       participants: {
-        goblin: { ...v2.participants.goblin, grants: [], ...V7_PARTICIPANT_DEFAULTS },
+        goblin: { ...v2.participants.goblin, grants: [], ...V8_PARTICIPANT_DEFAULTS },
       },
     });
   });
@@ -112,15 +112,15 @@ describe('upgradeEncounterState (design SE-2)', () => {
     const lifted = upgradeEncounterState(v5);
     expect(lifted).toEqual({
       ...v5,
-      schemaVersion: 7,
-      ...V7_ENCOUNTER_DEFAULTS,
+      schemaVersion: 8,
+      ...V8_ENCOUNTER_DEFAULTS,
       participants: {
         goblin: {
           ...v5.participants.goblin,
           // Migration wraps every stored grant as the next-roll kind
           // (design §3) — no field is dropped.
           grants: [{ kind: 'next-roll', ...(v5.participants.goblin.grants[0] ?? {}) }],
-          ...V7_PARTICIPANT_DEFAULTS,
+          ...V8_PARTICIPANT_DEFAULTS,
         },
       },
     });
@@ -165,12 +165,12 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v4);
     expect(lifted).toEqual({
-      schemaVersion: 7,
+      schemaVersion: 8,
       terrainFacts: [],
       squads: [],
-      ...V7_ENCOUNTER_DEFAULTS,
+      ...V8_ENCOUNTER_DEFAULTS,
       participants: {
-        goblin: { ...v4.participants.goblin, ...V7_PARTICIPANT_DEFAULTS },
+        goblin: { ...v4.participants.goblin, ...V8_PARTICIPANT_DEFAULTS },
       },
     });
   });
@@ -192,12 +192,83 @@ describe('upgradeEncounterState (design SE-2)', () => {
           stats: null,
           stamina: null,
           grants: [],
-          ...V7_PARTICIPANT_DEFAULTS,
+          ...V8_PARTICIPANT_DEFAULTS,
         },
       },
     };
     const lifted = upgradeEncounterState(v6);
-    expect(lifted).toEqual({ ...v6, schemaVersion: 7, occurrences: [] });
+    expect(lifted).toEqual({ ...v6, schemaVersion: 8, occurrences: [] });
+  });
+
+  it('lifts a v7 state by reconstructing each entry declaration hash (R-0041)', () => {
+    // A stored v7 entry was rolled with no declaration phase, so its
+    // declaration is exactly what it rolled — reconstructed from the
+    // entry's own actor and ability, never invented.
+    const receipt = {
+      dice: [5, 5],
+      characteristicValue: 0,
+      characteristicLabel: 'M',
+      bonuses: [],
+      penalties: [],
+      edges: 0,
+      banes: 0,
+      automaticOutcomes: [],
+      downgradeToTier: null,
+      natural: 10,
+      total: 10,
+      tier: 1,
+      naturalTopEnd: false,
+    };
+    const v7 = {
+      schemaVersion: 7,
+      terrainFacts: [],
+      squads: [],
+      turnState: {
+        round: 1,
+        firstSide: 'director',
+        sideToChoose: 'director',
+        activeTurnId: 'goblin',
+        lastTurnId: null,
+        turnsTaken: {},
+      },
+      villainActions: { usedThisRound: false, usedByAbility: [] },
+      occurrences: [],
+      resolutionStack: [
+        {
+          kind: 'ability',
+          resolutionId: 'r1',
+          actorId: 'goblin',
+          abilityArtifactId:
+            'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#spear-charge',
+          actionCost: 'main-action',
+          payloadHash: 'a'.repeat(64),
+          actionKey: 'r1',
+          phase: 'rolled',
+          rollReceipt: receipt,
+          modifications: [],
+          squadBreakdown: null,
+        },
+      ],
+      participants: {
+        goblin: {
+          id: 'goblin',
+          conditions: [],
+          sourceRecordId: null,
+          kind: 'director-creature',
+          stats: null,
+          stamina: null,
+          grants: [],
+          ...V8_PARTICIPANT_DEFAULTS,
+        },
+      },
+    };
+    const lifted = upgradeEncounterState(v7);
+    expect(lifted.schemaVersion).toBe(8);
+    const entry = lifted.resolutionStack[0];
+    expect(entry?.phase).toBe('rolled');
+    expect(entry?.declarationHash).toMatch(/^[0-9a-f]{64}$/);
+    // Re-upgrading is a no-op: the reconstructed hash is stable.
+    expect(upgradeEncounterState(lifted)).toEqual(lifted);
   });
 
   it('rejects garbage', () => {

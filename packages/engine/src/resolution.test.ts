@@ -3,6 +3,7 @@ import { dirname, join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { initialEncounterState } from './driver.js';
 import { isOpenResolution, openResolutions, openResolutionsOwnedBy } from './resolution.js';
+import { ResolutionEntrySchema } from './schemas.js';
 import type { EncounterState, ParticipantStats, ResolutionEntry } from './schemas.js';
 
 /**
@@ -56,11 +57,12 @@ describe('resolution openness one-home', () => {
 
   it('openResolutions keeps stack order and drops committed entries', () => {
     const state = stateWith([
+      entryAt('declared', 'r0', 'p1'),
       entryAt('rolled', 'r1', 'p1'),
       entryAt('committed', 'r2', 'p1'),
       entryAt('rolled', 'r3', 'p2'),
     ]);
-    expect(openResolutions(state).map((entry) => entry.resolutionId)).toEqual(['r1', 'r3']);
+    expect(openResolutions(state).map((entry) => entry.resolutionId)).toEqual(['r0', 'r1', 'r3']);
   });
 
   it('openResolutionsOwnedBy is openResolutions narrowed to the named actors', () => {
@@ -78,13 +80,23 @@ describe('resolution openness one-home', () => {
     ]);
   });
 
-  it('every phase arm the schema declares is ruled open or closed by this one home', () => {
-    // Exhaustive over the declared union: a new arm fails here until
-    // someone decides, at the one home, whether it is open.
-    const declared: ResolutionEntry['phase'][] = ['rolled', 'committed'];
-    for (const phase of declared) {
-      expect(typeof isOpenResolution(entryAt(phase, 'r1', 'p1'))).toBe('bool' + 'ean');
-    }
+  it('a declared entry is open — it can still be retargeted, rolled, or cancelled [R-0041]', () => {
+    expect(isOpenResolution(entryAt('declared', 'r1', 'p1'))).toBe(true);
+  });
+
+  it('every phase arm the schema declares is ruled open or closed at this one home', () => {
+    // Exhaustive over the SCHEMA, not a hand-listed array: a new arm shows
+    // up here automatically and must be ruled in or out at the one home.
+    const arms = ResolutionEntrySchema.options.map((option) => option.shape.phase.value);
+    expect(new Set(arms)).toEqual(new Set(['declared', 'rolled', 'committed']));
+    const openness = new Map(arms.map((phase) => [phase, isOpenResolution({ phase })]));
+    expect(openness).toEqual(
+      new Map([
+        ['declared', true],
+        ['rolled', true],
+        ['committed', false],
+      ]),
+    );
   });
 });
 

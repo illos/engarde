@@ -193,7 +193,7 @@ export function initialEncounterState(
   // default (turnState null until begin-combat, empty budgets/counters,
   // empty occurrence ledger).
   return EncounterStateSchema.parse({
-    schemaVersion: 7,
+    schemaVersion: 8,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
