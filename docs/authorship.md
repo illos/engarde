@@ -1,8 +1,9 @@
 # Authorship and model provenance
 
 Every document, design note, report, and canon ruling in this repository was
-**drafted by a Claude model** under the project lead's direction. This file
-says how to find out which one, and what is queued for a second pass.
+**drafted by a model** under the project lead's direction — mostly Claude, and
+since 2026-08-29 also OpenAI Codex. This file says how to find out which one,
+and what is queued for a second pass.
 
 ## How to query it
 
@@ -18,8 +19,16 @@ mechanism — no per-file or per-entry headers are maintained.
 
 ## Snapshot at 2026-08-29
 
-119 commits: **88 Claude Fable 5**, **6 Claude Opus 5**, **29 unlabelled**
-(2026-08-21..08-29; most too old to attribute, and this file does not guess).
+125 commits: **88 Claude Fable 5**, **6 Claude Opus 5**, **2 OpenAI Codex
+GPT-5.6**, **29 unlabelled** (2026-08-21..08-29; most too old to attribute, and
+this file does not guess).
+
+**The contributor set is not single-vendor.** Codex GPT-5.6 landed
+`a9aba21 fix(engine): close reaction lifecycle audit defects` and the Effect
+prose manual audit — the first non-Claude authorship in the repository. Any
+"read it all once with a second model" plan has to account for that: some of
+the tree has already had a genuinely independent cross-model read, and the
+trailer is what tells you which parts.
 
 Nearly all of `docs/` is Fable-drafted. Opus has touched two documents:
 `canon-rulings.md` — the **R-0036 amendment** and **R-0040..R-0045**, the rest
