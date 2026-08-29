@@ -15,6 +15,13 @@ overlapping question texts.
 Nothing in this document is a ruling. The recommendations are the defaults to
 put on the review cards after a final canon-evidence pass.
 
+Nor is this docket a build-priority decision. The 396 automation-needed count
+is only the audited lower bound from 961 / 1,621 lines. The remaining 660 must
+be audited and merged before selecting the first VM substrate; in particular,
+a 163-line movement chunk with 130 mixed positional-plus-engine rows can change
+the ranking at the DEC-0011 boundary. These eight batches may be ruled now, but
+their acceptance does not authorize a vertical before the full census.
+
 | proposed ruling | batch | rows |
 |---|---|---:|
 | R-0046 | plane ownership and presentation completeness | 16 |
@@ -132,9 +139,14 @@ DEC-0011. These four source/standing-rule answers should be removed from Gate 3
 if the final evidence pass confirms them, leaving no invented policy in this
 batch.
 
-## Approval gate
+## Approval and sequencing gates
 
 Before implementation, each card needs its verbatim book anchors, alternatives,
 affected-row hash, and an accept/amend/hold verdict. Approved language is then
 recorded in `docs/canon-rulings.md`; held clauses remain table directives and
 cannot silently shape the VM.
+
+Separately, implementation selection waits for the remaining 660-line audit to
+be merged and the complete automation families to be re-ranked. Gate-3 approval
+can settle semantics in parallel; it does not freeze the current sample's build
+order.

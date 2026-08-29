@@ -27,6 +27,20 @@ defensible population inference behind it. Its 40-line audit and this pass's
 risk-enriched samples establish failure modes; neither is a self-weighting
 prevalence sample.
 
+The **396 automation-needed lines are therefore a lower bound on the eventual
+reviewed backlog**, not the scope of an implementation project. Every
+automation-needed verdict from the remaining 660 adds to it; none can reduce
+it. Build-family ranking must wait for that audit because the unreviewed set can
+change the shape, not merely the size, of the backlog.
+
+A parallel audit has identified a particularly decision-relevant movement
+chunk inside the remaining set: **163 lines, 130 of them mixed
+positional-plus-engine**. Those rows are not yet merged into this checkpoint's
+verdict counts. If their nonspatial clauses are mostly presentation-complete,
+DEC-0011 settles the mixed-line pattern cheaply. If many require automation,
+they form a substantial class precisely at the VTT/engine boundary and must
+influence substrate priority.
+
 No coherent implementation slice in the audited candidate lanes clears 25
 complete Effect lines, so no engine build was launched from these cohorts. A generic
 event → predicate → lifetime → effect system would reach many rows, but that is
@@ -239,11 +253,17 @@ rulings.
 
 ## Next pass
 
-1. Put the 69 row questions and five global stat questions through Gate 3,
-   grouped by rule class rather than one card per line.
-2. Put the general Effect-presentation policy through Gate 3, including the 37
+1. Finish and merge the row-level audit of the remaining 660 lines, taking the
+   163-line movement chunk first and explicitly separating the 130 mixed rows'
+   positional ownership from their nonspatial engine responsibility.
+2. Recompute the complete P / A / U census and re-rank substrate families from
+   that population. Do not choose a VM vertical from the current 59.3% sample.
+3. Put the 69 current row questions and five global stat questions through Gate
+   3, grouped by rule class rather than one card per line; add or merge any rule
+   classes discovered by the remaining audit.
+4. Put the general Effect-presentation policy through Gate 3, including the 37
    newly joined presentation rows; accepted rows then join the hash-keyed
    disposition manifest and decrement the enforced pending count.
-3. If an Effect VM is later chosen, start with the sub-25 condition-linked
-   turn-damage vertical and treat it as architecture validation, not a promised
-   bulk unlock.
+5. Only after the complete census and rulings, choose the first Effect VM
+   vertical. Condition-linked turn damage remains a small architecture-proof
+   candidate, not the preselected priority and not a promised bulk unlock.
