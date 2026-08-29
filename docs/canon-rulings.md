@@ -4,6 +4,12 @@ Each entry: a question the corpus underdetermined, researched with verbatim
 evidence (markdown + print PDF), ruled on by the user. Engine mechanisms cite
 these entries when they encode the ruled behavior.
 
+**Provenance.** Every entry here was drafted by a Claude model and approved by
+the user — the verdict is the user's, the prose is not. Which model drafted
+what is recorded in the commit trailers; `git log -- docs/canon-rulings.md`
+answers it. Summary and the pending second-model pass:
+[`authorship.md`](authorship.md).
+
 ## R-0001 — Free maneuvers are turn-only (approved 2026-08-23)
 
 **Question:** May a free maneuver be used outside the acting creature's own

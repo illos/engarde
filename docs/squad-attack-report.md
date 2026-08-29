@@ -1,5 +1,8 @@
 # Squad attacks + With-Captain benefits — slice report (2026-08-27)
 
+> Drafted by Claude Opus 5; no second-model read yet — see
+> [`authorship.md`](authorship.md).
+
 Gate-3 rulings **R-0034..R-0039** were accepted and recorded in
 `docs/canon-rulings.md`; R-0038 includes automatic detach on captain death.
 The implementation builds on the final action-economy dependency `5baaa39`
