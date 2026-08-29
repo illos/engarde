@@ -1,0 +1,842 @@
+{
+  "schema": "engarde-effect-presentation-rulings-v1",
+  "canonPin": "520553438a4e8d199bfaaf676b8aa9bd273f4d61",
+  "acceptedAt": "2026-08-29",
+  "authority": "DEC-0011",
+  "disposition": "presentation-complete",
+  "rulings": [
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.censor.level-1/driving-assault",
+      "effectOrdinal": 1,
+      "payloadSha256": "61a5d073091a9a47ec4daf2cfba6f19bca5ff41e9e80303ba44ec1949d6357f4",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.censor.level-1/your-allies-cannot-save-you",
+      "effectOrdinal": 1,
+      "payloadSha256": "82fe1ed96700d9a429699cc891905afc3e7f71a018d8fe7269ef024863f38ebe",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.censor.level-7/guided-to-your-side",
+      "effectOrdinal": 1,
+      "payloadSha256": "52664453b98da91e3413e2d40971e8d2cf6350f12d55b7423ba0a5dc366c2b57",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.conduit.level-1/call-the-thunder-down",
+      "effectOrdinal": 1,
+      "payloadSha256": "4a5783e8866265646fac214581cf16abdf0465961932ea72c8aa696b11f33b0f",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.conduit.level-1/lightfall",
+      "effectOrdinal": 1,
+      "payloadSha256": "d0074d3aeb5323e9c98a1e3a4ada65d16de40eabbc893683d4272a8bcab5d640",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.conduit.level-6/lightning-lord",
+      "effectOrdinal": 1,
+      "payloadSha256": "c79bff181f7f9a631dc56424d8b204ad16ed16c01aa0f7433226f283e3f94fb0",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.conduit.level-7/guided-to-your-side",
+      "effectOrdinal": 1,
+      "payloadSha256": "8272c284f74eddd6f2a3410aa8115c0f9acc5c50f72d92e53b0e8b23f7b0039d",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.corven/wing-buffet",
+      "effectOrdinal": 1,
+      "payloadSha256": "0ad0d1cfb00ec6e4d0b520be762f1ed964f842d9789d5b980dc0b19b8773c3b0",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.elementalist.level-1/grasp-of-beyond",
+      "effectOrdinal": 1,
+      "payloadSha256": "bc3f61eb2f2c4a71dc338148408ae48c11967253f042b8b0315e8732a70fc79e",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.elementalist.level-1/subtle-relocation",
+      "effectOrdinal": 1,
+      "payloadSha256": "6d7e94644d981097284d55348ec49e60ee36125d63b0c59d4c9463e839b5f947",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.elementalist.level-1/the-green-within-the-green-without",
+      "effectOrdinal": 1,
+      "payloadSha256": "7cf0dc1611b4db5436ae5139629021c0dc3c15f5b7fc4d4e17395ffa9e6891a2",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.elementalist.level-2/translated-through-flame",
+      "effectOrdinal": 1,
+      "payloadSha256": "9e0e25179cd9fa2ce93978fd3913e89a059ced26d02950eb5057ef97a0aadd9b",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-1/hit-and-run",
+      "effectOrdinal": 1,
+      "payloadSha256": "c8b4761f2402763f2ec616c73702dda1f4b4da9c2c320cb6fbdba4bc26a0f509",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-1/lines-of-force",
+      "effectOrdinal": 1,
+      "payloadSha256": "7e90a960db6f8fe63e8025d79ee085b86171fe5369c898d618dd85b03e48ee37",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-1/thunder-roar",
+      "effectOrdinal": 1,
+      "payloadSha256": "c79bff181f7f9a631dc56424d8b204ad16ed16c01aa0f7433226f283e3f94fb0",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-2/phalanx-breaker",
+      "effectOrdinal": 1,
+      "payloadSha256": "336260ee1c17bbba390f9e27f63d07dc2b760d9390fd02a0e8f613ce0ddc400e",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-6/force-of-storms",
+      "effectOrdinal": 1,
+      "payloadSha256": "071fd3c9ae34274a8f0c82741c824d9abc845e6eefb9fc75a56c0b2e4f9881a4",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.fury.level-6/seek-and-destroy",
+      "effectOrdinal": 1,
+      "payloadSha256": "8a91babb8c8143c6795fb978c43e8f0ac418c2cd884f1051987cfbfcc8fd7b20",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.null.level-1/dance-of-blows",
+      "effectOrdinal": 1,
+      "payloadSha256": "b18b3f894207b8b9641ec84ad1c2fe9d3d429c79cf8b82d165ac0f4cc460eaae",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.null.level-1/inertial-step",
+      "effectOrdinal": 1,
+      "payloadSha256": "53ee71e227b5a5db0f6328b1d015e7f9cfb36264920c65863f5379b075abaffe",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.null.level-1/phase-inversion-strike",
+      "effectOrdinal": 1,
+      "payloadSha256": "10540b45fc6050fedee96daa26ef0dd44436add5a3455cefbf1aaf35dbfcefbf",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.pugilist/lets-dance",
+      "effectOrdinal": 1,
+      "payloadSha256": "32e72ecfd513e992f91ee3148541c7aa6fd493c1e973103751d0c28820421cc4",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.raden/driving-pounce",
+      "effectOrdinal": 1,
+      "payloadSha256": "50f7d91d02af0e37ae9000ec7a087fe675d3cf3fad40c55b66a6ca27deed24d0",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-1/disorienting-strike",
+      "effectOrdinal": 1,
+      "payloadSha256": "7d4d0003f63be7115eaf914c4fe474e9aadee577583aabccf60d4950fe20954e",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-1/get-in-get-out",
+      "effectOrdinal": 1,
+      "payloadSha256": "a9364bdba257e7f18dbd44e998029855c816f4f469e9b6a26c31f5c542645906",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-1/one-hundred-throats",
+      "effectOrdinal": 1,
+      "payloadSha256": "5670333ed19b3041799e757f4d07bd5b13cfadea29222ba4aba0b6a254f0ab4b",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-6/black-ash-eruption",
+      "effectOrdinal": 1,
+      "payloadSha256": "bc26f478141c9de9dcc5ae6580ff82dbcb599498f8f1cb74c00b1a9e83945684",
+      "hostOwnership": "VTT",
+      "movementKind": "forced-movement-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.shadow.level-9/cacophony-of-cinders",
+      "effectOrdinal": 1,
+      "payloadSha256": "7d52888dc7f6340a5d1209d352cbc03bcc2fdb00b72df176f138c0479daf53be",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.swashbuckler/fancy-footwork",
+      "effectOrdinal": 1,
+      "payloadSha256": "02984be2d38c3197ad32a0716f3e524ce7d5995dfc7487230c53a1eb721052fd",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-1/accelerate",
+      "effectOrdinal": 1,
+      "payloadSha256": "ca86845505116722f0887edf92fc89e1bf6ad70c60f97ca38e8c51d509c7ad6f",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-1/minor-telekinesis",
+      "effectOrdinal": 1,
+      "payloadSha256": "8a8c5318dcf1dfbb31ae406aa0f016750a23bad94e9e19f3f5ca6899a356d4d7",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-5/hypersonic",
+      "effectOrdinal": 1,
+      "payloadSha256": "ff4e55d14642a3912c9e7f49d2ce7133c3bf4dfde5ff0b95adaa9c590a8a1a0b",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-6/gravitic-well",
+      "effectOrdinal": 1,
+      "payloadSha256": "83cc1c407e543a9e23c73a4d268628e138ce7639850b63abd47e674bc61706f7",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.talent.level-8/levitation-field",
+      "effectOrdinal": 1,
+      "payloadSha256": "1a5631a3603d8a36b53b726c870fe73d09063c3542ea500f47e9dd908caa823c",
+      "hostOwnership": "VTT",
+      "movementKind": "vertical-or-flight"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-1/artful-flourish",
+      "effectOrdinal": 1,
+      "payloadSha256": "eaba1a0964da2c7d15ca72d1cc74c542c11fa8285e8da6924e1d977b37780992",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-1/upstage",
+      "effectOrdinal": 1,
+      "payloadSha256": "fd31595ab9b3910bb891c0c2c555094f8fc143aebec676ec9106599885c5e026",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-3/extensive-rewrites",
+      "effectOrdinal": 1,
+      "payloadSha256": "daedef17cf07289ca13a0eceb1bc23b9644d77a31bd55b3467f39c8afff066f9",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-3/infernal-gavotte",
+      "effectOrdinal": 1,
+      "payloadSha256": "b05051585d20c1b1afe5a4dc08c231d63d30ef086358677d49fa09333a0f4303",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-3/we-meet-at-last",
+      "effectOrdinal": 1,
+      "payloadSha256": "4003041b7808ea43d75380373c84ab8b076b58e3e85878b8091ae7b527d87b4d",
+      "hostOwnership": "VTT",
+      "movementKind": "forced-movement-rule"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/feature.ability.troubadour.level-5/we-cant-be-upstaged",
+      "effectOrdinal": 1,
+      "payloadSha256": "b272baeb6fef5148eff66b84275694a3856c4fae2cede7844c5ec2127fc6ab8d",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/kit/corven",
+      "effectOrdinal": 1,
+      "payloadSha256": "0ad0d1cfb00ec6e4d0b520be762f1ed964f842d9789d5b980dc0b19b8773c3b0",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/kit/pugilist",
+      "effectOrdinal": 1,
+      "payloadSha256": "32e72ecfd513e992f91ee3148541c7aa6fd493c1e973103751d0c28820421cc4",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/kit/raden",
+      "effectOrdinal": 1,
+      "payloadSha256": "50f7d91d02af0e37ae9000ec7a087fe675d3cf3fad40c55b66a6ca27deed24d0",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/kit/swashbuckler",
+      "effectOrdinal": 1,
+      "payloadSha256": "02984be2d38c3197ad32a0716f3e524ce7d5995dfc7487230c53a1eb721052fd",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.heroes.v1/perk/invisible-force",
+      "effectOrdinal": 1,
+      "payloadSha256": "ce0a371fb22eefcbe410a5acb236d68ca1a98afc5927059db1d79ef4cb676769",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.environmental-hazards/frozen-pond",
+      "effectOrdinal": 3,
+      "payloadSha256": "1979ccf0b5d83b0289d1fe50bd5991afb3147afde7fa2521f9abe810dbff6784",
+      "hostOwnership": "VTT",
+      "movementKind": "forced-movement-rule"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/dynamic-terrain.supernatural-objects/the-black-obelisk",
+      "effectOrdinal": 2,
+      "payloadSha256": "4d9503fb4b7af257240cfc4ba3fdd8c2e69f75f5abedcfe1a8687649e2e1d198",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.ajax-the-invincible.statblock/ajax-the-invincible",
+      "effectOrdinal": 1,
+      "payloadSha256": "71d101faf6050e75ac55a2b5d5e05014204812d2a987a9091f0550d6f4725ea7",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.animal.statblock/animal",
+      "effectOrdinal": 1,
+      "payloadSha256": "b0477c47d29e72c7966b9c8162c3ac53d3795fee64c9b68d4272aee7de535992",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.animal.statblock/big-animal-a",
+      "effectOrdinal": 2,
+      "payloadSha256": "4dd03a8b4632b67e15b3bc8436ac2771e0f1855e375f53d763bf301515014214",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.animal.statblock/predator-b",
+      "effectOrdinal": 1,
+      "payloadSha256": "c23316df09e32d9116951f977af5192eef30cfa7be99e88f56497988e007810d",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.bugbear.statblock/bugbear-sneak",
+      "effectOrdinal": 2,
+      "payloadSha256": "49bd914f22cae24626307888df550443ef49273dde0225e942acf864bffec7a2",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.chimera.statblock/chimera",
+      "effectOrdinal": 2,
+      "payloadSha256": "879393d6c5054754a7a534c639f6eb38beb4adb5fc37d80d3005d7883276932e",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.count-rhodar-von-glauer.statblock/count-rhodar-von-glauer",
+      "effectOrdinal": 10,
+      "payloadSha256": "abd5f16dff19ea193977981986a32f46a045f8b1f216558f0fb4ef1a8ceb2109",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.1st-echelon.statblock/chorogaunt",
+      "effectOrdinal": 1,
+      "payloadSha256": "0d839a86fc6adae7b70d09969e74aaa03b98622446b704084401a57194b1a547",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.1st-echelon.statblock/chorogaunt",
+      "effectOrdinal": 2,
+      "payloadSha256": "41d77239b980cddf6af76e9a17e7033a24f2feaa878ed644a30dd07fc5d45297",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.1st-echelon.statblock/muceron",
+      "effectOrdinal": 2,
+      "payloadSha256": "6893f682486794756836ba8ff698fcb209f3270cdec79b2e906df4bc8978f06f",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.1st-echelon.statblock/torlas",
+      "effectOrdinal": 2,
+      "payloadSha256": "ccf016de5865378a34eb3718d404bd7fb2475734b089fb1064eced5c1e3fbbc2",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.3rd-echelon.statblock/soulraker-hivequeen",
+      "effectOrdinal": 5,
+      "payloadSha256": "1e8cdcd3b2b54c25dafbee5ab54cfc8c9eb0925e237d60cf32f0b547bfcab703",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.3rd-echelon.statblock/soulraker-praetorian",
+      "effectOrdinal": 1,
+      "payloadSha256": "1ba10c855d0c3d3c8fcbf059d7d47f84cca656ddbe71299f5e9b7ab2b2f710c7",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.demon.4th-echelon.statblock/aurumvas",
+      "effectOrdinal": 1,
+      "payloadSha256": "84125a4e128c344d906e0ae7657aa9a808d0271daae0ad0e3569443d9cba8639",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.devil.statblock/devil-adjudicator",
+      "effectOrdinal": 3,
+      "payloadSha256": "fb9dfe98e493ea34d4b01c6478ed86f0e677a3c679c9d207c1a580faa10106cb",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.devil.statblock/devil-high-judge",
+      "effectOrdinal": 4,
+      "payloadSha256": "51a7d5d59bcb7c0723a6f04b382d63f12231b7c3165e8dc094bd3521f26531e6",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.devil.statblock/devil-magistrate",
+      "effectOrdinal": 1,
+      "payloadSha256": "2cd13a0060a20a511f5e9c012316c24829d678f8f7d8d2b275db978f36819d6e",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.devil.statblock/devil-scrivener",
+      "effectOrdinal": 1,
+      "payloadSha256": "41d23c07670a896866ee1ed2d84226226f5933078844e743377daca8db69d727",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.draconian.statblock/dorzinuuth-the-base",
+      "effectOrdinal": 1,
+      "payloadSha256": "b3aaf66f0dbb8898558aa21847b2cd18d4de547414532b8fe66923f52aea31ba",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.draconian.statblock/myxovidan-the-sintaker",
+      "effectOrdinal": 1,
+      "payloadSha256": "7791a69af75274248e1c1ca3864c4ae54cd85d687b119f4ef5b443a29030d259",
+      "hostOwnership": "VTT",
+      "movementKind": "position-swap"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elemental.statblock/essence-of-storms",
+      "effectOrdinal": 1,
+      "payloadSha256": "1e1b9cf908f134cea30cee5c456d98d35ddde6b02bf53c3bd1b88e471b3b70fe",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elemental.statblock/essence-of-tides",
+      "effectOrdinal": 1,
+      "payloadSha256": "67eed3728423f1b50cca574e77689663c65ac60119091d9c25dfc03a4e873879",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "forced-movement-rule"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-high.statblock/high-elf-quiver",
+      "effectOrdinal": 1,
+      "payloadSha256": "edd5b4191cda93e3c38d753fd2e609d3634ed847a221051ae33ce756f98f2614",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-assassin",
+      "effectOrdinal": 2,
+      "payloadSha256": "5d4cc0b5f54b12ac5c8b5233add2660a7234b20e3e54391bfe3a53290bccfd0e",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-cloak",
+      "effectOrdinal": 1,
+      "payloadSha256": "dee66f46c1c20854ecb92083eaaaddef2f9a2a2e5507e9ef3278f1dc89269ed7",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-moondancer",
+      "effectOrdinal": 2,
+      "payloadSha256": "1d3de84fa47126440a7841de6b523c12e09c08380cd41809ceff6002afcf9d82",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-mournblade",
+      "effectOrdinal": 2,
+      "payloadSha256": "21a587a6820bc892be02d142799a29dba771d417db65df05a117c5cdb048d2f2",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-shadow.statblock/shadow-elf-nightstrike",
+      "effectOrdinal": 1,
+      "payloadSha256": "dfc7d51981cebc930ca238ad157d25f5f7a34039668502a5c5290afa9450e0bf",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-chirurgeon",
+      "effectOrdinal": 2,
+      "payloadSha256": "ac8fb9f0d0f64a3168210c5ddfc1951694182471fa0a0c130ad6deee1cf92c6f",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-druid",
+      "effectOrdinal": 2,
+      "payloadSha256": "ac8fb9f0d0f64a3168210c5ddfc1951694182471fa0a0c130ad6deee1cf92c6f",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-guerrilla",
+      "effectOrdinal": 1,
+      "payloadSha256": "8dc1764b7539a8f85ed82eaf2364c25e988e723ce11964a61251567710fb9d59",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-gweiadur",
+      "effectOrdinal": 1,
+      "payloadSha256": "ae8594697bbfbd2099a420bc564fd16bcdf16b86804e41d2999f9c435d24e8ae",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.elf-wode.statblock/wode-elf-warleader",
+      "effectOrdinal": 1,
+      "payloadSha256": "9ce8a45910e3ba5c6163a175fd97d587f4e472f8890da2d81fcf2bef60490c07",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.fossil-cryptic.statblock/fossil-cryptic",
+      "effectOrdinal": 3,
+      "payloadSha256": "48d4c03c174275a5321660e5b9edcae4a17eb0cfc1ae57717d832312b2f89a35",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.giant.statblock/granite-stone-giant",
+      "effectOrdinal": 4,
+      "payloadSha256": "7f6d1f433c6e25051ef2a9ab25929a8ca27facbfe097ca0fc15da21dfbe16303",
+      "hostOwnership": "VTT",
+      "movementKind": "vertical-or-flight"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.hobgoblin.statblock/hobgoblin-grandguard",
+      "effectOrdinal": 1,
+      "payloadSha256": "dbb984fc4daa3bf588ef688d1f6a0820bce873f12df93c078e1df05e5b9dce62",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.hobgoblin.statblock/hobgoblin-war-mage",
+      "effectOrdinal": 1,
+      "payloadSha256": "fbddeb451d3c52056c3d6c336e642410df4ec12b61272745118cdf19b03c2e3f",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.human.statblock/human-blackguard",
+      "effectOrdinal": 5,
+      "payloadSha256": "957e40d8a7b6ef487a50d9024615e482107f7dd8b2b2d25f27a6cf8b343ab7ff",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.human.statblock/human-brawler",
+      "effectOrdinal": 2,
+      "payloadSha256": "9ac8ee5a12c0a5ab441fdda7900d39fc25e2990d67de99b3f22eb314154611e6",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.kobold.statblock/kobold-princeps",
+      "effectOrdinal": 1,
+      "payloadSha256": "c735f6d058a3d454ebaa4c52785c63d12d08288df736c54fb8c21b320e74a116",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.kobold.statblock/kobold-signifer",
+      "effectOrdinal": 1,
+      "payloadSha256": "052d5fe382c00223f04b837143e848cd8a9e048a16bc4e452689f1883f4d99e0",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.kobold.statblock/kobold-tiro",
+      "effectOrdinal": 1,
+      "payloadSha256": "5300d2f837294a7a850c830b5bcfe03307666b0f5aaa77d1dbbfd3293bdcc062",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.lizardfolk.statblock/lizardfolk-deathrex",
+      "effectOrdinal": 3,
+      "payloadSha256": "aa0dc732611504c4f65c2fd01ced507578828528a3f90d21c73096f1ee93a8bf",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.lizardfolk.statblock/lizardfolk-skyterror",
+      "effectOrdinal": 1,
+      "payloadSha256": "ff00c211b8f0cd6cddd81821a95b32a648f64dc0bbb7a4c596049b5590178922",
+      "hostOwnership": "VTT",
+      "movementKind": "vertical-or-flight"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.medusa.statblock/medusa",
+      "effectOrdinal": 2,
+      "payloadSha256": "9371fd4fa26b91eb87bc3a8297883eab28fdf423dda556d21b769affb9d3500f",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.minotaur.statblock/minotaur",
+      "effectOrdinal": 1,
+      "payloadSha256": "abed771224dc29b04e347b8eb1b59ee17f6cadb32bb961aa994be9a5ea30fe74",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.ogre.statblock/ogre-goon",
+      "effectOrdinal": 4,
+      "payloadSha256": "ff0fa77cb756d537392392a1a9f2122f2eca49e10802943a10682c9aff3bfb2e",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.olothec.statblock/olothec",
+      "effectOrdinal": 2,
+      "payloadSha256": "49e0a9905cb0cbe52ed051fad432503d76a3b694618947a0dca542a89b0034c7",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.olothec.statblock/olothec",
+      "effectOrdinal": 4,
+      "payloadSha256": "e463286ba821cf499f407df3e66be3118b7a41825a9a2dc1bdb6c5948e30ca8f",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport-swap"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.orc.statblock/orc-rampart",
+      "effectOrdinal": 2,
+      "payloadSha256": "3310a4227f2431018eed7d08ea18a7c068cc2cc2a77e56293774c46104c9fe6e",
+      "hostOwnership": "VTT",
+      "movementKind": "position-swap"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.radenwight.statblock/radenwight-ratcrobat",
+      "effectOrdinal": 1,
+      "payloadSha256": "eebe5918ce224ea26d3eb774580761623f9c3e2f421f8c6a0861c1d8f1d59c98",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.radenwight.statblock/radenwight-ratcrobat",
+      "effectOrdinal": 2,
+      "payloadSha256": "ae69e49fcef4cb1e74041beda365f6e3f33176dc9951b8cc8e0cc7b8fdf6f721",
+      "hostOwnership": "VTT",
+      "movementKind": "slide"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.radenwight.statblock/radenwight-redeye",
+      "effectOrdinal": 1,
+      "payloadSha256": "6d3fd8140180f1b7a4ddbfe9a54a38662f51a0d1f333cb99e15451fdfd9554f5",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.advancement-features/goblin-guide",
+      "effectOrdinal": 1,
+      "payloadSha256": "f2d2d877533a645e31362c99992f5f0db60c952032e388784d2f505d63d1214e",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.advancement-features/high-elf-weatherwise",
+      "effectOrdinal": 1,
+      "payloadSha256": "d91f16bb74a0ce7fc9e9130a588f8bcdbd866cf45d8d6387ec20fc90f25bb84a",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.advancement-features/undead-servitor",
+      "effectOrdinal": 1,
+      "payloadSha256": "78ae917c22779ec6c57f0e87239f1d86a4986bc42d1bf43f565dd9a0d15ddd11",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.role-advancement/harrier",
+      "effectOrdinal": 1,
+      "payloadSha256": "a8981c025235bc197493fee6ec6a4531a01d3416b433da54ddb1a77e0570bd83",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.retainer.role-advancement/mount",
+      "effectOrdinal": 2,
+      "payloadSha256": "eafed8d1b91a3af5e77967fdc0762844be5e1329ce74e97d6658fd6f08dba84b",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.time-raider.statblock/time-raider-hijack",
+      "effectOrdinal": 2,
+      "payloadSha256": "a8959625ba3c773d2058c37e870f4fff3adcde441bfbf35070b35c53dc8502e9",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.time-raider.statblock/time-raider-nemesis",
+      "effectOrdinal": 1,
+      "payloadSha256": "f8709f297dc13b834c60efc7ddbb9f376784d80eb75391df71f9ae684f86646b",
+      "hostOwnership": "VTT",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.time-raider.statblock/time-raider-vertex",
+      "effectOrdinal": 3,
+      "payloadSha256": "346d505169f1279a0fd4da4d5c7b1ea8faa457c0eff4b8e3709a140680828bc9",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.undead.1st-echelon.statblock/ghost",
+      "effectOrdinal": 2,
+      "payloadSha256": "302ffa3aea9db73d568300e22f6b05c1f392e8cb9c7e3ffec90de18cc0d9a809",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.undead.1st-echelon.statblock/ghost",
+      "effectOrdinal": 4,
+      "payloadSha256": "daa9397342a1e2b34022e48e84d760ffb729060613b9b37fd584a6f833089b53",
+      "hostOwnership": "VTT",
+      "movementKind": "vertical-or-flight"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.undead.2nd-echelon.statblock/flesh-mournling",
+      "effectOrdinal": 1,
+      "payloadSha256": "3f7717f4c94ac0c5196598289bddcb8f704fb9ff8a0c94364021df459955f0fc",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.voiceless-talker.statblock/hulking-brain",
+      "effectOrdinal": 2,
+      "payloadSha256": "49b0cc698ccf01f86a9097a74c71f6edc729aecc4e75294b36191aa387e4cc0c",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.voiceless-talker.statblock/voiceless-talker-evolutionist",
+      "effectOrdinal": 1,
+      "payloadSha256": "b19ebb2559b7fdfe6dadbc2c42e3e1b67165d7955b2e08c866f144d074a1c3a6",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport-swap"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.war-dog.1st-echelon.statblock/war-dog-eviscerite",
+      "effectOrdinal": 1,
+      "payloadSha256": "19dc7b03cfa3ed4552b6cbdd2295068317d887ac2f4ad5b1645cc2aa909e574b",
+      "hostOwnership": "engine-mixed",
+      "movementKind": "pull"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.war-dog.3rd-echelon.statblock/war-dog-geomancer",
+      "effectOrdinal": 1,
+      "payloadSha256": "36e247cae6ca8124be62575164484e5d5d7ab4392618e9e47f72df578545aaf6",
+      "hostOwnership": "VTT",
+      "movementKind": "push"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.war-dog.4th-echelon.statblock/logostician-vesper",
+      "effectOrdinal": 4,
+      "payloadSha256": "b30ce036257a861d8572f6ddcf71305cd9401e1736bd258098caaad0a844e771",
+      "hostOwnership": "VTT",
+      "movementKind": "teleport"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.werewolf.statblock/werewolf",
+      "effectOrdinal": 1,
+      "payloadSha256": "9ce06a2e8cdaeb12c9ad36e2c6b54bfc06fe52ec502da8dbdc608b2e93dfad87",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.werewolf.statblock/werewolf",
+      "effectOrdinal": 7,
+      "payloadSha256": "ea26f4684022c4583b158b8fc657aecb961cd02162aef85563f5c6d995621d92",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    },
+    {
+      "artifactId": "mcdm.monsters.v1/monster.xorannox-the-tyract.statblock/xorannox-the-tyract",
+      "effectOrdinal": 1,
+      "payloadSha256": "2395002af16de9cabb0356b0d59e147ae36d765eb0fc5debfb633cb2a7538842",
+      "hostOwnership": "VTT",
+      "movementKind": "shift"
+    }
+  ]
+}

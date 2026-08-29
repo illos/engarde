@@ -10,13 +10,14 @@ Nine row-level audits made 1,062 judgments over **961 unique Effect lines**,
 59.3% of the 1,621 table-directive corpus. Seven overlaps disagreed; the merged
 checkpoint resolves them conservatively (`automation-needed` before
 `undecidable` before `presentation-complete`) and prefers the narrower
-full-context audit.
+full-context audit. A subsequent source join resolved all 43 rows whose Effect
+line delegated its payload; the table below includes that joined result.
 
 | manual verdict | unique lines |
 |---|---:|
-| presentation-complete | **502** |
-| automation-needed | **390** |
-| undecidable / payload join or ruling needed | **69** |
+| presentation-complete | **539** |
+| automation-needed | **396** |
+| undecidable / ruling needed | **26** |
 | **reviewed** | **961** |
 | not manually reviewed | 660 |
 
@@ -50,11 +51,25 @@ mechanism is missing. The backlog accounting changes instead:
 | still pending review or mechanism | 1,609 | **1,490** |
 | **table directives** | **1,621** | **1,621** |
 
-The merged 502 P verdicts also contain all 12 previously accepted narrative
-lines. The other **371** manually reviewed presentation-complete lines are
+The merged 539 P verdicts also contain all 12 previously accepted narrative
+lines and the 119 accepted DEC-0011 rows. The other **408** manually reviewed
+presentation-complete lines are
 provisional. Moving them into durable backlog accounting needs a Gate-3 ruling
 that extends R-0044's reaction-residue posture to general Effect directives.
 This pass does not silently make that policy decision.
+
+### Accepted DEC-0011 manifest (2026-08-29)
+
+The 119-row spatial census is now durable in
+`packages/canon/config/effect-presentation-rulings.json`. Each ruling is keyed
+by artifact id, Effect ordinal, and the SHA-256 of the exact source payload;
+the manifest itself has SHA-256
+`301a37b85f0c14ec896ab9b8a79699da5fb76e53643e5556662c69de6d9aab75`.
+Corpus-enabled tests require all 119 rows to remain table-directed at the
+accepted pin, freeze the 107 VTT / 12 engine-mixed ownership split, reject
+overlap with the 12 permanently-manual narrative rulings, and enforce the
+resulting **1,490 pending** count. This changes backlog disposition only—the
+runtime truth remains 1,621 table programs.
 
 ## Corrections to the first-pass build order
 
@@ -106,9 +121,34 @@ composition, and restoration rulings.
 ### Choice menus cannot be classified from their intro line
 
 All 40 `choice-menu` rows contain only “choose …” introductions; their arms are
-outside the captured Effect line. A census classified all 40 as undecidable
-pending source joining. The first pass's “choice-menu is 0% A” conclusion does
-not follow from payload-free rows.
+outside the captured Effect line. The initial census therefore classified all
+40 as undecidable pending source joining. The first pass's “choice-menu is 0%
+A” conclusion did not follow from payload-free rows; the completed join below
+supersedes that interim disposition.
+
+### Payload join: 43 / 43 resolved (2026-08-29)
+
+The follow-up joined every detached menu and referenced payload from the pinned
+artifact records before reclassification. The source-bearing ledger remains
+ignored at `.artifacts/canon/effect-shape/manual-payload-join-audit.json`; its
+SHA-256 is
+`ba763bebb92a5c4552ddab03e4086fe4d17cd47fc62147f65255e79bab7d64fd`.
+Every original `artifactId + ordinal` key is covered, and both the Effect-line
+hash and the unambiguous joined-parts hash were reverified.
+
+| joined disposition | rows | ownership |
+|---|---:|---|
+| presentation-complete | 36 | title-benefit selection belongs to the data / character-building plane; the selected feature is materialized there |
+| presentation-complete | 1 | Arcane Trick's arms are spatial, harmless sensory fiction, or VTT/world-object state |
+| automation-needed | 6 | runtime choice/reference payloads with tracked consequences |
+
+The six runtime rows are Practical Magic, Rejuvenate, Dramatic Monologue,
+Bredbeddle Challenge, Blight Phage's Seeping Blight reference, and the War Dog
+Iron Priest's Iron Banner. Their joined payloads establish choice envelopes,
+recurring occurrences, durable markers, or attributed overlays; none is a new
+closed-template family. The 37 presentation dispositions remain provisional
+until Gate 3 accepts the general Effect-presentation policy, so the enforced
+pending count remains **1,490**.
 
 ### Structural regexes are candidate generators, not inventories
 
@@ -157,9 +197,9 @@ rule class. The largest classes are:
 - cross-encounter title, item, revival, and temporary-Stamina ownership;
 - ambiguous turn anchors and mixed-effect suppression ordering.
 
-The 43 payload-join rows are **not** Gate-3 questions yet. Their source is
-incomplete (40 choice-menu intros plus three referenced payloads); join the
-payload before asking for a ruling.
+The former 43 payload-join rows are now source-complete and classified as
+described above. They introduce no new row-specific Gate-3 questions; the
+presentation dispositions roll into the general Effect-presentation policy.
 
 ## Row ledgers and integrity
 
@@ -199,12 +239,11 @@ rulings.
 
 ## Next pass
 
-1. Join the 43 delegated payloads before classifying them; do not infer menu
-   semantics from their introductions.
-2. Put the 69 row questions and five global stat questions through Gate 3,
+1. Put the 69 row questions and five global stat questions through Gate 3,
    grouped by rule class rather than one card per line.
-3. Convert the 119 DEC-0011 rows into a hash-keyed accepted presentation
-   manifest so the 1,490 pending count is enforced rather than documentary.
-4. If an Effect VM is later chosen, start with the sub-25 condition-linked
+2. Put the general Effect-presentation policy through Gate 3, including the 37
+   newly joined presentation rows; accepted rows then join the hash-keyed
+   disposition manifest and decrement the enforced pending count.
+3. If an Effect VM is later chosen, start with the sub-25 condition-linked
    turn-damage vertical and treat it as architecture validation, not a promised
    bulk unlock.
