@@ -75,7 +75,14 @@ function participant(
   };
 }
 
-const options = { knockOut: false, reason: 'damage (test vector)' };
+/** Test-vector provenance: these unit tests exercise the pipeline, not a
+ * source of damage, so nothing here is rolled [Heroes p.74]. */
+const TEST_PROVENANCE = { rolled: false, sourceId: null, resolutionId: null };
+const options = {
+  knockOut: false,
+  reason: 'damage (test vector)',
+  provenance: TEST_PROVENANCE,
+};
 
 describe('damage pipeline [rule.damage/*]', () => {
   it('untyped damage reduces Stamina one for one [rule.damage/damage]', () => {
@@ -173,7 +180,7 @@ describe('loseStamina bypasses the damage pipeline (design SE-1)', () => {
     const outcome = loseStamina(
       participant(RHODAR),
       10,
-      { knockOut: false, reason: 'Stamina loss (test vector)' },
+      { knockOut: false, reason: 'Stamina loss (test vector)', provenance: TEST_PROVENANCE },
       context,
     );
     expect(outcome.participant.stamina?.current).toBe(640);
@@ -228,7 +235,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
     const outcome = applyDamage(
       participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0, recoveries: null } }),
       { amount: 9, type: null },
-      { knockOut: true, reason: 'damage (test vector)' },
+      { knockOut: true, reason: 'damage (test vector)', provenance: TEST_PROVENANCE },
       context,
     );
     expect(isDead(outcome.participant)).toBe(false);
@@ -243,7 +250,7 @@ describe('thresholds [rule.health/winded, rule.health/dying, rule.health/stamina
     const knockedOut = applyDamage(
       participant(GOBLIN_ASSASSIN, { stamina: { current: 5, temporary: 0, recoveries: null } }),
       { amount: 9, type: null },
-      { knockOut: true, reason: 'damage (test vector)' },
+      { knockOut: true, reason: 'damage (test vector)', provenance: TEST_PROVENANCE },
       context,
     ).participant;
     const outcome = applyDamage(knockedOut, { amount: 1, type: null }, options, context);

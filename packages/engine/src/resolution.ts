@@ -179,6 +179,7 @@ export function commitResolutionEntry(
           payload: ordinaryPayload,
           targets,
           tierFor,
+          resolutionId: stackEntry.resolutionId,
           damageTransform: (targetId, amount) => {
             const rounding = halves.get(targetId) ?? halves.get(null);
             if (rounding === undefined) return { amount, note: null };
@@ -267,6 +268,7 @@ export function commitResolutionEntry(
           context,
           halves,
           potencyExtras,
+          stackEntry.resolutionId,
         );
       })();
   // A refusal inside application (binding drift) refuses the whole commit.

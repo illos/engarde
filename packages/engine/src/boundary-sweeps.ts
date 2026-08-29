@@ -515,6 +515,24 @@ const BOUNDARY_SWEEP_REGISTRY: readonly SlotSweeps[] = [
       return { state: { ...state, resolutionStack: [] }, log };
     },
   },
+  {
+    slot: 'occurrences',
+    // The occurrence ledger is encounter-scoped: it exists so reactions can
+    // point at what just happened, and "just happened" does not survive the
+    // encounter [R-0040]. Clears with the resolution stack, for the same
+    // reason and at the same boundary.
+    'end-of-encounter': (state, _boundary, context) => {
+      if (state.occurrences.length === 0) return { state, log: [] };
+      return {
+        state: { ...state, occurrences: [] },
+        log: [
+          mutation(context, 'the occurrence ledger clears with the encounter', [], {
+            occurrencesCleared: state.occurrences.length,
+          }),
+        ],
+      };
+    },
+  },
 ];
 
 /**

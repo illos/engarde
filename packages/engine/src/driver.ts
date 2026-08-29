@@ -189,10 +189,11 @@ export function initialEncounterState(
       captainId: null,
     };
   });
-  // Parsed through the schema so every v6 slot lands at its documented
-  // default (turnState null until begin-combat, empty budgets/counters).
+  // Parsed through the schema so every v7 slot lands at its documented
+  // default (turnState null until begin-combat, empty budgets/counters,
+  // empty occurrence ledger).
   return EncounterStateSchema.parse({
-    schemaVersion: 6,
+    schemaVersion: 7,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,

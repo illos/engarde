@@ -945,7 +945,12 @@ describe('null-stamina safety across the lifecycle', () => {
       squadState,
       SPINECLEAVER_STATS,
       [{ targetId: 'sc1', damage: 0 }],
-      { area: false, type: null, reason: '(test vector)' },
+      {
+        area: false,
+        type: null,
+        provenance: { rolled: false, sourceId: null, resolutionId: null },
+        reason: '(test vector)',
+      },
       { intentId: 'squad-zero', actor: { kind: 'director' } },
     );
     expect(outcome.squad.pool.current).toBe(40);

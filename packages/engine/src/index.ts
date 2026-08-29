@@ -16,6 +16,7 @@ export * from './action-cost.js';
 export * from './action-economy.js';
 export * from './payload-hash.js';
 export * from './resolution.js';
+export * from './occurrences.js';
 export * from './condition-lifecycle.js';
 export * from './grant-lifecycle.js';
 export * from './health.js';

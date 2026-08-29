@@ -1,6 +1,7 @@
 import { BASE_TURN_BUDGET, withinMinionMoveMenu } from './action-economy.js';
 import type { ApplyResult } from './apply-intent.js';
 import { isDead } from './health.js';
+import { deriveOccurrences } from './occurrences.js';
 import { POWER_ROLL_DIE, type PowerRollResolution, resolvePowerRoll } from './power-roll.js';
 import {
   type EncounterState,
@@ -72,7 +73,10 @@ export interface InvariantViolation {
     | 'phantom-villain-claim'
     | 'duplicate-resolution-id'
     | 'unattributed-resolution-change'
-    | 'phantom-resolution-claim';
+    | 'phantom-resolution-claim'
+    | 'duplicate-occurrence-id'
+    | 'phantom-occurrence'
+    | 'unattributed-occurrence-change';
   detail: string;
 }
 
@@ -1451,6 +1455,52 @@ export function checkInvariants(
           detail: `${conditionId} applied to ${blocked.targetId} despite a failed/unresolved potency gate`,
         });
       }
+    }
+  }
+
+  // ── occurrence ledger [R-0040] ────────────────────────────────────────
+  // The ledger is DERIVED, so its only legitimate growth is re-derivation
+  // of this dispatch's own log. Anything else — an occurrence with no
+  // backing claim, a duplicate id, an occurrence attributed to another
+  // intent, or a silent removal — means something wrote the ledger by hand
+  // instead of letting derivation own it.
+  const beforeOccurrences = before.occurrences;
+  const afterOccurrences = result.state.occurrences;
+  const seenOccurrenceIds = new Set<string>();
+  for (const occurrence of afterOccurrences) {
+    if (seenOccurrenceIds.has(occurrence.occurrenceId)) {
+      violations.push({
+        code: 'duplicate-occurrence-id',
+        detail: `occurrence id ${occurrence.occurrenceId} appears twice in the ledger`,
+      });
+    }
+    seenOccurrenceIds.add(occurrence.occurrenceId);
+  }
+  const kept = afterOccurrences.slice(0, beforeOccurrences.length);
+  const appended = afterOccurrences.slice(beforeOccurrences.length);
+  const clearedBySweep = result.log.some((entry) => entry.data.occurrencesCleared !== undefined);
+  if (!clearedBySweep) {
+    if (afterOccurrences.length < beforeOccurrences.length) {
+      violations.push({
+        code: 'unattributed-occurrence-change',
+        detail: `the occurrence ledger shrank from ${beforeOccurrences.length} to ${afterOccurrences.length} with no clearing sweep`,
+      });
+    } else if (JSON.stringify(kept) !== JSON.stringify(beforeOccurrences)) {
+      violations.push({
+        code: 'unattributed-occurrence-change',
+        detail:
+          'an already-recorded occurrence changed; the ledger is append-only within an encounter',
+      });
+    }
+    const rederived = deriveOccurrences(result.log, {
+      intentId: intent.intentId,
+      round: result.state.turnState?.round ?? null,
+    });
+    if (JSON.stringify(appended) !== JSON.stringify(rederived)) {
+      violations.push({
+        code: 'phantom-occurrence',
+        detail: `${appended.length} occurrence(s) appended but re-deriving this dispatch's log yields ${rederived.length}; occurrences must come from claims, never be written by hand`,
+      });
     }
   }
 

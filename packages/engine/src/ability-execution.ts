@@ -38,6 +38,7 @@ import type {
   RollReceipt,
   UseAbilityPayload,
 } from './schemas.js';
+import { resolutionOpenedClaim } from './schemas.js';
 
 /**
  * use-ability executor (docs/power-roll-design.md §4.1; action-economy
@@ -208,6 +209,10 @@ export interface AbilityOutcomeArgs {
   damageTransform?: (targetId: string, amount: number) => { amount: number; note: string | null };
   /** Extra potency delta from modifications, per target. */
   extraPotencyFor?: (targetId: string) => number;
+  /** The resolution this outcome belongs to, for damage provenance
+   * [R-0040]. Null on the out-of-combat single-dispatch path, which opens
+   * no resolution entry. */
+  resolutionId?: string | null;
 }
 
 export function applyAbilityOutcome(
@@ -311,6 +316,9 @@ export function applyAbilityOutcome(
         {
           knockOut: payload.knockOut,
           reason: `${damageType ? `${damageType} ` : ''}damage from ${actor.id}'s ability (tier ${tierNumber})`,
+          // Tier damage exists BECAUSE of the power roll, so it is rolled
+          // damage [Heroes p.74 §Rolled Damage].
+          provenance: { rolled: true, sourceId: actor.id, resolutionId: args.resolutionId ?? null },
         },
         context,
       );
@@ -322,7 +330,11 @@ export function applyAbilityOutcome(
     const flushed = flushSquadContributions(
       nextState,
       squadContributions,
-      { area: isArea, reason: `from ${actor.id}'s ability` },
+      {
+        area: isArea,
+        reason: `from ${actor.id}'s ability`,
+        provenance: { rolled: true, sourceId: actor.id, resolutionId: args.resolutionId ?? null },
+      },
       context,
     );
     nextState = flushed.state;
@@ -905,7 +917,7 @@ export function executeUseAbility(
         'mutation',
         `${actor.id}'s ${ability.abilityArtifactId.split('/').pop()} is rolled and OPEN on the resolution stack — reactions and modifications may cut in; commit-resolution applies it [R-0032]`,
         [POWER_ROLL_CANON.powerRoll, ability.abilityArtifactId],
-        { resolutionOpened: { resolutionId: resolutionEntry.resolutionId } },
+        { resolutionOpened: resolutionOpenedClaim(resolutionEntry) },
       ),
     );
     return { state: nextState, log };

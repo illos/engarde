@@ -29,6 +29,12 @@ import { z } from 'zod';
  * Stamina pools [chapter/monster-basics §Shared Low Stamina] — plus the
  * resolve-pending-kills / attach-captain / detach-captain intents and the
  * apply-damage `area` / `minionKillVictims` fields.
+ * schemaVersion 7 (reaction effects, docs/reaction-effect-design.md,
+ * R-0040): adds the encounter-level `occurrences` ledger — the derived
+ * record of the events printed triggers condition on. Occurrences are
+ * DERIVED from the log claim stream in one home (occurrences.ts), never
+ * emitted per call site, and clear with the encounter like the
+ * resolution stack.
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -721,8 +727,125 @@ export const ResolutionEntrySchema = z.object({
 });
 export type ResolutionEntry = z.infer<typeof ResolutionEntrySchema>;
 
+/**
+ * The ONE shape of the "a resolution opened" claim, built FROM the entry
+ * so the claim and the entry can never disagree. Occurrence derivation
+ * reads it for the `ability-used` and `roll-made` arms [R-0040]; three
+ * sites open entries (ability, squad signature, squad maneuver) and all
+ * three build the claim here. It lives beside the entry schema rather
+ * than in resolution.ts so the emitters do not import the executor.
+ */
+export function resolutionOpenedClaim(entry: ResolutionEntry): Record<string, unknown> {
+  return {
+    resolutionId: entry.resolutionId,
+    actorId: entry.actorId,
+    abilityArtifactId: entry.abilityArtifactId,
+    rollReceipt: entry.rollReceipt,
+  };
+}
+
+/**
+ * The events a printed Trigger can condition on [R-0040]. Every arm is
+ * derived from a machine-readable claim the engine already emits — see
+ * `deriveOccurrences` in occurrences.ts, which is the ONE home. Nothing
+ * emits an occurrence directly; adding a kind here means teaching that
+ * one function to read the claim that already proves it happened.
+ *
+ * `takes damage` and `loses Stamina` are DISTINCT arms, per the ruling:
+ * the books print both phrasings as separate triggers on the same page
+ * [Heroes p.132] and never say a Stamina loss is damage.
+ */
+export const OccurrenceSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('damage-taken'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: ParticipantIdSchema,
+    /** The dealer, when the engine knows one. */
+    sourceId: z.string().min(1).nullable(),
+    amount: z.number().int().nonnegative(),
+    damageType: DamageTypeSchema.nullable(),
+    /** Heroes p.74 §Rolled Damage — a printed trigger sub-class. */
+    rolled: z.boolean(),
+    resolutionId: z.string().min(1).nullable(),
+  }),
+  z.object({
+    kind: z.literal('stamina-lost'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: ParticipantIdSchema,
+    amount: z.number().int().nonnegative(),
+    sourceId: z.string().min(1).nullable(),
+    resolutionId: z.string().min(1).nullable(),
+  }),
+  z.object({
+    kind: z.literal('stamina-regained'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: ParticipantIdSchema,
+    amount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('health-transition'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: ParticipantIdSchema,
+    transition: z.enum([
+      'winded',
+      'no-longer-winded',
+      'dying',
+      'no-longer-dying',
+      'knocked-out',
+      'died',
+    ]),
+  }),
+  z.object({
+    kind: z.literal('ability-used'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    actorId: z.string().min(1),
+    abilityArtifactId: z.string().min(1),
+    resolutionId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('roll-made'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    actorId: z.string().min(1),
+    resolutionId: z.string().min(1),
+    tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    natural: z.number().int(),
+    /** Net edges/banes as the one edge/bane home resolved them
+     * [R-0014/R-0015] — printed triggers condition on "an ability that
+     * gains an edge". */
+    edges: z.number().int().nonnegative(),
+    banes: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal('turn-started'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: z.string().min(1),
+  }),
+  z.object({
+    kind: z.literal('turn-ended'),
+    occurrenceId: z.string().min(1),
+    intentId: z.string().min(1),
+    round: z.number().int().positive().nullable(),
+    participantId: z.string().min(1),
+  }),
+]);
+export type Occurrence = z.infer<typeof OccurrenceSchema>;
+
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(6),
+  schemaVersion: z.literal(7),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
   /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
    * literals valid while migration stamps the version. */
@@ -738,9 +861,31 @@ export const EncounterStateSchema = z.object({
   villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
   /** The keyed resolution stack (v6, R-0032). */
   resolutionStack: z.array(ResolutionEntrySchema).default([]),
+  /** The derived occurrence ledger (v7, R-0040): what happened, in the
+   * vocabulary printed Triggers use. Derived in one home from claims the
+   * engine already emits; cleared by the end-of-encounter sweep alongside
+   * the resolution stack. Default keeps v6-shaped literals valid while
+   * migration stamps the version. */
+  occurrences: z.array(OccurrenceSchema).default([]),
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The action-economy stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — the v7
+ * `occurrences` slot defaults — so only the version literal distinguishes
+ * the wrapper. */
+export const EncounterStateV6Schema = z.object({
+  schemaVersion: z.literal(6),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  terrainFacts: z.array(TerrainFactSchema).default([]),
+  squads: z.array(SquadStateSchema).default([]),
+  turnState: TurnStateSchema.nullable().default(null),
+  villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
+  resolutionStack: z.array(ResolutionEntrySchema).default([]),
+});
+
+export type EncounterStateV6 = z.infer<typeof EncounterStateV6Schema>;
 
 /** The minion-squad-pool stored shape, retained for migration (migrate.ts).
  * Participant bodies parse through the current schema — every v6 slot
@@ -1485,6 +1630,14 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       /** Asserted-band economy parity (R-0029/R-0030) — see
        * apply-condition's field. Null = a bare Director edit. */
       assertedAbilityUse: AssertedAbilityUseSchema.nullable().default(null),
+      /** Asserted rolled-damage provenance [R-0040]. The engine makes no
+       * roll on this path, and "If an ability or effect deals damage
+       * without requiring a power roll, that is not rolled damage"
+       * [Heroes p.74] — so the default is false and a Director applying
+       * the result of a roll they made says so explicitly. */
+      rolled: z.boolean().default(false),
+      /** The creature that dealt it, when the dispatch names one. */
+      sourceId: ParticipantIdSchema.nullable().default(null),
     }),
   }),
   z.object({

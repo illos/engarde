@@ -29,6 +29,7 @@ import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { appendGrant } from './grant-lifecycle.js';
 import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health.js';
+import { deriveOccurrences } from './occurrences.js';
 import { commitResolutionEntry, isOpenResolution, openResolutionsOwnedBy } from './resolution.js';
 import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
 import {
@@ -314,6 +315,11 @@ function applyIntentCore(
             area: intent.payload.area,
             namedVictims: intent.payload.minionKillVictims,
             reason: `(${intent.payload.reason})`,
+            provenance: {
+              rolled: intent.payload.rolled,
+              sourceId: intent.payload.sourceId,
+              resolutionId: null,
+            },
           },
           lifecycleContext,
         );
@@ -346,7 +352,15 @@ function applyIntentCore(
       const outcome = applyDamage(
         liveTarget,
         { amount: intent.payload.amount, type: intent.payload.damageType ?? null },
-        { knockOut: intent.payload.knockOut, reason: intent.payload.reason },
+        {
+          knockOut: intent.payload.knockOut,
+          reason: intent.payload.reason,
+          provenance: {
+            rolled: intent.payload.rolled,
+            sourceId: intent.payload.sourceId,
+            resolutionId: null,
+          },
+        },
         lifecycleContext,
       );
       return {
@@ -486,7 +500,10 @@ function applyIntentCore(
             actor: intent.actor,
             canonRefs: [ECONOMY_CANON.turn],
             message: `${turnId} ends their turn`,
-            data: { turnStateDeltas: deltas },
+            data: {
+              turnStateDeltas: deltas,
+              turnOccurrences: [{ kind: 'turn-ended', participantId: turnId }],
+            },
           });
         }
       }
@@ -799,6 +816,7 @@ function applyIntentCore(
         canonRefs: [ECONOMY_CANON.turn],
         message: `${turnId} starts their turn (round ${turnState.round})`,
         data: {
+          turnOccurrences: [{ kind: 'turn-started', participantId: turnId }],
           turnStateDeltas: [
             { field: 'activeTurnId', from: turnState.activeTurnId, to: turnId },
             ...(turnState.sideToChoose !== (side === 'heroes' ? 'director' : 'heroes')
@@ -1348,7 +1366,16 @@ export function applyIntent(
   context: EngineContext,
 ): ApplyResult {
   const result = applyIntentCore(state, rawIntent, context);
-  if (result.state === state || result.log.some((item) => item.kind === 'refusal')) return result;
+  // ONE definition of "this dispatch was refused outright". A PER-BINDING
+  // refusal (data.perBinding — the R-0027 minion exemptions) voids only its
+  // own binding; sibling bindings legitimately mutate, so the post-fold work
+  // below still has to run for them. The invariant suite already draws the
+  // line exactly here; two different readings of "refused" inside one
+  // reducer is how these paths diverge [GOTCHA-0009].
+  const refusedOutright = result.log.some(
+    (item) => item.kind === 'refusal' && item.data.perBinding !== true,
+  );
+  if (result.state === state || refusedOutright) return result;
   const lifecycleContext = { intentId: rawIntent.intentId, actor: rawIntent.actor };
   let nextState = result.state;
   const log = [...result.log];
@@ -1371,6 +1398,18 @@ export function applyIntent(
         automaticCaptainDetach: { squadId: original.squadId, captainId: original.captainId },
       },
     });
+  }
+  // ── occurrence derivation [R-0040] ────────────────────────────────────
+  // ONE fold, after everything this dispatch did, over the claims it
+  // emitted. No handler emits an occurrence itself, so no handler can
+  // forget to; if the change happened, its claim proves it and the
+  // occurrence follows [GOTCHA-0009].
+  const occurrences = deriveOccurrences(log, {
+    intentId: rawIntent.intentId,
+    round: nextState.turnState?.round ?? null,
+  });
+  if (occurrences.length > 0) {
+    nextState = { ...nextState, occurrences: [...nextState.occurrences, ...occurrences] };
   }
   return { state: nextState, log };
 }

@@ -7,6 +7,7 @@ import {
   EncounterStateV3Schema,
   EncounterStateV4Schema,
   EncounterStateV5Schema,
+  EncounterStateV6Schema,
 } from './schemas.js';
 
 /**
@@ -45,27 +46,35 @@ import {
  * version.
  */
 export function upgradeEncounterState(stored: unknown): EncounterState {
-  const v6 = EncounterStateSchema.safeParse(stored);
-  if (v6.success) return v6.data;
+  const v7 = EncounterStateSchema.safeParse(stored);
+  if (v7.success) return v7.data;
+  // v6 → v7 (R-0040): `occurrences` is a derived ledger with no history to
+  // reconstruct — a stored encounter's past events were never recorded, so
+  // the honest upgrade is an empty ledger, not invented occurrences. Any
+  // reaction pointing at a pre-upgrade event asserts it instead.
+  const v6 = EncounterStateV6Schema.safeParse(stored);
+  if (v6.success) {
+    return EncounterStateSchema.parse({ ...v6.data, schemaVersion: 7 });
+  }
   const v5 = EncounterStateV5Schema.safeParse(stored);
   if (v5.success) {
-    return EncounterStateSchema.parse({ ...v5.data, schemaVersion: 6 });
+    return EncounterStateSchema.parse({ ...v5.data, schemaVersion: 7 });
   }
   const v4 = EncounterStateV4Schema.safeParse(stored);
   if (v4.success) {
-    return EncounterStateSchema.parse({ ...v4.data, schemaVersion: 6 });
+    return EncounterStateSchema.parse({ ...v4.data, schemaVersion: 7 });
   }
   const v3 = EncounterStateV3Schema.safeParse(stored);
   if (v3.success) {
-    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 6 });
+    return EncounterStateSchema.parse({ ...v3.data, schemaVersion: 7 });
   }
   const v2 = EncounterStateV2Schema.safeParse(stored);
   if (v2.success) {
-    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 6 });
+    return EncounterStateSchema.parse({ ...v2.data, schemaVersion: 7 });
   }
   const v1: EncounterStateV1 = EncounterStateV1Schema.parse(stored);
   return EncounterStateSchema.parse({
-    schemaVersion: 6,
+    schemaVersion: 7,
     participants: Object.fromEntries(
       Object.entries(v1.participants).map(([id, participant]) => [
         id,

@@ -691,6 +691,13 @@ export function executeUseEffect(
         {
           knockOut: intent.payload.knockOut,
           reason: `damage from ${effect.effectArtifactId} Effect`,
+          // A whole-line Effect instruction deals its damage without a
+          // power roll, so it is NOT rolled damage [Heroes p.74].
+          provenance: {
+            rolled: false,
+            sourceId: intent.payload.actorParticipantId,
+            resolutionId: null,
+          },
         },
         context,
       );
@@ -706,7 +713,15 @@ export function executeUseEffect(
       const flushed = flushSquadContributions(
         nextState,
         squadContributions,
-        { area: isArea, reason: `from ${effect.effectArtifactId} Effect` },
+        {
+          area: isArea,
+          reason: `from ${effect.effectArtifactId} Effect`,
+          provenance: {
+            rolled: false,
+            sourceId: intent.payload.actorParticipantId,
+            resolutionId: null,
+          },
+        },
         context,
       );
       nextState = flushed.state;
@@ -986,6 +1001,10 @@ function applyTestTier(
         {
           area: isArea,
           reason: `from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+          // "A test is any power roll that has failure or consequences as
+          // an option" [chapter/tests, R-0006] — so test damage IS rolled
+          // damage [Heroes p.74].
+          provenance: { rolled: true, sourceId: actorId, resolutionId: null },
         },
         context,
       );
@@ -1014,6 +1033,8 @@ function applyTestTier(
           {
             knockOut,
             reason: `${damageType ? `${damageType} ` : ''}damage from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+            // A test is a power roll [R-0006], so this is rolled damage.
+            provenance: { rolled: true, sourceId: actorId, resolutionId: null },
           },
           context,
         );

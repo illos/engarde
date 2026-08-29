@@ -28,6 +28,7 @@ import type {
   SquadParticipation,
   SquadSignatureAttackPayload,
 } from './schemas.js';
+import { resolutionOpenedClaim } from './schemas.js';
 
 const SQUAD_CANON = {
   action: 'mcdm.monsters.v1/chapter/monster-basics#squad-action',
@@ -374,7 +375,7 @@ export function executeSquadSignatureAttack(
         'mutation',
         `${squad.name}'s signature attack is rolled and OPEN as one squad-owned resolution`,
         [SQUAD_CANON.action, payload.ability.abilityArtifactId],
-        { resolutionOpened: { resolutionId: intent.intentId }, squadBreakdown: breakdown },
+        { resolutionOpened: resolutionOpenedClaim(resolutionEntry), squadBreakdown: breakdown },
       ),
     );
     return { state: nextState, log };
@@ -438,7 +439,12 @@ export function executeSquadFreeStrike(
     const flushed = flushSquadContributions(
       state,
       pending,
-      { area: false, reason: 'from Free Strike Together' },
+      {
+        area: false,
+        reason: 'from Free Strike Together',
+        // Printed free-strike VALUES, no power roll [R-0037].
+        provenance: { rolled: false, sourceId: payload.squadId, resolutionId: null },
+      },
       context,
     );
     return { state: flushed.state, log: [...log, ...flushed.log] };
@@ -459,7 +465,13 @@ export function executeSquadFreeStrike(
   const outcome = applyDamage(
     target,
     { amount: summed.total, type: null },
-    { knockOut: payload.knockOut, reason: 'from Free Strike Together (one strike)' },
+    {
+      knockOut: payload.knockOut,
+      reason: 'from Free Strike Together (one strike)',
+      // Minion free strikes sum PRINTED free-strike values — no power roll
+      // is made [R-0037], so this is not rolled damage [Heroes p.74].
+      provenance: { rolled: false, sourceId: payload.squadId, resolutionId: null },
+    },
     context,
   );
   return { state: withParticipant(state, outcome.participant), log: [...log, ...outcome.log] };
@@ -591,7 +603,7 @@ export function executeSquadManeuver(
           'mutation',
           `${squad.name}'s Knockback is rolled and OPEN as one squad-owned resolution`,
           [SQUAD_CANON.maneuvers, ability.abilityArtifactId],
-          { resolutionOpened: { resolutionId: intent.intentId }, squadBreakdown: breakdown },
+          { resolutionOpened: resolutionOpenedClaim(resolutionEntry), squadBreakdown: breakdown },
         ),
       ],
     };
@@ -609,6 +621,9 @@ export function applySquadBreakdown(
   context: LifecycleContext,
   halves: ReadonlyMap<string | null, 'down' | 'up'>,
   potencyExtras: ReadonlyMap<string | null, number> = new Map(),
+  /** The resolution this breakdown belongs to, for damage provenance
+   * [R-0040]; null on the out-of-combat single-dispatch path. */
+  resolutionId: string | null = null,
 ): ExecutionResult {
   let nextState = state;
   const log: LogEntry[] = [];
@@ -673,6 +688,12 @@ export function applySquadBreakdown(
       {
         knockOut: payload.knockOut,
         reason: `from squad signature tier ${row.tier} (${row.instanceOwner} owns the instance)`,
+        // One roll for the whole squad [R-0034] — rolled damage.
+        provenance: {
+          rolled: true,
+          sourceId: row.instanceOwner,
+          resolutionId: resolutionId ?? null,
+        },
       },
       context,
     );
@@ -686,6 +707,8 @@ export function applySquadBreakdown(
       {
         area: payload.ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area'),
         reason: `from ${payload.squadId}'s squad signature`,
+        // One roll for the whole squad [R-0034].
+        provenance: { rolled: true, sourceId: payload.squadId, resolutionId: resolutionId ?? null },
       },
       context,
     );

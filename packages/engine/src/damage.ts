@@ -42,11 +42,34 @@ export interface DamageInput {
   type: DamageType | null;
 }
 
+/**
+ * Where a Stamina change came from, recorded on every claim so occurrence
+ * derivation never has to guess [R-0040]. `rolled` is a PRINTED trigger
+ * sub-class, not bookkeeping: "If an ability or effect deals damage
+ * without requiring a power roll, that is not rolled damage, and effects
+ * that add to or are triggered by rolled damage don't apply" [Heroes p.74
+ * §Rolled Damage]. It is required, never defaulted, so a new damage path
+ * has to state its provenance rather than inherit a wrong one silently.
+ */
+export interface DamageProvenance {
+  /** True only when the damage came from a power roll [Heroes p.74]. A
+   * test is a power roll ("A test is any power roll that has failure or
+   * consequences as an option" — chapter/tests, R-0006), so test damage
+   * is rolled damage. */
+  rolled: boolean;
+  /** The creature that dealt it, when the engine knows one. */
+  sourceId: string | null;
+  /** The resolution this change belongs to, when there is one. */
+  resolutionId: string | null;
+}
+
 export interface DamageOptions {
   /** rule.health/stamina §Knocking Creatures Out — the damager's choice. */
   knockOut: boolean;
   /** Human-facing attribution for the log line. */
   reason: string;
+  /** R-0040 — required; see DamageProvenance. */
+  provenance: DamageProvenance;
 }
 
 export interface DamageOutcome {
@@ -188,6 +211,10 @@ function reduceStamina(
   canonRefs: string[],
   options: DamageOptions,
   context: LifecycleContext,
+  /** R-0040: "loses Stamina" and "takes damage" are DISTINCT triggers.
+   * The entry point decides which; the claim carries it so no downstream
+   * reader has to re-infer it from sibling keys. */
+  event: { kind: 'damage' | 'loss'; damageType: DamageType | null },
 ): DamageOutcome {
   const stats = participant.stats;
   const stamina = participant.stamina;
@@ -218,6 +245,18 @@ function reduceStamina(
         ...breakdown,
         absorbedByTemporary,
         appliedToCurrent,
+        staminaEvent: {
+          participantId: participant.id,
+          kind: event.kind,
+          amount: finalAmount,
+          damageType: event.damageType,
+          rolled: event.kind === 'damage' ? options.provenance.rolled : false,
+          sourceId: options.provenance.sourceId,
+          resolutionId: options.provenance.resolutionId,
+          from: stamina.current,
+          to: nextStamina.current,
+          max: stats.staminaMax,
+        },
         staminaDeltas: [
           {
             participantId: participant.id,
@@ -246,7 +285,11 @@ function reduceStamina(
           'mutation',
           `${participant.id} takes damage while unconscious from a knock-out and dies`,
           [HEALTH_CANON.knockOut],
-          { removedInstanceIds: [instance.instanceId], conditionId: instance.conditionId },
+          {
+            removedInstanceIds: [instance.instanceId],
+            conditionId: instance.conditionId,
+            healthTransitions: [{ participantId: participant.id, kind: 'died' }],
+          },
         ),
       );
       return { participant: { ...next, conditions }, log };
@@ -261,7 +304,9 @@ function reduceStamina(
   const windedNow = isWinded(nextStamina.current, stats.staminaMax);
   if (!windedBefore && windedNow) {
     log.push(
-      entry(context, 'informational', `${participant.id} is winded`, [HEALTH_CANON.winded], {}),
+      entry(context, 'informational', `${participant.id} is winded`, [HEALTH_CANON.winded], {
+        healthTransitions: [{ participantId: participant.id, kind: 'winded' }],
+      }),
     );
   }
 
@@ -271,17 +316,20 @@ function reduceStamina(
   const dyingNow = isDying(nextStamina.current);
   if (participant.kind === 'hero' && !dyingBefore && dyingNow) {
     log.push(
-      entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {}),
+      entry(context, 'informational', `${participant.id} is dying`, [HEALTH_CANON.dying], {
+        healthTransitions: [{ participantId: participant.id, kind: 'dying' }],
+      }),
     );
     const applied = applyConditionInstance(
       {
-        schemaVersion: 6,
+        schemaVersion: 7,
         participants: { [result.id]: result },
         terrainFacts: [],
         squads: [],
         turnState: null,
         villainActions: { usedThisRound: false, usedByAbility: [] },
         resolutionStack: [],
+        occurrences: [],
       },
       {
         target: result,
@@ -307,13 +355,14 @@ function reduceStamina(
     if (options.knockOut) {
       const applied = applyConditionInstance(
         {
-          schemaVersion: 6,
+          schemaVersion: 7,
           participants: { [result.id]: result },
           terrainFacts: [],
           squads: [],
           turnState: null,
           villainActions: { usedThisRound: false, usedByAbility: [] },
           resolutionStack: [],
+          occurrences: [],
         },
         {
           target: result,
@@ -335,7 +384,7 @@ function reduceStamina(
           'informational',
           `${participant.id} is knocked unconscious instead of dying`,
           [HEALTH_CANON.knockOut],
-          {},
+          { healthTransitions: [{ participantId: participant.id, kind: 'knocked-out' }] },
         ),
       );
     } else {
@@ -345,7 +394,7 @@ function reduceStamina(
           'informational',
           `${participant.id} dies`,
           [participant.kind === 'hero' ? HEALTH_CANON.dying : HEALTH_CANON.stamina],
-          {},
+          { healthTransitions: [{ participantId: participant.id, kind: 'died' }] },
         ),
       );
     }
@@ -376,6 +425,7 @@ export function applyDamage(
     ],
     options,
     context,
+    { kind: 'damage', damageType: input.type },
   );
 }
 
@@ -394,6 +444,7 @@ export function loseStamina(
     [HEALTH_CANON.stamina],
     options,
     context,
+    { kind: 'loss', damageType: null },
   );
 }
 
@@ -415,6 +466,11 @@ export interface SquadDamageOptions {
   namedVictims?: readonly string[];
   /** Human-facing attribution for the log line. */
   reason: string;
+  /** R-0040 — required; see DamageProvenance. Minions are corpus-real
+   * reaction triggers ("Trigger: An ally deals damage to the target" —
+   * Radenwight Ready Rodent, R-0037), so pool damage produces occurrences
+   * on exactly the same claim shape as participant damage. */
+  provenance: DamageProvenance;
 }
 
 export interface SquadDamageOutcome {
@@ -506,6 +562,23 @@ export function applySquadDamage(
           kills,
         },
         squadPoolDeltas: [{ squadId: squad.squadId, from: oldPool, to: newPool }],
+        // The SAME claim shape participant damage emits, so occurrence
+        // derivation has one path, not two [R-0040]. `participantId`
+        // carries the SQUAD id here — the identical widening the
+        // resolution entry's `actorId` and `turnState.activeTurnId`
+        // already use for squad-owned acts [R-0033].
+        staminaEvent: {
+          participantId: squad.squadId,
+          kind: 'damage' as const,
+          amount: finalSum,
+          damageType: options.type,
+          rolled: options.provenance.rolled,
+          sourceId: options.provenance.sourceId,
+          resolutionId: options.provenance.resolutionId,
+          from: oldPool,
+          to: newPool,
+          max: squad.pool.max,
+        },
       },
     ),
   ];
@@ -677,7 +750,13 @@ export function collectSquadContribution(
 export function flushSquadContributions(
   state: EncounterState,
   pending: ReadonlyMap<string, PendingSquadContribution[]>,
-  options: { area: boolean; namedVictims?: readonly string[]; reason: string },
+  options: {
+    area: boolean;
+    namedVictims?: readonly string[];
+    reason: string;
+    /** R-0040 — required; see DamageProvenance. */
+    provenance: DamageProvenance;
+  },
   context: LifecycleContext,
 ): { state: EncounterState; log: LogEntry[] } {
   let nextState = state;
@@ -704,7 +783,13 @@ export function flushSquadContributions(
       squad,
       stats,
       contributions.map(({ targetId, damage }) => ({ targetId, damage })),
-      { area: options.area, type, namedVictims: options.namedVictims, reason: options.reason },
+      {
+        area: options.area,
+        type,
+        namedVictims: options.namedVictims,
+        reason: options.reason,
+        provenance: options.provenance,
+      },
       context,
     );
     nextState = withSquad(nextState, outcome.squad);
@@ -815,6 +900,18 @@ export function regainStamina(
         requestedAmount: amount,
         regained,
         clampedAtMax: regained < amount,
+        staminaEvent: {
+          participantId: participant.id,
+          kind: 'regain' as const,
+          amount: regained,
+          damageType: null,
+          rolled: false,
+          sourceId: null,
+          resolutionId: null,
+          from: stamina.current,
+          to: clampedTo,
+          max: stats.staminaMax,
+        },
         staminaDeltas: [
           {
             participantId: participant.id,
@@ -835,7 +932,7 @@ export function regainStamina(
         'informational',
         `${participant.id} is no longer dying`,
         [HEALTH_CANON.dying],
-        {},
+        { healthTransitions: [{ participantId: participant.id, kind: 'no-longer-dying' }] },
       ),
     );
   }
@@ -846,7 +943,7 @@ export function regainStamina(
         'informational',
         `${participant.id} is no longer winded`,
         [HEALTH_CANON.winded],
-        {},
+        { healthTransitions: [{ participantId: participant.id, kind: 'no-longer-winded' }] },
       ),
     );
   }
