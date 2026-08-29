@@ -87,17 +87,54 @@ Capability probes over all 1,621 lines (regexes in §7; a line can need several)
 Within spatial: **voluntary movement** (shift/move/teleport) 271 lines,
 **forced movement** (push/pull/slide) 172.
 
-### The largest blocker is one we ruled out on purpose
+### Spatial is SETTLED — it is not the engine's problem
 
-Two of every five remaining lines need a positional model. R-0040 states the
-opposite policy in as many words: movement, trap plates, and hidden-state
-triggers "stay yours to assert — no map, no memory substrate." The plugin
-boundary points the same way: grid clients are *external consumers* of the
-intent protocol, not something the engine models.
+**Ruling, 2026-08-29: spatial logic belongs to the VTT plug-in. When that
+plug-in is not present, the printed text is presented to the table so the
+players act on it.** This confirms and generalizes R-0040 ("movement, trap
+plates, and hidden-state triggers stay yours to assert — no map, no memory
+substrate") and keeps faith with the plugin boundary, where grid clients are
+external consumers of the intent protocol rather than something the engine
+models.
 
-So the biggest single sub-block is not blocked on effort. It is blocked on a
-standing architectural decision, and it cannot be scheduled as a slice — it
-needs an explicit ruling first.
+The consequence for this analysis is large, and it is not the one the raw 40.9%
+suggests — see §3a.
+
+## 3a. What the spatial ruling actually changes
+
+The raw 40.9% spatial share invites a hopeful reading: *hand geometry to the
+plug-in and two-fifths of the problem disappears.* It does not. Splitting the
+spatial lines by the **role** position plays:
+
+| role | lines | share |
+|---|---:|---:|
+| position change **is** the effect ("the target is pushed 2 squares") | 454 | 28.0% |
+| position only **selects targets** ("each creature within 2 squares takes…") | 339 | 20.9% |
+| no spatial reference at all | 828 | 51.1% |
+
+Targeting-by-position was never a blocker: the engine already takes asserted
+targets at dispatch, and `SpatialFactSchema` (`adjacent`, `line-of-effect`) has
+carried asserted geometry since day one. That is exactly the shape the ruling
+endorses — the plug-in or the table supplies the fact, the engine consumes it.
+
+Cross-tabulating position-role against whether the line touches engine-owned
+state (Stamina/damage, conditions, action economy, roll modifiers, resources,
+terrain) gives the real resize:
+
+| | lines | share | who owns it |
+|---|---:|---:|---|
+| **A** position change is the whole effect | 143 | 8.8% | plug-in / table. **Correct today. Zero work.** |
+| **B** engine-owned part **and** a position change | 309 | 19.1% | split — engine executes its half, plug-in/table takes the geometry |
+| **C** engine-owned only, no position change | 951 | 58.7% | **the real automation target** |
+| **D** neither | 218 | 13.4% | needs human judgment |
+
+**Only 8.8% of the remaining lines are purely spatial.** The engine has
+something to execute in **1,260 lines (77.7%)**. The ruling is architecturally
+right and settles a real question — but it removes 143 lines from the engine's
+plate, not 663. It clarifies ownership; it does not shrink the work.
+
+Within the 1,260, the cohort that is single-sentence, ungated and choice-free —
+the part reachable with substrate that already exists — is **323 lines**.
 
 ## 4. The tractable core
 
@@ -158,29 +195,129 @@ acceptable for the 150 reaction residue lines. **Nobody has measured what
 fraction of the 1,621 needs automation rather than good presentation.** That
 measurement is cheap and would resize this entire problem.
 
-## 7. Two facts that change the payoff maths
+*After §7: option B is now known to be an execution-VM project rather than a
+sequence of mechanism slices, which makes option C the leading candidate for
+most of the corpus. See §8a.*
 
-- **582 of 1,621 lines are hero-side.** Hero Effect automation is gated behind
-  character building regardless of grammar, because heroes are not stat-seeded
-  (R-0003's seeding gap; hero potency deferred to character building by R-0004).
-  Monster-side work pays off immediately; hero-side does not.
-- **238 artifacts are *sole-blocked* by Effect prose** — their grammar parses
-  completely and this is the only thing between them and fully automatic. They
-  are ~7% of the affected artifacts and the only cohort with a step-change
-  payoff. A separate characterization pass covers them.
+## 7. The 238 sole-blocked artifacts — characterized
 
-## 8. Recommendation
+An independent read-only pass reproduced the sweep's per-artifact statuses
+byte-exactly (`automatic-now 37 / mechanism-blocked 238 / grammar-blocked 2468 /
+grammar-and-mechanism-blocked 786` over 3,529 artifacts), so **238 is confirmed,
+not approximated**. It covers 243 Effect lines / 236 distinct payloads. Full
+data: `.artifacts/canon/effect-shape/sole-blocked-238.json`.
 
-Do not attack "the Effect hole" as a project; it is not one. In order:
+Three findings, each of which contradicts an assumption this document made
+before the pass ran.
 
-1. **Characterize the 238 sole-blocked artifacts** and see which capability set
-   they actually need. Only cohort with a step-change payoff, and cheap.
-2. **Measure automation-need versus presentation-need** across the 1,621
-   (option C). This may cut the real problem by more than any build would.
-3. **Choice enumeration as a presentation substrate**, preceded by a CONV-0004
-   pass proving which "can" lines are live decisions.
-4. **Put the spatial question up as an explicit architectural ruling** before
-   any code is written against it.
+**(a) They are all heroes.** 238 heroes / **0 monsters**; every one in the
+`classes` bucket, spread across all nine classes and all ten levels (conduit 46,
+troubadour 35, censor 31, null 24, tactician 24, fury 22, shadow 22,
+elementalist 18, talent 4, +12 singletons). This is a consequence of *residue
+profile*, not semantic simplicity: a hero ability artifact is a short, fully
+grammared block, so it lands in `mechanism-blocked`; a monster statblock carries
+traits and malice features that do not parse, so it lands in
+`grammar-and-mechanism-blocked`. **Building for this cohort is building the
+hero-ability half of the engine** — which §8 notes is separately gated behind
+character building, because heroes are not stat-seeded.
+
+**(b) The free cohort is empty.** Zero of the 238 need nothing new; every one
+carries an Effect line that failed all eight anchored closed templates. The
+nearest edge is 7 artifacts needing exactly one capability, of which three are
+shipped mechanisms blocked only by their envelope — e.g. `squad-gear-check`
+("You and each ally adjacent to the target gain 10 temporary Stamina") is the
+shipped flat-temporary-Stamina template plus adjacency-based target selection.
+
+**(c) There is no 80/20. There is a 79/16.** Capability-count per artifact:
+median 4, mean 4.4, and **only 7 of 238 need exactly one**. The greedy
+cumulative unlock curve is *convex then flat* — marginal yield rises through the
+middle and only tails after step 18. The first ten capabilities buy 27% of the
+cohort.
+
+The capability histogram is the part worth staring at, because **the top five
+are all control-flow substrate, not rules**:
+
+| capability | artifacts | share |
+|---|---:|---:|
+| player choice (`can` / `may` / `choose`) | 145 | 60.9% |
+| spatial model | 129 | 54.2% |
+| conditional gate (`if` / `unless` / `while`) | 111 | 46.6% |
+| persistent duration (`until the end of the encounter`…) | 98 | 41.2% |
+| event trigger (`whenever`, `each time`, `the first time`) | 87 | 36.6% |
+| movement execution | 61 | 25.6% |
+| threshold predicate (winded / dying / minion / solo) | 59 | 24.8% |
+| characteristic-scaled amount | 57 | 23.9% |
+| action grant | 55 | 23.1% |
+
+Nothing about Draw Steel's *mechanics* tops this list. What tops it is choice,
+geometry, predicates, effect lifetime, and an event bus.
+
+### The spatial ruling barely moves this curve
+
+Recomputing the curve with spatial and movement removed from the engine's
+responsibility, per §3a:
+
+- 137 of the 238 need at least one spatial or movement capability, but
+  **only 2 were blocked *solely* on it.** Those two now resolve as
+  table/plug-in text.
+- Mean engine-capability count falls from 4.4 to 3.84; the median stays 4.
+- The curve keeps its shape. You still need **16 of 21** engine capabilities to
+  reach 79%, and deferring the three genuinely open-ended ones (entity creation,
+  narrative/Director fiction, turn-order surgery) still costs 31 artifacts.
+
+**So the ruling is correct architecture and does not resize this problem.** I
+had recorded the 238 as "the only cohort with a step-change payoff, and cheap."
+That was wrong on both counts, and this section supersedes it.
+
+## 8. What this actually is
+
+The 238 do not decompose into a few mechanisms. They decompose into an **Effect
+execution VM**: a control-flow substrate over the rule mechanisms that already
+exist — choice enumeration, predicate evaluation over world state, effect
+lifetimes, and a durable event/subscription bus — with the rule mechanisms
+composing *through* it.
+
+That is a materially different and larger project than "add the missing
+mechanisms," and it should be named as such before anyone scopes a slice
+against it. It also explains why the closed-template method exhausted at 67
+lines: templates match *payloads*, and what the corpus actually varies is
+*control flow*.
+
+Two facts bound the payoff:
+
+- **582 of 1,621 lines are hero-side**, and the 238 sole-blocked artifacts are
+  100% hero-side. Hero Effect automation is gated behind character building
+  regardless of grammar, because heroes are not stat-seeded (R-0003's seeding
+  gap; hero potency deferred to character building by R-0004).
+- **The all-or-nothing posture is a deliberate safety property, not an
+  oversight.** `effect-grammar.ts` records that a count-only check "silently
+  swallowed middle clauses ('push 3;', 'the target gains 1 rage;'), un-anchored
+  potency gates, mid-payload '(save ends)' endings, and duration tails —
+  certifying conditions without their gates," and was replaced with "a payload
+  that says more than the grammar reads fails to residue, whole." Any
+  clause-level extraction proposal must answer that objection before it is
+  entertained; byte-level conservation accounting (already reported by the
+  sweep, currently 0 violations) is the mechanism that could, but it has not
+  been designed or red-teamed.
+
+## 8a. Recommendation
+
+The earlier recommendation in this document is superseded by §7. Revised:
+
+1. **Do not schedule an "Effect prose" build.** It is not a mechanism gap; it
+   is a control-flow VM, and no ordering of mechanism slices reaches it.
+2. **Measure automation-need versus presentation-need across the 1,621**
+   (§3a category D, 218 lines, plus a judgment pass over B and C). R-0044
+   already ruled that printed text with occurrence and accounting is an
+   acceptable end state. If that holds for most of the corpus, the VM is not
+   needed and this stops being a gap at all. **This is the cheapest question
+   with the largest possible answer, and it should be asked before any build.**
+3. **If the VM is wanted anyway**, scope it as its own arc with choice
+   enumeration first — the only top-five capability that is a presentation
+   mechanism rather than rule invention, gated by a CONV-0004 pass proving
+   which printed "can" lines are live decisions.
+4. **Do not start with the 238.** They are the hero half, double-gated behind
+   character building, and their curve is the flattest in the corpus.
 
 ## 9. Reproducing every number here
 
@@ -197,6 +334,20 @@ cd packages/canon && pnpm corpus grammar-sweep \
   --chapter-bundles ../../.artifacts/canon/campaign/accepted \
   --out ../../.artifacts/canon/sweep/current-grammar-sweep.json
 ```
+
+§3a's position-role split and A/B/C/D cross-tabulation, and §7's recomputed
+engine-only unlock curve, are reproducible from
+`.artifacts/canon/effect-shape/table-lines.json` and
+`.artifacts/canon/effect-shape/sole-blocked-238.json` respectively. The 238
+cohort's own method — including all 23 capability regexes and the note that the
+per-artifact statuses reproduce the published headline byte-exactly — is
+recorded in that file's `method` block. Its capability tagging is **judged, not
+measured**, and its author flagged the softest calls: `PLAYER-CHOICE` keys on a
+bare `can` and does not separate engine-offered choice from narrative
+permission; `CONDITIONAL-GATE` and `PERSISTENT-DURATION` overlap by
+construction; `SPATIAL-MODEL` lumps "needs a grid" with "needs
+line-of-effect/cover". Those caveats are load-bearing — read the histogram as
+directional.
 
 The capability probes in §3 and the cohort filters in §4 run over a dump of all
 1,621 table lines (`artifactId`, `ordinal`, `book`, `actionType`, `targetsText`,
