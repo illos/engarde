@@ -1009,3 +1009,214 @@ Shellguard, Monsters p.199, PDF-confirmed EXACT]
 
 **Gate 3:** accepted via the squad-attack-gate3 card surface (cardHash
 a44aa128 verified), 2026-08-26.
+
+## R-0040 — The event record reactions key off; "loses Stamina" is NOT "takes damage" (approved 2026-08-29)
+
+**Ruling:** every application the engine performs records the events a
+printed trigger could condition on — damage taken and dealt (amount,
+damage types, whether it came from a power roll, and the roll's
+edge/bane/tier facts), being targeted, a roll being made and its tier,
+reaching 0 Stamina, dying, becoming winded (computable: half maximum
+Stamina), losing OR regaining Stamina, a turn starting or ending, and an
+ability being used. Using a reaction points at the exact recorded
+occurrence; a player may always assert an occurrence the engine did not
+see. Movement, trap plates, "twice in one turn" counters, and
+hidden-state triggers stay asserted — no map and no memory substrate is
+built for them.
+
+The one book-silent call, ruled: **"loses Stamina" and "takes damage"
+stay DISTINCT.** A Stamina loss that is not damage (Bleeding's drip,
+paying Stamina for a perk) does not set off "takes damage" reactions.
+Bleeding's own text is the map — it says "lose Stamina" everywhere
+except the one case it explicitly calls damage, and that case fires.
+Damage soaked by temporary Stamina still counts as taking damage
+(printed). The rejected alternative was to make every Stamina drop count
+as damage, which contradicts the printed wording.
+
+**Evidence (verbatim):** "Trigger: You lose Stamina and are not dying."
+[Heroes p.132 — Fury (Stormwight), Furious Change] · "Trigger: You take
+damage." [Heroes p.132 — Fury (Reaver), Unearthly Reflexes — the two
+phrasings, same page, same class] · "Whenever a creature takes damage,
+they reduce their Stamina (see below) by an amount equal to the damage
+taken." [Heroes p.277 §Damage — the printed direction; the converse is
+nowhere written] · "If an ability or effect deals damage without
+requiring a power roll, that is not rolled damage, and effects that add
+to or are triggered by rolled damage don't apply." [Heroes p.74 §Rolled
+Damage] · "The target would take damage from an ability that uses a
+power roll." [Heroes — Conduit, Word of Judgment (trigger)]
+
+**Engine consequence:** damage claims carry rolled-damage provenance;
+occurrence derivation runs over the claim stream; reaction dispatch
+carries an occurrence id. Asserted occurrences remain available.
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+890fdf66 verified), 2026-08-29.
+
+## R-0041 — A `declared` phase before the roll gives being-targeted reactions a lifecycle home (approved 2026-08-29)
+
+**Ruling:** an ability that rolls opens in a `declared` state — targets
+named, dice not yet thrown — then rolls, then commits. Hosts still
+pipeline declare→roll→commit in one tap unless a reaction wants in.
+Reactions triggered by being TARGETED now have a real moment: they may
+swap the target or curse the roll before it exists, every change on the
+receipt. The declared target list may legally GROW mid-resolution — the
+books do it — so target changes are tracked edits, never
+re-declarations. A turn ending with something declared but never rolled
+cancels with a receipt; nothing was rolled, so nothing is lost.
+
+**Evidence (verbatim):** "Trigger: A creature targets the monarch with a
+strike. Effect: The ally is the target of the triggering strike
+instead." [Monsters p.164 — Goblin Monarch, Meat Shield — fires at
+targeting time, before any roll exists] · "The target can choose one
+additional target for the triggering ability. Any damage dealt to the
+additional target is sonic damage." [Heroes — Troubadour, Harmonize — a
+reaction that ADDS a target mid-resolution] · "You can affect one
+additional target with this strike." [Heroes — Lachomp Tooth
+(consumable), tier 1; higher tiers add up to three or seven — the target
+list is a function of the roll and cannot be fully fixed at declaration]
+
+**Engine consequence:** the resolution entry becomes phase-discriminated
+(schema v7) with a `declared` arm, a declaration/roll hash pair, a
+declared-cancel at end-turn, and invariant claims for declared births and
+transitions. Openness is decided at the one home landed as `0f5e713`
+(`isOpenResolution`): `declared` is ruled OPEN; declared-cancel is not.
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+f2b4e0bf verified), 2026-08-29.
+
+## R-0042 — Halving damage: halve → weakness → immunity; two halvers stack (approved 2026-08-29)
+
+**Ruling:** the 46 "halve the damage" reactions (all printed phrasings)
+automate as a cut-in before damage lands, in the printed order **halve,
+then weakness, then immunity**. Damage printed as irreducible refuses the
+halve, with a receipt. Look-alikes are kept distinct: a reaction that
+deals NEW damage "equal to half the triggering damage" is not a halve and
+is never treated as one; reactions that halve an ally's Stamina REGAIN,
+split the damage with the protector, or halve across an area automate
+only their clean halve part and show the rest as printed text.
+
+Two calls the books never make, ruled: **(1)** halve-vs-weakness order is
+unprinted (only halve-vs-immunity and weakness-vs-immunity are printed) —
+ruled halve first, then weakness, then immunity, matching the printed
+example's shape. **(2)** two halvers on one hit is printed-legal (the
+book lets multiple reactions answer one trigger) but half-of-half is
+nowhere printed — ruled that they STACK (quarter), each on the receipt,
+fractions settled once at the end, rounding down.
+
+**Evidence (verbatim):** "Damage immunity should be the last thing
+applied when calculating damage. For instance, if your hero has fire
+immunity 5 and takes 8 fire damage, they take 3 damage. But if an ally
+first halved the damage with a triggered action, your hero would take 4
+damage before immunity is applied, with immunity then reducing the damage
+to 0." [Heroes p.277 §Damage Immunity — the printed order AND this
+family's exact golden test] · "If a creature has both damage immunity and
+damage weakness for a source of damage, apply the weakness first, then
+the immunity." [Heroes — Damage Weakness] · "The target takes psychic
+damage equal to half the triggering damage." [Heroes — Talent, Feedback
+Loop — reflected damage, NOT a halve] · "This extra damage can't be
+reduced in any way." [Monsters — Ajax, Shieldbreaker Talisman]
+
+**Engine consequence:** the halve modification composes rather than
+overwrites, and carries an irreducibility check. The p.277 worked example
+ships as an exact golden.
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+f9dca432 verified), 2026-08-29.
+
+## R-0043 — Roll-touching reactions: edge/bane, tier change, reroll (approved 2026-08-29)
+
+**Ruling:** three roll-touching shapes automate, each bound to the
+specific open resolution it modifies — never a floating buff that could
+land on the wrong roll. **(1) Edge/bane imposers and transformers** (32
+in the corpus), including additions and conversions, applied before the
+roll when triggered by targeting, or re-evaluating the already-made roll
+when triggered by "would take damage". **(2) Tier changes** — down, UP,
+or SET to a chosen tier. **(3) Rerolls** — the original roll is kept
+intact on the receipt and everything recomputes from the new dice. All of
+it composes with the shipped commit flow; tier text the templates do not
+recognize keeps showing its printed words (unchanged residue posture).
+
+**Evidence (verbatim):** "Effect: The power roll takes a bane against the
+target. Spend 1 Piety: The power roll has a double bane against the
+target." [Heroes — Conduit, Word of Judgment — a bane against ONE target
+of an already-made roll] · "An edge on the triggering roll becomes a
+bane, or a double edge becomes an edge. […] A bane becomes an edge, or a
+double bane becomes a bane." [Heroes — Troubadour, Turnabout Is Fair Play
+— transformation, not addition] · "The bandit chief takes 5 corruption
+damage and increases the outcome of the power roll by one tier."
+[Monsters — Human Bandit Chief, Bloodstones — tier goes UP] · "The target
+obtains a tier 1 or tier 3 outcome on their power roll (your choice)."
+[Heroes — Censor level 9, Blessing and a Curse — a tier SET; its
+future-roll second half waits for the grant system, noted not dropped] ·
+"You can use this ability after seeing the result of the triggering roll.
+The target must reroll the power roll and use the new roll." [Heroes
+p.189 — Talent, Again]
+
+**Engine consequence:** the modification union generalizes —
+roll-modifier and reroll arms added, `tier-adjust` generalized to cover
+up/down/set. Edge/bane arithmetic routes through the existing one home
+(R-0014/R-0015 count → cap → cancel), never a second implementation.
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+02556d7e verified), 2026-08-29.
+
+## R-0044 — Unrecognized reaction effects show printed text on the receipt; the hard cases are named now (approved 2026-08-29)
+
+**Ruling:** the 150 reactions outside the automated shapes still get
+their occurrence, their once-per-round accounting, and their cut-in
+point; their effect displays verbatim for table resolution, exactly like
+the unrecognized action costs ruled in the turn-structure batch. The ten
+the effect engine can already execute outright are executed. Teaching the
+effect engine the other ~140 is deliberately its own future project, with
+this family's survey as the work-list — not smuggled into this one.
+
+The honest hard cases are logged now rather than discovered later: a
+handful of reactions rewrite things the engine owns — summoning creatures
+mid-fight, a minion transforming and leaving its squad's Stamina pool, a
+bargain that seizes control of a hero's next turn, "can't be brought back
+to life" — and printed text on a receipt alone cannot land those. Each is
+a named gap needing its own machinery; until then the receipt states both
+what the book says and that the engine cannot do it yet.
+
+**Evidence (verbatim):** "Three hobgoblin recruits manifest from the
+target's blood into unoccupied spaces adjacent to the target." [Monsters
+— Hobgoblin Bloodlord, An Army From Blood] · "If the target accepts, they
+are reduced to 1 Stamina instead. On the target's next turn, the defector
+controls their move action and the target must use a signature ability
+against a creature of the defector's choice or immediately die."
+[Monsters — Devil Defector, Tempting Offer] · "The target can't be
+brought back to life." [Monsters — Slaughter Demon, Devour Soul]
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+e128aa72 verified), 2026-08-29.
+
+## R-0045 — Printed "before"/"after" clauses route to their own cut-in point; the unconscious restriction is added (approved 2026-08-29)
+
+**Ruling:** when a reaction's own text says when it lands, that is where
+it lands — "before the damage is resolved" / "resolves before the
+triggering movement" cut in ahead (4 in the corpus); "after the ability
+is resolved" lands after (11). One reaction may carry both clauses, and
+each clause routes to its own point. Would-die replacement traits stay as
+ruled in the turn-structure batch: named cut-in, full printed text shown,
+no automation yet.
+
+Found while red-teaming and fixed here: the books forbid unconscious
+creatures from using triggered actions (and everything else), but only
+the dazed and surprised restrictions were ruled and built in the
+turn-structure batch. The unconscious restriction is added on the same
+terms — warn and apply, printed escapes pierce it. This is this family's
+only change to the action-economy rules.
+
+**Evidence (verbatim):** "Each target shifts up to 2 squares before the
+damage is resolved." [Monsters p.194 — Kobold Centurion, Testudo!] · "You
+take half the triggering damage, then can shift up to 2 squares after the
+triggering effect resolves." [Heroes — Shadow, Defensive Roll — two
+clauses, two cut-in points] · "While you are unconscious, you can't take
+main actions, maneuvers, triggered actions, free triggered actions, or
+free maneuvers" [Heroes §Unconscious]
+
+**Engine consequence:** the unconscious restriction rides the shipped
+R-0030 warn machinery and is escape-flag-ready.
+
+**Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
+5b96d759 verified), 2026-08-29.
