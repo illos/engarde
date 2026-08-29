@@ -155,7 +155,13 @@ examples:
 
 > "The power roll gains an edge."
 > "Using this ability costs all your Heroic Resource."
-> "Until the end of the encounter or until you are dying, the target has damage weakness 10."
+> "You spend a Recovery and the target regains Stamina equal to your recovery value."
+
+*Correction (§10): this section originally cited "…the target has damage
+weakness 10" as reachable with existing substrate. It is not.
+`ParticipantStats.weaknesses` is read by the damage pipeline and written by no
+intent — there is no stat-rewrite slot. The line is automation-needed and
+substrate-absent.*
 
 ## 5. Why the current method cannot finish this
 
@@ -300,7 +306,11 @@ Two facts bound the payoff:
   sweep, currently 0 violations) is the mechanism that could, but it has not
   been designed or red-teamed.
 
-## 8a. Recommendation
+## 8a. Recommendation — SUPERSEDED BY §10
+
+*Kept for the record. §10 measured the question this section called for and
+overturned its ordering: choice enumeration is not the right first move, and the
+build target is ~400 lines rather than 1,621.*
 
 The earlier recommendation in this document is superseded by §7. Revised:
 
@@ -369,3 +379,89 @@ number in §3 as an upper bound on need and a lower bound on diversity — the
 finding they support (a long tail, not a bucket) is robust to their exact
 tuning, because it rests on the template-per-line ratios in §2, which are
 measured rather than judged.
+
+## 10. Automation-need versus presentation-need — measured
+
+§8a said this was the cheapest question with the largest possible answer. It was
+asked. **The answer is large, and it supersedes §8a's own ordering.**
+
+Each of the 1,621 lines was classified against a criterion grounded in R-0044
+(printed text + occurrence + accounting is an ACCEPTED end state) and DEC-0011:
+
+| class | lines | share |
+|---|---:|---:|
+| **P — presentation-complete** | **1,200** | **74.0%** |
+| **A — automation-needed** | **397** | **24.5%** |
+| U — undecidable from the line alone | 24 | 1.5% |
+
+The discriminator for A is **silent state divergence**: a line is A only if
+leaving it as printed text makes the engine's state *contradict* the fiction —
+orphaned expiries, miscounted caps, unfired subscriptions, wrong tracked
+numbers. A rider the engine merely never applies is P, because holding *less*
+than the fiction is exactly the state R-0044 accepted.
+
+**1,621 is not the build target. ~400 lines across ~330 artifacts is** — and of
+those, only ~180 need substrate that is genuinely absent rather than a
+subscription over events the engine already records.
+
+### What actually breaks, in the A cohort
+
+| divergence | lines | what goes wrong |
+|---|---:|---|
+| orphan-expiry | 209 | the printed ending is outside `EndingSpec` / `GrantWindow` / `GrantExpiry`; the engine sweeps at the wrong moment or never |
+| recurring-number | 121 | Stamina/damage moves on a repeating boundary; forget once and the engine's number is wrong |
+| unrepresentable | 86 | no intent expresses it |
+| unheld-subscription | 73 | a later trigger nobody is holding |
+| miscount | 59 | a cap the engine polices, on an event it cannot see |
+
+Bucketed by hardest need: **11 lines are shipped-but-uncompiled, 59 are
+extensions of shipped substrate, 327 need absent substrate.**
+
+### This overturns §6's ordering
+
+- **Choice enumeration is NOT the right first move.** Choice lines split 491 P /
+  131 A, and the `choice-menu` family is **0% A** — a menu the table reads and
+  answers leaves no engine state to diverge. §6 ranked it first on the 635-line
+  reach figure; reach was the wrong metric.
+- **Timing and duration generalization ranks first** — §6's #2. It is 117 A
+  lines, the largest single need in the cohort, and the cheapest: every boundary
+  already exists and `boundary-sweeps.ts` was built as a registry where a new
+  swept slot adds an entry rather than handler plumbing. Almost all of it is one
+  phrase family (`until the start of X's next turn`, plus `until the end of your
+  next turn`, `until the end of the round`, and the `or until you are dying`
+  disjunct).
+- **Spatial and choice are not what makes a line dangerous. Time is.** The
+  majority of lines carrying spatial or choice markers are P.
+- **The 238 cohort is retired from a second direction.** Its 243 Effect lines
+  are 137 P / 100 A — independent confirmation of §7's retraction.
+
+### A defensible target, in yield-per-risk order
+
+1. **Ending vocabulary + boundary-sweep rows** — 117 lines, no new architecture.
+2. **A durable subscription bus over the existing occurrence ledger** — 134
+   lines whose events schema v7 already names. Half-built: the engine records
+   the event, nobody holds a subscription to it.
+3. **A stat-rewrite slot** — 54 lines; one new `ParticipantStats` mutation
+   intent (weakness/immunity/max Stamina are read by the damage pipeline and
+   written by nothing).
+
+That is ~305 of the 397 **without building a VM**. The residue — predicate-
+evaluated lifetimes, off-vocabulary movement triggers, participant creation —
+is ~180 lines, and that is where the VM argument actually lives.
+
+### How much to trust the 397
+
+The classifier is a heuristic over prose, self-audited on a 40-line random
+sample with **77.5% agreement**, and the disagreements ran **toward
+under-counting A** (4 false-P against 2 false-A). Known systematic blind spot:
+**unbounded-persistent effects with no explicit time word** — every duration
+discriminator keys on one, so "Allies gain an edge on abilities against a target
+marked by any wode elf" scored P despite being a standing modifier a one-shot
+`NextRollGrant` under-lives.
+
+Plausible true range: **397–460 lines (24.5%–28%)**. The direction — P is a
+large majority — is far more robust than the digit, and the top of the range
+does not change the ordering above.
+
+Full per-line data and the classifier source: `.artifacts/canon/effect-shape/
+automation-vs-presentation.json`.
