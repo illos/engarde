@@ -1,5 +1,13 @@
 # The Effect-prose gap — measured analysis (2026-08-29)
 
+> **Audit status:** §10 is a heuristic first pass, not an approval-grade
+> backlog or build plan. A manual audit of 961 unique lines found material
+> classifier and cohort errors, including false bulk-build claims for timing,
+> subscriptions, and stat rewrites. The superseding checkpoint is
+> [effect-prose-manual-audit.md](effect-prose-manual-audit.md). Keep §10 as the
+> provenance of the candidate inventory; do not use its 1,200 / 397 / 24 split
+> or its 117 / 134 / 54 ordering as committed accounting.
+
 > Drafted by Claude Opus 5; no second-model read yet — see
 > [`authorship.md`](authorship.md).
 
@@ -380,7 +388,7 @@ finding they support (a long tail, not a bucket) is robust to their exact
 tuning, because it rests on the template-per-line ratios in §2, which are
 measured rather than judged.
 
-## 10. Automation-need versus presentation-need — measured
+## 10. Automation-need versus presentation-need — heuristic first pass
 
 §8a said this was the cheapest question with the largest possible answer. It was
 asked. **The answer is large, and it supersedes §8a's own ordering.**
