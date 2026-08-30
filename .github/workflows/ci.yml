@@ -21,6 +21,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Verify corpus certification stamp

@@ -1,8 +1,5 @@
 # Squad attacks + With-Captain benefits — slice report (2026-08-27)
 
-> Drafted by Claude Opus 5; no second-model read yet — see
-> [`authorship.md`](authorship.md).
-
 Gate-3 rulings **R-0034..R-0039** were accepted and recorded in
 `docs/canon-rulings.md`; R-0038 includes automatic detach on captain death.
 The implementation builds on the final action-economy dependency `5baaa39`
@@ -67,8 +64,9 @@ directive maneuvers initially skipped per-member maneuver debits; member-held
 outbound grants were consumed correctly but omitted from the aggregate roll
 receipt; and squad damage characteristic/type bindings needed the same
 pre-debit refusal gate as ordinary abilities. The red-team ledger records the
-fixes. No engine blocker remains outside R-0036's required human amendment
-verdict. The pre-existing squad-owned bleeding qualifier remains inert and
+fixes. R-0036's human amendment verdict is accepted; Grab automation is now a
+documented hero-free-strike dependency, not an amendment blocker. The
+pre-existing squad-owned bleeding qualifier remains inert and
 tracked: squads cannot currently carry conditions, so no qualifying condition
 state is lost.
 

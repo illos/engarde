@@ -5,6 +5,7 @@ import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import { deriveOccurrences } from './occurrences.js';
 import type {
+  EffectProgramDataInput,
   EncounterState,
   Intent,
   LogEntry,
@@ -35,6 +36,20 @@ const GOBLIN_WARRIOR: ParticipantStats = {
 };
 
 const context = { random: createSeededRandomSource(7) };
+
+const GRAB_EFFECT: EffectProgramDataInput = {
+  effectArtifactId: 'mcdm.heroes.v1/feature.ability.common/grab',
+  effectOrdinal: 1,
+  sourceSpan: { byteStart: 0, byteEnd: 20 },
+  sourceText: 'The target is grabbed.',
+  canonRefs: [],
+  actionType: 'Maneuver',
+  actionCost: 'maneuver',
+  targetsText: 'One creature',
+  distanceText: 'Melee 1',
+  keywords: ['Melee', 'Weapon'],
+  resolution: { kind: 'table' },
+};
 
 let counter = 0;
 function director(kind: Intent['kind'], payload: unknown): Intent {
@@ -152,6 +167,122 @@ describe('occurrence derivation [R-0040]', () => {
     expect(result.log.some((entry) => entry.kind === 'refusal')).toBe(true);
     expect(result.state.occurrences).toEqual([]);
   });
+
+  it('a successful nonrolling use-effect records the exact use and targets without inventing a resolution', () => {
+    const result = dispatch(base(), {
+      intentId: 'grab-effect',
+      kind: 'use-effect',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload: { actorParticipantId: 'hero', effect: GRAB_EFFECT, targets: ['warrior'] },
+    } as Intent);
+    expect(result.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'ability-used',
+        actorId: 'hero',
+        abilityArtifactId: GRAB_EFFECT.effectArtifactId,
+        resolutionId: null,
+      }),
+    );
+    expect(result.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'targeted',
+        participantId: 'warrior',
+        actorId: 'hero',
+        resolutionId: null,
+      }),
+    );
+
+    const refused = applyIntent(
+      base(),
+      {
+        intentId: 'bad-grab-effect',
+        kind: 'use-effect',
+        actor: { kind: 'participant', participantId: 'hero' },
+        payload: { actorParticipantId: 'hero', effect: GRAB_EFFECT, targets: ['nobody'] },
+      } as Intent,
+      context,
+    );
+    expect(refused.log.some((entry) => entry.kind === 'refusal')).toBe(true);
+    expect(refused.state.occurrences).toEqual([]);
+  });
+
+  it('asserted-band applications record an ability use and target; bare Director edits do not', () => {
+    const asserted = dispatch(
+      base(),
+      director('apply-damage', {
+        target: 'warrior',
+        amount: 2,
+        reason: 'Director-asserted nonrolling band',
+        assertedAbilityUse: {
+          actorParticipantId: 'hero',
+          abilityArtifactId: 'canon/ability/asserted-band',
+          actionCost: 'main-action',
+        },
+      }),
+    );
+    expect(asserted.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'ability-used',
+        actorId: 'hero',
+        abilityArtifactId: 'canon/ability/asserted-band',
+        resolutionId: null,
+      }),
+    );
+    expect(asserted.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'targeted',
+        participantId: 'warrior',
+        actorId: 'hero',
+        resolutionId: null,
+      }),
+    );
+
+    const conditioned = dispatch(
+      base(),
+      director('apply-condition', {
+        target: 'warrior',
+        conditionId: 'mcdm.heroes.v1/condition/slowed',
+        ending: { kind: 'save-ends' },
+        source: {
+          participantId: 'hero',
+          effectArtifactId: 'canon/ability/asserted-condition-band',
+        },
+        assertedAbilityUse: {
+          actorParticipantId: 'hero',
+          abilityArtifactId: 'canon/ability/asserted-condition-band',
+          actionCost: 'main-action',
+        },
+      }),
+    );
+    expect(conditioned.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'ability-used',
+        actorId: 'hero',
+        abilityArtifactId: 'canon/ability/asserted-condition-band',
+        resolutionId: null,
+      }),
+    );
+    expect(conditioned.state.occurrences).toContainEqual(
+      expect.objectContaining({
+        kind: 'targeted',
+        participantId: 'warrior',
+        actorId: 'hero',
+        resolutionId: null,
+      }),
+    );
+
+    const bare = dispatch(
+      base(),
+      director('apply-condition', {
+        target: 'warrior',
+        conditionId: 'mcdm.heroes.v1/condition/slowed',
+        ending: { kind: 'save-ends' },
+        source: { participantId: 'hero' },
+      }),
+    );
+    expect(bare.state.occurrences.some((row) => row.kind === 'ability-used')).toBe(false);
+    expect(bare.state.occurrences.some((row) => row.kind === 'targeted')).toBe(false);
+  });
 });
 
 /** Goblin Warrior, Spear Charge (verbatim fixture, same statblock):
@@ -254,6 +385,91 @@ describe('occurrences through the two-phase resolution flow [R-0040/R-0032]', ()
     expect(ended.state.occurrences).toContainEqual(
       expect.objectContaining({ kind: 'turn-ended', participantId: 'warrior' }),
     );
+  });
+
+  it('a shared squad turn records each participating member, never the squad container', () => {
+    const minionStats: ParticipantStats = {
+      ...GOBLIN_WARRIOR,
+      staminaMax: 5,
+      organization: 'Minion',
+    };
+    let state = initialEncounterState(
+      ['m1', 'm2'].map((id) => ({
+        id,
+        kind: 'director-creature' as const,
+        sourceRecordId: 'canon/minion',
+        stats: minionStats,
+      })),
+      [{ squadId: 'squad-m', name: 'minions', memberIds: ['m1', 'm2'] }],
+    );
+    state = dispatch(state, director('begin-combat', { firstSide: 'director', roll: 7 })).state;
+    const started = dispatch(state, director('start-turn', { turnId: 'squad-m' }));
+    const startRows = started.state.occurrences.filter((row) => row.kind === 'turn-started');
+    expect(startRows.map((row) => row.participantId).sort()).toEqual(['m1', 'm2']);
+    expect(startRows.some((row) => row.participantId === 'squad-m')).toBe(false);
+
+    const ended = dispatch(started.state, director('end-turn', { participantId: 'squad-m' }));
+    const endRows = ended.state.occurrences.filter((row) => row.kind === 'turn-ended');
+    expect(endRows.map((row) => row.participantId).sort()).toEqual(['m1', 'm2']);
+    expect(endRows.some((row) => row.participantId === 'squad-m')).toBe(false);
+  });
+
+  it('known and pending squad kills both record death at the pool transition', () => {
+    const minionStats: ParticipantStats = {
+      ...GOBLIN_WARRIOR,
+      staminaMax: 5,
+      organization: 'Minion',
+    };
+    const state = initialEncounterState(
+      ['m1', 'm2', 'm3'].map((id) => ({
+        id,
+        kind: 'director-creature' as const,
+        sourceRecordId: 'canon/minion',
+        stats: minionStats,
+      })),
+      [{ squadId: 'squad-m', name: 'minions', memberIds: ['m1', 'm2', 'm3'] }],
+    );
+    const damaged = dispatch(
+      state,
+      director('apply-damage', { target: 'm1', amount: 10, reason: 'cross two thresholds' }),
+    );
+    const deaths = damaged.state.occurrences.filter(
+      (row) => row.kind === 'health-transition' && row.transition === 'died',
+    );
+    expect(deaths).toContainEqual(
+      expect.objectContaining({
+        participantId: 'm1',
+        squadId: 'squad-m',
+        pendingIdentity: false,
+      }),
+    );
+    expect(deaths).toContainEqual(
+      expect.objectContaining({
+        participantId: null,
+        squadId: 'squad-m',
+        pendingIdentity: true,
+      }),
+    );
+    expect(deaths).toHaveLength(2);
+
+    const named = dispatch(
+      damaged.state,
+      director('resolve-pending-kills', {
+        squadId: 'squad-m',
+        victimMemberIds: ['m2'],
+        reason: 'nearest remaining minion',
+      }),
+    );
+    expect(
+      named.state.occurrences.filter(
+        (row) => row.kind === 'health-transition' && row.transition === 'died',
+      ),
+    ).toHaveLength(2);
+    expect(
+      named.state.occurrences.some(
+        (row) => row.kind === 'health-transition' && row.intentId === named.log[0]?.intentId,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -447,6 +663,32 @@ describe('the declared phase [R-0041]', () => {
     expect(ended.state.participants.hero?.stamina?.current).toBe(15);
     expect(ended.state.participants.warrior?.actionBudget['main-action']).toBeUndefined();
     expect(ended.log.some((entry) => entry.data.resolutionCancelled !== undefined)).toBe(true);
+  });
+
+  it('end-encounter distinguishes an unrolled declaration from a rolled outcome', () => {
+    const declared = declare(inCombat());
+    const endedDeclared = dispatch(declared.state, director('end-encounter', {}));
+    const declaredWarning = endedDeclared.log.find(
+      (entry) => entry.data.uncommittedResolutions !== undefined,
+    );
+    expect(declaredWarning?.message).toContain('declared resolution(s) never rolled');
+    expect(declaredWarning?.message).toContain('no rolled outcome');
+    expect(declaredWarning?.message).not.toMatch(/^\d+ rolled resolution/);
+
+    const freshDeclaration = declare(inCombat());
+    const rolled = dispatch(
+      freshDeclaration.state,
+      director('roll-resolution', {
+        resolutionId: 'declare-spear-charge',
+        payload: declaration,
+      }),
+    );
+    const endedRolled = dispatch(rolled.state, director('end-encounter', {}));
+    const rolledWarning = endedRolled.log.find(
+      (entry) => entry.data.uncommittedResolutions !== undefined,
+    );
+    expect(rolledWarning?.message).toContain('rolled resolution(s) never committed');
+    expect(rolledWarning?.message).toContain('printed outcomes are table-adjudicated');
   });
 });
 

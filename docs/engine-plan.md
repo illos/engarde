@@ -85,6 +85,21 @@ task list can flex, these cannot.
    actual built hero), never invented stat blocks. No foreign TTRPG terminology.
    This plan deliberately states **no rule mechanics**; the pilot discovers
    mechanics from artifacts, not from anyone's memory.
+9. **Identity and evidence conserve across every pipeline.** Every review row,
+   finding, ruling, generated card, and settled record carries one stable ID.
+   Each transform proves that every input identity appears exactly once in a
+   declared output disposition; settled/review are a total, nonoverlapping
+   partition and quarantine is explicit. Duplicates, conflicting dispositions,
+   missing evidence, and unjoined findings fail the whole transform. Text
+   similarity is diagnostic only, never a join. Evidence certification reads
+   allowlisted source-text fields, never serialized metadata, and ships with
+   adversarial negative probes as well as happy paths.
+10. **Phase order and wire compatibility are mechanics.** Rule clauses execute
+    in the earliest named phase whose result they can influence; a catch-all
+    trailing-text bucket is presentation, not automation. Occurrences derive from
+    the actual domain transition, never a convenient proxy event. Any schema or
+    hash change to a durable/in-flight payload carries a fixture from the previous
+    version and proves that commit, replay, and force-resolution still work.
 
 ## Source corpus
 

@@ -155,6 +155,11 @@ where a later pass will have to re-cut, not as defects.
 
 All under `.artifacts/canon/corpus-map/` (gitignored, regenerable):
 
+Regenerate the joined map with `pnpm corpus-map:build`. The producer preserves
+Pool A's 30 individually reviewed critical-path rows and forces every Pool B
+family rule/materialized row false; it refuses output unless the result is
+exactly 30 of 3,529.
+
 - `corpus-map.json` — all 3,529 rows: id, chapter, bytes, pool, primary,
   secondaries, spatial, criticalPath, confidence, justification
 - `rulings/batch-01..27.json` — pool A, one file per agent

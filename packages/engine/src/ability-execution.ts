@@ -448,6 +448,13 @@ export interface AbilityRollOptions {
    * targets that member attacks [R-0034(d)]. */
   outboundBindings?: Array<{ memberId: string; targetIds: string[] }>;
   derivedModifiers?: Array<{ sourceText: string; edges: number; banes: number }>;
+  /** Compiler-derived modifiers whose printed predicate binds per target.
+   * They share the one dice draw but participate in that target's modifier
+   * pool before its tier is resolved. */
+  perTargetDerivedModifiers?: Record<
+    string,
+    Array<{ sourceText: string; edges: number; banes: number }>
+  >;
   actorLabel?: string;
 }
 
@@ -566,6 +573,7 @@ export function resolveAbilityRoll(
     random.roll(POWER_ROLL_DIE),
   ];
   const derivedModifiers = options.derivedModifiers ?? [];
+  const perTargetDerivedModifiers = options.perTargetDerivedModifiers ?? {};
   const derivedEdges = derivedModifiers.reduce((sum, modifier) => sum + modifier.edges, 0);
   const derivedBanes = derivedModifiers.reduce((sum, modifier) => sum + modifier.banes, 0);
   const baseEdges = payload.edges + outbound.edges + derivedEdges;
@@ -587,14 +595,25 @@ export function resolveAbilityRoll(
     string,
     { edges: number; banes: number; resolution: PowerRollResolution }
   > | null = null;
-  if (inboundByTarget.size > 0 || outboundByTarget.size > 0) {
+  if (
+    inboundByTarget.size > 0 ||
+    outboundByTarget.size > 0 ||
+    Object.keys(perTargetDerivedModifiers).length > 0
+  ) {
     perTarget = {};
     for (const targetId of payload.targets) {
       const inboundExtra = inboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
       const outboundExtra = outboundByTarget.get(targetId) ?? { edges: 0, banes: 0 };
+      const derivedForTarget = perTargetDerivedModifiers[targetId] ?? [];
       const extra = {
-        edges: inboundExtra.edges + outboundExtra.edges,
-        banes: inboundExtra.banes + outboundExtra.banes,
+        edges:
+          inboundExtra.edges +
+          outboundExtra.edges +
+          derivedForTarget.reduce((sum, modifier) => sum + modifier.edges, 0),
+        banes:
+          inboundExtra.banes +
+          outboundExtra.banes +
+          derivedForTarget.reduce((sum, modifier) => sum + modifier.banes, 0),
       };
       const targetEdges = baseEdges + extra.edges;
       const targetBanes = baseBanes + extra.banes;
@@ -639,6 +658,7 @@ export function resolveAbilityRoll(
           assertedEdges: payload.edges,
           assertedBanes: payload.banes,
           derivedModifiers,
+          perTargetDerivedModifiers,
           grantsConsumed: [
             ...outbound.consumed.map((grant) => ({
               grantId: grant.grantId,
@@ -698,6 +718,7 @@ export function resolveAbilityRoll(
       ]),
     ),
     derivedModifiers,
+    perTargetDerivedModifiers,
   };
   return { state: nextState, log, dice, resolution, perTarget, tierFor, rollReceipt };
 }

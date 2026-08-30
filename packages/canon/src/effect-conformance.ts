@@ -9,6 +9,7 @@ import {
   type Intent,
   type SquadAbilityData,
   SquadAbilityDataSchema,
+  type SquadAbilityEffectProgram,
   applyIntent,
 } from '@engarde/engine';
 import type { RandomSource } from '@engarde/engine';
@@ -18,6 +19,7 @@ import {
   type GrammarParse,
   type TierOutcomeData,
   matchTierBulletLine,
+  stripSccLinks,
 } from './effect-grammar.js';
 
 /**
@@ -405,14 +407,18 @@ function squadTierOf(bullet: AttachedTierBullet): unknown {
 }
 
 /**
- * Verbatim `**Effect:**` lines belonging to the ability whose tiers just
+ * Trailing `**Effect:**` lines belonging to the ability whose tiers just
  * ended [R-0034 lossless posture]. Association boundary is the next
  * ability-header or power-roll: an Effect line printed after those belongs
- * to the NEXT ability, not this one. Carried as directives — the squad path
- * surfaces the printed text; it never automates from it.
+ * to the NEXT ability, not this one. Every line remains verbatim; only the
+ * audited, fully tracked shapes also receive a causal-phase program.
  */
-function collectTrailingEffects(events: CompileEvent[], startIndex: number): string[] {
+function collectTrailingEffects(
+  events: CompileEvent[],
+  startIndex: number,
+): { lines: string[]; programs: SquadAbilityEffectProgram[] } {
   const lines: string[] = [];
+  const programs: SquadAbilityEffectProgram[] = [];
   for (let index = startIndex; index < events.length; index += 1) {
     const event = events[index];
     if (!event) break;
@@ -422,10 +428,40 @@ function collectTrailingEffects(events: CompileEvent[], startIndex: number): str
     if (clause.kind === 'ability-header' || clause.kind === 'power-roll') break;
     if (clause.kind === 'effect') {
       const text = exactLineOf(clause.span.text);
-      if (text.length > 0) lines.push(text);
+      if (text.length === 0) continue;
+      lines.push(text);
+      const plain = stripSccLinks(clause.data.sourceText).trimEnd();
+      if (
+        plain ===
+        'The dart gains an edge on this ability against any target who has less than full Stamina.'
+      ) {
+        programs.push({
+          kind: 'target-edge-if-stamina-below-max',
+          phase: 'pre-roll',
+          sourceText: text,
+          canonRefs: clause.data.canonRefs,
+        });
+        continue;
+      }
+      const conditionIds = clause.data.canonRefs.filter((ref) => ref.includes('/condition/'));
+      if (conditionIds.length !== 1) continue;
+      const extraDamage =
+        /^If the target is [^,]+, they take an extra (\d+) damage\.$/.exec(plain) ??
+        /^A target who is already [^ ]+ takes an extra (\d+) damage\.$/.exec(plain);
+      const conditionId = conditionIds[0];
+      if (extraDamage && conditionId) {
+        programs.push({
+          kind: 'extra-damage-if-target-has-condition',
+          phase: 'damage',
+          sourceText: text,
+          canonRefs: clause.data.canonRefs,
+          conditionId,
+          amount: Number(extraDamage[1]),
+        });
+      }
     }
   }
-  return lines;
+  return { lines, programs };
 }
 
 /** Lossless squad ability compiler [R-0034(b/c)]. One unparsed tier does
@@ -466,6 +502,7 @@ export function compileSquadAbilities(
     }
     const annotation = lastHeader ? annotations.get(lastHeader) : undefined;
     const suffix = annotation?.abilitySlug;
+    const effects = collectTrailingEffects(events, index + 1);
     abilities.push(
       SquadAbilityDataSchema.parse({
         abilityArtifactId: suffix ? `${baseArtifactId}#${suffix}` : baseArtifactId,
@@ -480,7 +517,8 @@ export function compileSquadAbilities(
           tier2: squadTierOf(tiers.tier2),
           tier3: squadTierOf(tiers.tier3),
         },
-        effectLines: collectTrailingEffects(events, index + 1),
+        effectLines: effects.lines,
+        effectPrograms: effects.programs,
       }),
     );
   }

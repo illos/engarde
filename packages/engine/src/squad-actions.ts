@@ -203,6 +203,63 @@ function rollInput(payload: SquadSignatureAttackPayload, actorParticipantId: str
   };
 }
 
+/** Execute the closed pre-roll squad Effect phase. A target whose Stamina
+ * is not tracked stays explicit table work; the engine never guesses the
+ * printed predicate. */
+function squadPreRollEffects(
+  state: EncounterState,
+  payload: SquadSignatureAttackPayload,
+):
+  | {
+      ok: true;
+      perTargetDerivedModifiers: Record<
+        string,
+        Array<{ sourceText: string; edges: number; banes: number }>
+      >;
+    }
+  | { ok: false; problem: string } {
+  const perTargetDerivedModifiers: Record<
+    string,
+    Array<{ sourceText: string; edges: number; banes: number }>
+  > = {};
+  for (const program of payload.ability.effectPrograms) {
+    if (program.phase !== 'pre-roll') continue;
+    for (const row of payload.participation) {
+      const target = state.participants[row.targetId];
+      const current = target?.stamina?.current;
+      const maximum = target?.stats?.staminaMax;
+      if (current === undefined || maximum === undefined || maximum === null) {
+        return {
+          ok: false,
+          problem: `${program.sourceText} — ${row.targetId}'s current/maximum Stamina is not tracked; resolve this pre-roll modifier at the table before dispatching the roll`,
+        };
+      }
+      if (current >= maximum) continue;
+      perTargetDerivedModifiers[row.targetId] = [
+        ...(perTargetDerivedModifiers[row.targetId] ?? []),
+        { sourceText: program.sourceText, edges: 1, banes: 0 },
+      ];
+    }
+  }
+  return { ok: true, perTargetDerivedModifiers };
+}
+
+/** Conservation gate for trailing squad Effects. Execution is allowed only
+ * when every verbatim line has exactly one trusted causal-phase program and
+ * every program retains its verbatim line. An opaque clause can affect an
+ * earlier roll/damage phase, so surfacing it after resolution is unsafe. */
+function validateSquadEffectPrograms(payload: SquadSignatureAttackPayload): string | null {
+  const lines = [...payload.ability.effectLines].sort();
+  const programSources = payload.ability.effectPrograms.map((program) => program.sourceText).sort();
+  const mismatchAt = Math.max(lines.length, programSources.length);
+  for (let index = 0; index < mismatchAt; index += 1) {
+    if (lines[index] === programSources[index]) continue;
+    const sourceText = lines[index] ?? programSources[index] ?? 'unknown Effect';
+    return `${payload.ability.abilityArtifactId} has a trailing Effect without a one-to-one trusted causal phase; resolve the ability at the table before rolling: ${sourceText}`;
+  }
+  return null;
+}
+
 function validateSquadDamageBindings(
   state: EncounterState,
   payload: SquadSignatureAttackPayload,
@@ -254,6 +311,13 @@ export function executeSquadSignatureAttack(
   if ('error' in binding) return refuse(state, context, binding.error);
   const damageBindingProblem = validateSquadDamageBindings(state, payload);
   if (damageBindingProblem) return refuse(state, context, damageBindingProblem);
+  const effectProgramProblem = validateSquadEffectPrograms(payload);
+  if (effectProgramProblem) return refuse(state, context, effectProgramProblem);
+  // Pre-roll Effect predicates must be fully known before ANY debit, grant
+  // consumption, or dice resolution. Unknown is not false: rolling without
+  // the conditional modifier could select the wrong tier.
+  const preRollEffects = squadPreRollEffects(state, payload);
+  if (!preRollEffects.ok) return refuse(state, context, preRollEffects.problem);
 
   let nextState = state;
   const log: LogEntry[] = [];
@@ -303,6 +367,7 @@ export function executeSquadSignatureAttack(
         targetIds,
       })),
       derivedModifiers,
+      perTargetDerivedModifiers: preRollEffects.perTargetDerivedModifiers,
     },
   );
   nextState = rolled.state;
@@ -553,6 +618,10 @@ export function executeSquadManeuver(
   if ('error' in binding) return refuse(state, context, binding.error);
   const damageBindingProblem = validateSquadDamageBindings(state, signaturePayload);
   if (damageBindingProblem) return refuse(state, context, damageBindingProblem);
+  const effectProgramProblem = validateSquadEffectPrograms(signaturePayload);
+  if (effectProgramProblem) return refuse(state, context, effectProgramProblem);
+  const preRollEffects = squadPreRollEffects(state, signaturePayload);
+  if (!preRollEffects.ok) return refuse(state, context, preRollEffects.problem);
   let nextState = state;
   const log: LogEntry[] = [];
   if (state.turnState !== null) {
@@ -581,6 +650,7 @@ export function executeSquadManeuver(
     context,
     {
       actorLabel: squad.squadId,
+      perTargetDerivedModifiers: preRollEffects.perTargetDerivedModifiers,
     },
   );
   nextState = rolled.state;
@@ -637,6 +707,8 @@ export function applySquadBreakdown(
    * [R-0040]; null on the out-of-combat single-dispatch path. */
   resolutionId: string | null = null,
 ): ExecutionResult {
+  const effectProgramProblem = validateSquadEffectPrograms(payload);
+  if (effectProgramProblem) return refuse(state, context, effectProgramProblem);
   let nextState = state;
   const log: LogEntry[] = [];
   const pending = new Map<string, PendingSquadContribution[]>();
@@ -656,7 +728,36 @@ export function applySquadBreakdown(
           ? (tierData.damage.typeOptions[0] ?? null)
           : (payload.damageTypeChoice ?? null);
     const helperDamage = row.stacking.kind === 'applied' ? row.stacking.total : 0;
-    let amount = tierData.damage.amount + binding.value + row.strikeDamageBonus + helperDamage;
+    let effectDamage = 0;
+    for (const program of payload.ability.effectPrograms) {
+      if (program.phase !== 'damage') continue;
+      if (
+        program.kind === 'extra-damage-if-target-has-condition' &&
+        target.conditions.some((condition) => condition.conditionId === program.conditionId)
+      ) {
+        effectDamage += program.amount;
+        log.push(
+          entry(
+            context,
+            'informational',
+            `${program.sourceText} — ${row.targetId} has ${program.conditionId}; ${program.amount} extra damage joins the current damage packet`,
+            [payload.ability.abilityArtifactId, ...program.canonRefs],
+            {
+              squadAbilityEffectApplied: {
+                squadId: payload.squadId,
+                abilityArtifactId: payload.ability.abilityArtifactId,
+                phase: program.phase,
+                sourceText: program.sourceText,
+                targetId: row.targetId,
+                extraDamage: program.amount,
+              },
+            },
+          ),
+        );
+      }
+    }
+    let amount =
+      tierData.damage.amount + binding.value + row.strikeDamageBonus + helperDamage + effectDamage;
     const rounding = halves.get(row.targetId) ?? halves.get(null);
     if (rounding !== undefined) {
       const before = amount;
@@ -797,29 +898,6 @@ export function applySquadBreakdown(
       nextState = applied.state;
       log.push(...applied.log);
     }
-  }
-  // The ability's printed `**Effect:**` line(s) are DIRECTIVES, surfaced
-  // once per resolution rather than per target instance. The squad compiler
-  // automates only power-roll tiers, so without this the clause was parsed,
-  // passed grammar conservation, and then vanished — Bugbear Snare's
-  // "the target is automatically grabbed" among them.
-  for (const effectLine of payload.ability.effectLines) {
-    log.push(
-      entry(
-        context,
-        'table-directive',
-        `${payload.squadId}'s ${payload.ability.abilityArtifactId.split('/').pop()} carries a printed Effect the engine does not automate — resolve it at the table: ${effectLine}`,
-        [SQUAD_CANON.action, payload.ability.abilityArtifactId],
-        {
-          squadAbilityEffectDirective: {
-            squadId: payload.squadId,
-            abilityArtifactId: payload.ability.abilityArtifactId,
-            sourceText: effectLine,
-            targetIds: breakdown.map((row) => row.targetId),
-          },
-        },
-      ),
-    );
   }
   log.push(
     entry(

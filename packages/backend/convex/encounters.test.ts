@@ -859,6 +859,12 @@ test('spend-recovery: recoverySpends passes through — every bound target must 
 const SK_IDS = ['sk1', 'sk2', 'sk3', 'sk4'];
 const SK_PARTICIPANTS = SK_IDS.map((id) => ({ id, recordId: SKITTERLING.artifactId }));
 const SK_SQUAD = { squadId: 'squad-sk', name: 'skitterlings', memberIds: SK_IDS };
+const SC_IDS = ['sc1', 'sc2', 'sc3', 'sc4'];
+const SC_PARTICIPANTS = SC_IDS.map((id) => ({
+  id,
+  recordId: GOBLIN_SPINECLEAVER.artifactId,
+}));
+const SC_SQUAD = { squadId: 'squad-sc', name: 'spinecleavers', memberIds: SC_IDS };
 
 test('squad pool E2E: seed → view card; non-area damage decrements, kills, pending-kill flow', async () => {
   const t = makeHarness();
@@ -995,31 +1001,31 @@ test('squad attack hosts: ordered participation and Free Strike Together execute
   const table = await setupTable(t);
   await table.owner.client.mutation(api.encounters.start, {
     campaignId: table.campaignId,
-    participants: [...SK_PARTICIPANTS, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
-    squads: [SK_SQUAD],
+    participants: [...SC_PARTICIPANTS, { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId }],
+    squads: [SC_SQUAD],
   });
   await table.member.client.mutation(api.encounters.squadAttack, {
     campaignId: table.campaignId,
-    artifactId: SKITTERLING.artifactId,
-    abilitySlug: 'claws',
-    squadId: 'squad-sk',
-    participation: [{ targetId: 'warrior', instanceOwner: 'sk1', memberIds: ['sk1', 'sk2'] }],
-    dice: [5, 5], // +2 → tier 2: 2 poison + one helper Free Strike 1
+    artifactId: GOBLIN_SPINECLEAVER.artifactId,
+    abilitySlug: 'axe',
+    squadId: 'squad-sc',
+    participation: [{ targetId: 'warrior', instanceOwner: 'sc1', memberIds: ['sc1', 'sc2'] }],
+    dice: [5, 5], // +2 → tier 2; damage+Push is conserved as table residue
   });
   let view = await table.owner.client.query(api.encounters.getActive, {
     campaignId: table.campaignId,
   });
   expect(
     view?.participants.find((participant) => participant.id === 'warrior')?.vitals?.staminaCurrent,
-  ).toBe(12);
+  ).toBe(15);
 
   await table.member.client.mutation(api.encounters.squadFreeStrike, {
     campaignId: table.campaignId,
-    squadId: 'squad-sk',
+    squadId: 'squad-sc',
     targetId: 'warrior',
     contributions: [
-      { memberId: 'sk3', count: 1 },
-      { memberId: 'sk4', count: 1 },
+      { memberId: 'sc3', count: 1 },
+      { memberId: 'sc4', count: 1 },
     ],
   });
   view = await table.owner.client.query(api.encounters.getActive, {
@@ -1027,13 +1033,14 @@ test('squad attack hosts: ordered participation and Free Strike Together execute
   });
   expect(
     view?.participants.find((participant) => participant.id === 'warrior')?.vitals?.staminaCurrent,
-  ).toBe(10);
+  ).toBe(11);
   if (!view) throw new Error('no active encounter');
   const log = await table.owner.client.query(api.encounters.listLog, {
     campaignId: table.campaignId,
     encounterId: view.encounterId,
   });
   expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
+  expect(log.some((entry) => entry.message.includes('one-roll squad outcome resolves'))).toBe(true);
   expect(log.some((entry) => entry.message.includes('combines 2 free-strike contribution'))).toBe(
     true,
   );

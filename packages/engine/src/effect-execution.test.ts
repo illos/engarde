@@ -186,14 +186,15 @@ describe('compiled Effect execution', () => {
     expect(checkInvariants(second.state, endTurnIntent, expired)).toEqual([]);
   });
 
-  it('preserves unsupported prose verbatim as a table directive without mutation', () => {
+  it('preserves unsupported prose verbatim as a table directive without domain-state mutation', () => {
     const before = state();
     const effect = baseEffect({ kind: 'table' });
     effect.sourceText = 'x bespoke instruction with every word retained';
     const dispatched = intent(effect);
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
-    expect(result.state).toEqual(before);
+    expect({ ...result.state, occurrences: [] }).toEqual(before);
+    expect(result.state.occurrences.map((row) => row.kind)).toEqual(['ability-used', 'targeted']);
     const directive = result.log.find((entry) => entry.kind === 'table-directive');
     expect(directive?.message).toBe(effect.sourceText);
     expect(directive?.data.manualEffect).toEqual({
@@ -215,7 +216,8 @@ describe('compiled Effect execution', () => {
     } as Intent;
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
-    expect(result.state).toEqual(before);
+    expect({ ...result.state, occurrences: [] }).toEqual(before);
+    expect(result.state.occurrences.map((row) => row.kind)).toEqual(['ability-used']);
     expect(result.log.find((entry) => entry.kind === 'table-directive')?.message).toBe(
       effect.sourceText,
     );
@@ -234,6 +236,7 @@ describe('compiled Effect execution', () => {
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
     expect(result.state).toEqual(before);
+    expect(result.state.occurrences).toEqual([]);
     expect(result.log[0]?.kind).toBe('refusal');
     expect(checkInvariants(before, dispatched, result)).toEqual([]);
   });
@@ -390,7 +393,8 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
     });
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
-    expect(result.state).toEqual(before);
+    expect({ ...result.state, occurrences: [] }).toEqual(before);
+    expect(result.state.occurrences.map((row) => row.kind)).toEqual(['ability-used']);
     const auto = result.log.find((entry) => entry.data.objectTestTier1 !== undefined);
     expect(auto?.canonRefs).toContain('mcdm.heroes.v1/rule.combat/target');
     const directive = result.log.find((entry) => entry.data.testTierDirective !== undefined);

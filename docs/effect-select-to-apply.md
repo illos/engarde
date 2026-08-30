@@ -1,8 +1,5 @@
 # Select-to-apply — a third disposition for Effect directives (2026-08-29)
 
-> Drafted by Claude Opus 5; no second-model read yet — see
-> [`authorship.md`](authorship.md).
-
 ## Where this came from
 
 The first 100 lines of the unreviewed 660 (the movement chunk, where 130 of
@@ -35,9 +32,13 @@ All 93 returned payload hashes verified byte-exact against the served cards;
 
 ## The shape
 
-Every one of the 8 has the same structure: **a positional predicate selects a
-set, and a fully-specified mechanical payload applies to that set.** The engine
-knows exactly WHAT to do and cannot know WHO to do it to. Verbatim:
+The 8 share one disposition, not one implementation shape: **the table must
+select participants before the engine can apply the engine-owned remainder.**
+Their payloads are heterogeneous. They include direct damage, temporary or
+ordinary Stamina, forced movement, teleport/shift/fly, an additional strike,
+condition application, aura reset, and effects whose amount depends on which
+targets actually moved. The engine knows at least part of WHAT to do but cannot
+derive WHO satisfies the positional clauses. Verbatim examples:
 
 > "The dragon expels blistering steam, dealing 7 fire damage to each target in
 > the area." — Crucible Dragon, Thermodynamic Flight
@@ -52,9 +53,10 @@ knows exactly WHAT to do and cannot know WHO to do it to. Verbatim:
 > temporary Stamina for each target pulled." — Thorn Dragon, Investiture of
 > Verdure
 
-The payload is exact (7 fire damage, 5 temporary Stamina, 10 Stamina) or
-derived from something the engine holds (a characteristic score, a count of the
-selected set). Only the set is unknowable.
+Some payloads are exact (7 fire damage, 5 temporary Stamina, 10 Stamina). Others
+need existing ability execution, potency checks, selected-target counts, or a
+follow-on asserted fact. Only target selection is common across all eight; they
+must not be estimated or shipped as one uniform already-supported build slice.
 
 ## Why this is not new engine substrate
 
@@ -78,9 +80,10 @@ What is missing is two things, neither of them a rules mechanism:
 
 That matters for planning. Every other candidate in this programme was an
 execution-VM problem — control flow, lifetimes, subscriptions, predicate
-evaluation (see `effect-prose-analysis.md` §10 and the manual audit). This one
-is bounded, needs no new rules mechanism, and rides substrate that already
-ships.
+evaluation (see `effect-prose-analysis.md` §10 and the manual audit). The
+disposition is bounded and needs no geometry rules mechanism. Individual cards
+can still need compiler or runtime work beyond the shared host selection
+protocol, and must be implemented and tested by their actual payload shape.
 
 ## Consequences
 

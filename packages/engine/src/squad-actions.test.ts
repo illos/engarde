@@ -3,7 +3,14 @@ import { applyIntent } from './apply-intent.js';
 import { createSeededRandomSource } from './determinism.js';
 import { checkInvariants } from './invariants.js';
 import { upgradeEncounterState } from './migrate.js';
-import type { EncounterState, Intent, ParticipantStats, SquadAbilityData } from './schemas.js';
+import { hashPayload } from './payload-hash.js';
+import {
+  type EncounterState,
+  type Intent,
+  type ParticipantStats,
+  type SquadAbilityData,
+  SquadSignatureAttackPayloadSchema,
+} from './schemas.js';
 
 const BASE_STATS: ParticipantStats = {
   staminaMax: 3,
@@ -59,6 +66,7 @@ const SPIT: SquadAbilityData = {
     },
   },
   effectLines: [],
+  effectPrograms: [],
 };
 
 function stateWithBenefit(benefit: ParticipantStats['withCaptainBenefit'] = null): EncounterState {
@@ -509,17 +517,22 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     expect(resisted.log.find((row) => row.data.potency)?.message).toContain('resisted');
   });
 
-  it("surfaces the ability's printed Effect line as a directive, once per resolution", () => {
-    // Regression: compileSquadAbilities lifts only power-roll tiers, so an
-    // ability's `**Effect:**` clause parsed, passed grammar conservation,
-    // and then vanished — Bugbear Snare's automatic grab among them.
+  it('refuses an unclassified trailing Effect before debit or dice', () => {
+    const sourceText =
+      '**Effect:** If the snare started their turn hidden from the target, the target is automatically grabbed.';
     const withEffect: SquadAbilityData = {
       ...SPIT,
-      effectLines: [
-        '**Effect:** If the snare started their turn hidden from the target, the target is automatically grabbed.',
-      ],
+      effectLines: [sourceText],
     };
-    const result = dispatch(stateWithBenefit(), {
+    let before = inCombat(stateWithBenefit());
+    before = dispatch(before, {
+      intentId: 'opaque-effect-turn',
+      kind: 'start-turn',
+      actor: { kind: 'director' },
+      payload: { turnId: 'pitlings' },
+    }).state;
+    let draws = 0;
+    const intent: Intent = {
       intentId: 'effect-line',
       kind: 'squad-signature-attack',
       actor: { kind: 'director' },
@@ -530,18 +543,295 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
           { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
           { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
         ],
-        dice: [6, 6],
+      },
+    };
+    const result = applyIntent(before, intent, {
+      random: {
+        next: () => 0.5,
+        roll: () => {
+          draws += 1;
+          return 5;
+        },
       },
     });
-    const directives = result.log.filter(
-      (row) => row.data.squadAbilityEffectDirective !== undefined,
-    );
-    expect(directives).toHaveLength(1);
-    expect(directives[0]?.kind).toBe('table-directive');
-    expect(directives[0]?.message).toContain('automatically grabbed');
-    expect(directives[0]?.data.squadAbilityEffectDirective).toMatchObject({
-      targetIds: ['shadow', 'conduit'],
+    expect(checkInvariants(before, intent, result)).toEqual([]);
+    expect(result.state).toBe(before);
+    expect(draws).toBe(0);
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.log[0]?.message).toContain('without a one-to-one trusted causal phase');
+    expect(result.log[0]?.message).toContain(sourceText);
+  });
+
+  it("applies Angulotl Dart's injured-target edge before resolving each target's tier", () => {
+    const sourceText =
+      '**Effect:** The dart gains an [edge](scc.v1:mcdm.heroes.v1/rule.dice/edge) on this ability against any target who has less than full [Stamina](scc.v1:mcdm.heroes.v1/rule.health/stamina).';
+    const ability: SquadAbilityData = {
+      ...SPIT,
+      abilityArtifactId: 'mcdm.monsters.v1/monster.angulotl.statblock/angulotl-dart#poison-dart',
+      effectLines: [sourceText],
+      effectPrograms: [
+        {
+          kind: 'target-edge-if-stamina-below-max',
+          phase: 'pre-roll',
+          sourceText,
+          canonRefs: ['mcdm.heroes.v1/rule.dice/edge', 'mcdm.heroes.v1/rule.health/stamina'],
+        },
+      ],
+    };
+    const before = stateWithBenefit();
+    const shadow = before.participants.shadow;
+    if (!shadow?.stamina) throw new Error('fixture');
+    before.participants.shadow = {
+      ...shadow,
+      stamina: { ...shadow.stamina, current: shadow.stamina.current - 1 },
+    };
+    const result = dispatch(before, {
+      intentId: 'angulotl-dart-edge',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability,
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
+          { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
+        ],
+        dice: [5, 5],
+      },
     });
+    expect(result.state.participants.shadow?.stamina?.current).toBe(15); // wounded + tier 2
+    expect(result.state.participants.conduit?.stamina?.current).toBe(18); // full + tier 1
+    expect(result.log.find((row) => row.data.powerRoll)?.data.powerRoll).toMatchObject({
+      perTarget: {
+        shadow: { edges: 1, resolution: { tier: 2 } },
+        conduit: { edges: 0, resolution: { tier: 1 } },
+      },
+      perTargetDerivedModifiers: {
+        shadow: [{ sourceText, edges: 1, banes: 0 }],
+      },
+    });
+    expect(result.log.some((row) => row.data.squadAbilityEffectDirective !== undefined)).toBe(
+      false,
+    );
+  });
+
+  it('refuses before debit or dice when a pre-roll Effect predicate is untracked', () => {
+    const sourceText =
+      '**Effect:** The dart gains an [edge](scc.v1:mcdm.heroes.v1/rule.dice/edge) on this ability against any target who has less than full [Stamina](scc.v1:mcdm.heroes.v1/rule.health/stamina).';
+    const ability: SquadAbilityData = {
+      ...SPIT,
+      abilityArtifactId: 'mcdm.monsters.v1/monster.angulotl.statblock/angulotl-dart#poison-dart',
+      effectLines: [sourceText],
+      effectPrograms: [
+        {
+          kind: 'target-edge-if-stamina-below-max',
+          phase: 'pre-roll',
+          sourceText,
+          canonRefs: ['mcdm.heroes.v1/rule.dice/edge', 'mcdm.heroes.v1/rule.health/stamina'],
+        },
+      ],
+    };
+    let before = inCombat(stateWithBenefit());
+    before = dispatch(before, {
+      intentId: 'untracked-stamina-turn',
+      kind: 'start-turn',
+      actor: { kind: 'director' },
+      payload: { turnId: 'pitlings' },
+    }).state;
+    const shadow = before.participants.shadow;
+    if (!shadow) throw new Error('fixture');
+    before.participants.shadow = { ...shadow, stats: null, stamina: null };
+    let draws = 0;
+    const intent: Intent = {
+      intentId: 'untracked-stamina-edge',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability,
+        participation: [{ targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] }],
+      },
+    };
+    const result = applyIntent(before, intent, {
+      random: {
+        next: () => 0.5,
+        roll: () => {
+          draws += 1;
+          return 5;
+        },
+      },
+    });
+    expect(checkInvariants(before, intent, result)).toEqual([]);
+    expect(result.state).toBe(before);
+    expect(draws).toBe(0);
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.log[0]?.message).toContain('resolve this pre-roll modifier at the table');
+    expect(result.log.some((row) => row.data.powerRoll !== undefined)).toBe(false);
+    expect(result.state.participants['pit-1']?.actionBudget).toEqual(
+      before.participants['pit-1']?.actionBudget,
+    );
+  });
+
+  it('adds a condition-gated trailing Effect during damage, before tier riders', () => {
+    const conditionId = 'mcdm.heroes.v1/condition/restrained';
+    const sourceText =
+      '**Effect:** If the target is [restrained](scc.v1:mcdm.heroes.v1/condition/restrained), they take an extra 2 damage.';
+    const ability: SquadAbilityData = {
+      ...SPIT,
+      abilityArtifactId: 'mcdm.monsters.v1/monster.dwarf.statblock/dwarf-catchpole#catchpole',
+      effectLines: [sourceText],
+      effectPrograms: [
+        {
+          kind: 'extra-damage-if-target-has-condition',
+          phase: 'damage',
+          sourceText,
+          canonRefs: [conditionId],
+          conditionId,
+          amount: 2,
+        },
+      ],
+    };
+    const before = stateWithBenefit();
+    const shadow = before.participants.shadow;
+    if (!shadow) throw new Error('fixture');
+    before.participants.shadow = {
+      ...shadow,
+      conditions: [
+        {
+          instanceId: 'restrained#fixture',
+          conditionId,
+          ending: { kind: 'external' },
+          source: { participantId: 'pit-3', effectArtifactId: 'fixture/restrain' },
+        },
+      ],
+    };
+    const result = dispatch(before, {
+      intentId: 'catchpole-extra-damage',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload: {
+        squadId: 'pitlings',
+        ability,
+        participation: [
+          { targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] },
+          { targetId: 'conduit', instanceOwner: 'pit-2', memberIds: ['pit-2'] },
+        ],
+        dice: [5, 5],
+      },
+    });
+    expect(result.state.participants.shadow?.stamina?.current).toBe(16);
+    expect(result.state.participants.conduit?.stamina?.current).toBe(18);
+    expect(result.log).toContainEqual(
+      expect.objectContaining({
+        data: {
+          squadAbilityEffectApplied: expect.objectContaining({
+            phase: 'damage',
+            targetId: 'shadow',
+            extraDamage: 2,
+          }),
+        },
+      }),
+    );
+  });
+
+  function historicalHeldSquadResolution(): {
+    state: EncounterState;
+    payload: ReturnType<typeof SquadSignatureAttackPayloadSchema.parse>;
+    historicalHash: string;
+  } {
+    let state = inCombat(stateWithBenefit());
+    state = dispatch(state, {
+      intentId: 'historical-turn',
+      kind: 'start-turn',
+      actor: { kind: 'director' },
+      payload: { turnId: 'pitlings' },
+    }).state;
+    const payload = SquadSignatureAttackPayloadSchema.parse({
+      squadId: 'pitlings',
+      ability: SPIT,
+      participation: [{ targetId: 'shadow', instanceOwner: 'pit-1', memberIds: ['pit-1'] }],
+      dice: [5, 5],
+    });
+    const rolled = dispatch(state, {
+      intentId: 'historical-held-squad',
+      kind: 'squad-signature-attack',
+      actor: { kind: 'director' },
+      payload,
+    }).state;
+    const historicalAbility: Record<string, unknown> = { ...payload.ability };
+    historicalAbility.effectLines = undefined;
+    historicalAbility.effectPrograms = undefined;
+    const historicalWirePayload = { ...payload, ability: historicalAbility };
+    const historicalHash = hashPayload(historicalWirePayload);
+    expect(historicalHash).toBe('831abb93056c40caf1036df2841f82fac64232b64350f5e7992d93f92a2d412e');
+    const resolutionStack = rolled.resolutionStack.map((entry) => {
+      if (entry.resolutionId !== 'historical-held-squad') return entry;
+      const historicalEntry: Record<string, unknown> = {
+        ...entry,
+        payloadHash: historicalHash,
+      };
+      historicalEntry.declarationHash = undefined;
+      historicalEntry.rollTargets = undefined;
+      return historicalEntry;
+    });
+    // Literal v6 wire shape: f9075a1 predates both occurrence-ledger v7 and
+    // declared-resolution v8. Upgrade must preserve the open outcome.
+    const historicalState = upgradeEncounterState({
+      ...rolled,
+      schemaVersion: 6,
+      resolutionStack,
+      occurrences: undefined,
+    });
+    return { state: historicalState, payload, historicalHash };
+  }
+
+  it('commits a pre-f9075a1 held squad payload whose hash omitted effectLines', () => {
+    const fixture = historicalHeldSquadResolution();
+    const committed = dispatch(fixture.state, {
+      intentId: 'commit-historical-squad',
+      kind: 'commit-resolution',
+      actor: { kind: 'director' },
+      payload: { resolutionId: 'historical-held-squad', payload: fixture.payload },
+    });
+    expect(committed.state.participants.shadow?.stamina?.current).toBe(18);
+    expect(committed.state.resolutionStack[0]?.phase).toBe('committed');
+    expect(committed.log).toContainEqual(
+      expect.objectContaining({
+        data: {
+          historicalPayloadHashCompatibility: expect.objectContaining({
+            storedHash: fixture.historicalHash,
+            omitted: ['SquadAbilityData.effectLines', 'SquadAbilityData.effectPrograms'],
+          }),
+        },
+      }),
+    );
+  });
+
+  it('force-commits the same pre-f9075a1 held payload at squad end-turn', () => {
+    const fixture = historicalHeldSquadResolution();
+    const ended = dispatch(fixture.state, {
+      intentId: 'end-historical-squad-turn',
+      kind: 'end-turn',
+      actor: { kind: 'director' },
+      payload: {
+        participantId: 'pitlings',
+        commitPayloads: { 'historical-held-squad': fixture.payload },
+      },
+    });
+    expect(ended.state.participants.shadow?.stamina?.current).toBe(18);
+    expect(ended.state.resolutionStack[0]?.phase).toBe('committed');
+    expect(ended.log).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          resolutionCommitted: expect.objectContaining({
+            resolutionId: 'historical-held-squad',
+            forced: true,
+          }),
+        }),
+      }),
+    );
   });
 
   it('moves Stamina benefits with the pool and auto-detaches a dead captain', () => {

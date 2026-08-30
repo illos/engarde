@@ -58,8 +58,10 @@ a skill-bonus constant (character-builder substrate dispatched from the wrong
 direction); a `moved` occurrence arm (named, flagged, deferred until a reaction
 actually keys off movement); and **any answer to the printed silences in §6** —
 those go to the user as canon rulings and none is answered here. It also does
-not ship Hide's or Search's mechanical half until the `chapter/tests` pipeline
-gap closes, because those artifacts are not pinned.
+not ship Hide's reveal sweep until W0-c settles the occurrence mapping, and it
+does not claim Hide is maintainable until §7's asserted-fact staleness decision
+is made. The Assist, Hiding, and Searching sections are already pinned;
+provenance is not a blocker for waves 9–11.
 
 **The defect this slice exists to prevent.** Individually the 17 specs are
 substrate-honest — nine state outright that they need no action-specific
@@ -182,7 +184,7 @@ Breath appears in **zero** engine files). They are pulled into **wave 4**.
 
 | Wave | Ships | Unblocks |
 |---|---|---|
-| **0** | — | 4 rulings + 1 pipeline fix to the user. W0-a blocks W9–W11; W0-b blocks W12; W0-c blocks Hide's sweep; W0-d precedes W8. W1–W7 proceed in parallel. |
+| **0** | — | 3 shape rulings to the user. W0-b blocks W12; W0-c blocks Hide's sweep; W0-d precedes W8. W1–W11 can otherwise proceed in dependency order; W0-a is struck. |
 | **1** | — | **S2 + S3 in one commit.** Nothing dispatches without it. |
 | **2** | — | **S1.** Collapses four dispatch surfaces to one. Unblocks all 17 arms. |
 | **3** | — | **S4 + S5 + S14.** All three become unbuildable-once the moment a second arm exists. |
@@ -191,9 +193,9 @@ Breath appears in **zero** engine files). They are pulled into **wave 4**.
 | **6** | **Stand Up** | S12 + S11. Unblocks Heal branch B, Escape Grab's top tier, and 13 corpus files. |
 | **7** | **Heal** | S10. Unblocks the 232-file save-ends corpus family. |
 | **8** | **Defend → Aid Attack** | **The grant substrate as ONE commit:** S6 + S7 + S8. Defend with a null anchor; Aid Attack proves consumer + anchor. Then the **six unimplemented printed conditions land as pure data rows** — the largest single yield in the slice, and the test that the substrate is done. Requires W0-d. |
-| **9** | **Make or Assist a Test** | S9 + S20. Unblocks montage, group tests, downtime, negotiation. Assist half blocked on W0-a; the *make* half can ship. |
-| **10** | **Hide** | S18 + S17 + the three spatial members. Blocked on W0-a; sweep additionally on W0-c; whole action gated on the staleness decision (§7). |
-| **11** | **Search for Hidden Creatures** | S19. Blocked on W0-a and on W10 — Search is the eraser, Hide the writer. |
+| **9** | **Make or Assist a Test** | S9 + S20. Unblocks montage, group tests, downtime, negotiation. Both halves use pinned chapter artifacts. |
+| **10** | **Hide** | S18 + S17 + the three spatial members. Sweep is blocked on W0-c; whole action is gated on the staleness decision (§7), not provenance. |
+| **11** | **Search for Hidden Creatures** | S19. Blocked on W10 — Search is the eraser, Hide the writer. Its source section is pinned. |
 | **12** | **Grab → Escape Grab** | S13 + the two grammar extensions + the concurrency cap. Requires W0-b. Retroactively upgrades Knockback's size gate and grabbed's speed clause from asserted to engine-known. |
 | **13** | **Use Consumable** | Nothing. Rides S1 + S3, hands off via `partOf`; the charge ledger is campaign-layer. Ships last on purpose. |
 | **14** | — | S16, deferred until a reaction actually keys off movement. |
@@ -531,13 +533,13 @@ is marked **ONE ruling**.
   window becomes up to a round-and-a-bit. Intended? [S9]
 - Does it apply to an allied **minion squad's** attack roll? [S10]
 
-### 6.10 Hide and Search — pipeline-blocked first
+### 6.10 Hide and Search — pinned; rule boundaries remain
 
-- **§Assist a Test, §Hiding and §Searching for Hidden Creatures are not pinned
-  artifacts.** Every mechanical claim in three specs quotes a source the pipeline
-  does not carry as a versioned artifact. Either those sections become artifacts
-  with a `versionSha256`, or those halves are documented forward deps.
-  [Make-or-Assist S1, Hide (implicit), Search S1 — **ONE fix**]
+- **Provenance is closed.** §Assist a Test, §Hiding, §Hide and Sneak, and
+  §Searching for Hidden Creatures are pinned, versioned artifacts in
+  `heroes--tests.bundle.json` (exact ids and hashes in the Lead Correction).
+  Waves 9–11 have no pipeline blocker; the remaining questions below are rule
+  and state-lifecycle boundaries.
 - The **printed-word-to-occurrence mapping** for *"If you use an ability."*
   [Hide 3, Search S9, Make-or-Assist S12 — **ONE ruling; blocks Hide's sweep**]
 - Is **one Hide dispatch one observer or all** of them? One quote is plural, the
@@ -769,11 +771,10 @@ is marked **ONE ruling**.
 
 ## 7. Risks and blocked items
 
-**Blocked — pipeline, not engineering.** Three of the 17 quote chapter sections
-that are **not pinned artifacts**. Waves 9–11 cannot ship their mechanical halves
-until those sections become versioned artifacts, or are documented forward deps.
-This is the largest gate in the slice and it is not fixable inside
-`packages/engine`.
+**Closed — chapter provenance.** The three chapter sections used by waves 9–11
+are pinned in `heroes--tests.bundle.json`. They require no alternate source path
+and impose no pipeline gate. The remaining blockers are W0-c, W10's writer/eraser
+dependency, and Hide's maintenance decision below.
 
 **Blocked on a user decision, not a rule — Hide maintenance.** The printed ending
 is a **continuously evaluated** geometric predicate; asserted facts are

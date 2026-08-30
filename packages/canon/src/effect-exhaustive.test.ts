@@ -365,7 +365,17 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
             checkInvariants(objectBefore, objectIntent, objectResult),
             fixture.fixtureId,
           ).toEqual([]);
-          expect(objectResult.state, fixture.fixtureId).toEqual(objectBefore);
+          expect({ ...objectResult.state, occurrences: [] }, fixture.fixtureId).toEqual(
+            objectBefore,
+          );
+          expect(objectResult.state.occurrences, fixture.fixtureId).toEqual([
+            expect.objectContaining({
+              kind: 'ability-used',
+              actorId: 'actor',
+              abilityArtifactId: fixture.artifactId,
+              resolutionId: null,
+            }),
+          ]);
           const directive = objectResult.log.find(
             (entry) => entry.data.testTierDirective !== undefined,
           );
@@ -441,7 +451,22 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
       }
       if (!expectation) {
         expect(fixture.program.resolution, fixture.fixtureId).toEqual({ kind: 'table' });
-        expect(result.state, fixture.fixtureId).toEqual(before);
+        expect({ ...result.state, occurrences: [] }, fixture.fixtureId).toEqual(before);
+        expect(result.state.occurrences, fixture.fixtureId).toEqual([
+          expect.objectContaining({
+            kind: 'ability-used',
+            actorId: 'actor',
+            abilityArtifactId: fixture.artifactId,
+            resolutionId: null,
+          }),
+          expect.objectContaining({
+            kind: 'targeted',
+            participantId: 'target',
+            actorId: 'actor',
+            abilityArtifactId: fixture.artifactId,
+            resolutionId: null,
+          }),
+        ]);
         const directive = result.log.find((entry) => entry.data.manualEffect !== undefined);
         expect(directive?.message, fixture.fixtureId).toBe(fixture.program.sourceText);
         continue;

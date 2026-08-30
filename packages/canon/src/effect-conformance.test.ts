@@ -348,5 +348,40 @@ describe.skipIf(!sourceRoot)(
       expect(compiled.abilities[0]?.effectLines).toHaveLength(1);
       expect(compiled.abilities[0]?.effectLines[0]).toContain('size');
     });
+
+    it("assigns Angulotl Dart's injured-target edge to the pre-roll phase", async () => {
+      const text = await ingestText(
+        'en/books/monsters/md/monster/angulotl/statblock/angulotl-dart.md',
+      );
+      const compiled = compileSquadAbilities(parseEffectText(text), 'x/angulotl-dart');
+      const signature = compiled.abilities.find((ability) =>
+        ability.abilityArtifactId.includes('poison-dart'),
+      );
+      expect(signature?.effectPrograms).toEqual([
+        expect.objectContaining({
+          kind: 'target-edge-if-stamina-below-max',
+          phase: 'pre-roll',
+          canonRefs: ['mcdm.heroes.v1/rule.dice/edge', 'mcdm.heroes.v1/rule.health/stamina'],
+        }),
+      ]);
+    });
+
+    it("assigns Dwarf Catchpole's restrained-target bonus to the damage phase", async () => {
+      const text = await ingestText(
+        'en/books/monsters/md/monster/dwarf/statblock/dwarf-catchpole.md',
+      );
+      const compiled = compileSquadAbilities(parseEffectText(text), 'x/dwarf-catchpole');
+      const signature = compiled.abilities.find((ability) =>
+        ability.abilityArtifactId.includes('maul'),
+      );
+      expect(signature?.effectPrograms).toEqual([
+        expect.objectContaining({
+          kind: 'extra-damage-if-target-has-condition',
+          phase: 'damage',
+          conditionId: 'mcdm.heroes.v1/condition/restrained',
+          amount: 2,
+        }),
+      ]);
+    });
   },
 );

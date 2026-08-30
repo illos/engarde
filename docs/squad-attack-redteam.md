@@ -122,14 +122,15 @@ speed, or additional Stamina" (Monsters p.9).
 
 | # | Severity | Finding | Disposition |
 |---|---|---|---|
-| A1 | blocker / human verdict | R-0036 assumed both Grab and Knockback could resolve through compiled common artifacts. The bounded attempt proves Knockback's `Push 1/2/3` is closed, but Grab tier 2 interleaves a target free strike before the grab; compiling it would fabricate reaction ordering | Knockback compiled narrowly. Grab stays an exact directive. A no-default amendment review artifact is prepared and export-gated on a human choice; this is the only remaining verdict blocker |
+| A1 | closed by accepted amendment | R-0036 assumed both Grab and Knockback could resolve through compiled common artifacts. The bounded attempt proved Knockback's `Push 1/2/3` closed, while Grab tier 2 interleaves a target free strike before the grab. | The 2026-08-28 amendment was accepted: Grab resolves sequentially. It remains an exact directive until hero free-strike mechanics ship; no human verdict is pending. |
 | A2 | important | The first directive implementation returned before the action-economy path, so Grab/Hide/Search participants did not spend their maneuvers in combat | Fixed: validate the ordered participation, debit every unique participating member through `debitActionCost`, then emit the directive. Focused invariant test added |
 | A3 | important | Member-held outbound grants were correctly consumed and narrowed per target, but the aggregate `powerRoll.grantsConsumed` receipt listed only ordinary actor-held grants | Fixed: the shared roll pipeline records every member holder/contribution while retaining per-target pools. Two-target edge/bane golden proves different tiers from one dice pair |
 | A4 | important | Squad signature damage type/characteristic binding could fail only during commit, after the roll/debit dispatch, instead of sharing ordinary abilities' pre-debit structural refusal posture | Fixed: all automatic tier damage packets and offered type choices prevalidate against the instance owner before any debit or grant consumption |
 | A5 | coverage | The first Table picker represented one participation row even though backend/CLI and engine supported ordered multi-target rows | Fixed: target rows can be queued, inspected/removed, and are dispatched in presentation order with their own instance owner and members |
 
 Re-audit verdict: **GO for the implemented R-0034/R-0035/R-0037/R-0038/R-0039
-surface and bounded Knockback. R-0036 Grab remains HUMAN-AMENDMENT-BLOCKED**, not
-an engine defect and not silently counted as compiled. The inherited
+surface and bounded Knockback.** R-0036's amendment is accepted; Grab remains
+**implementation-deferred behind hero free-strike mechanics**, not silently
+counted as compiled. The inherited
 squad-owned bleeding qualifier remains a declared latent because squads carry
 no conditions at this schema; revisit only if squad actors gain condition state.

@@ -6,7 +6,6 @@ import { ingestStructuredRecord } from './extract.js';
 import { DEVIL_ADJUDICATOR } from './fixtures/devil-adjudicator.verbatim.js';
 import { GOBLIN_SPINECLEAVER } from './fixtures/goblin-spinecleaver.verbatim.js';
 import { GOBLIN_WARRIOR } from './fixtures/goblin-warrior.verbatim.js';
-import { SKITTERLING } from './fixtures/skitterling.verbatim.js';
 import { createPlaySession } from './play.js';
 
 /**
@@ -113,33 +112,44 @@ describe('play session shell mechanics', () => {
   });
 
   it('runs squadattack and squadfs through the thin CLI skin', () => {
-    const skitterlingStats = ParticipantStatsSchema.parse(JSON.parse(SKITTERLING.statsJson));
+    // Use the source-grounded spinecleaver ability here: it has no opaque
+    // trailing Effect, so this smoke test exercises the successful CLI path.
+    // Opaque Effects are separately required to refuse before debit/dice.
+    const spinecleaverStats = ParticipantStatsSchema.parse(
+      JSON.parse(GOBLIN_SPINECLEAVER.statsJson),
+    );
     const warriorStats = ParticipantStatsSchema.parse(JSON.parse(GOBLIN_WARRIOR.statsJson));
     const session = createPlaySession({
       actors: [
-        ...['sk1', 'sk2', 'sk3', 'sk4'].map((id) => ({
+        ...['sc1', 'sc2', 'sc3', 'sc4'].map((id) => ({
           id,
-          recordId: SKITTERLING.artifactId,
-          stats: skitterlingStats,
+          recordId: GOBLIN_SPINECLEAVER.artifactId,
+          stats: spinecleaverStats,
         })),
         { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId, stats: warriorStats },
       ],
       records: new Map([
-        [SKITTERLING.artifactId, SKITTERLING.text],
+        [GOBLIN_SPINECLEAVER.artifactId, GOBLIN_SPINECLEAVER.text],
         [GOBLIN_WARRIOR.artifactId, GOBLIN_WARRIOR.text],
       ]),
       squads: [
-        { squadId: 'squad-sk', name: 'skitterlings', memberIds: ['sk1', 'sk2', 'sk3', 'sk4'] },
+        {
+          squadId: 'squad-sc',
+          name: 'spinecleavers',
+          memberIds: ['sc1', 'sc2', 'sc3', 'sc4'],
+        },
       ],
     });
     const attack = session.execute(
-      'squadattack skitterling claws squad-sk warrior:sk1:sk1+sk2 dice 5,5',
+      'squadattack spinecleaver axe squad-sc warrior:sc1:sc1+sc2 dice 5,5',
     ).output;
-    expect(attack).toContain("squad-sk's one-roll squad outcome resolves");
-    expect(session.execute('status').output).toContain('stamina 12/15');
-    const freeStrike = session.execute('squadfs squad-sk warrior sk3,sk4').output;
+    expect(attack).toContain("squad-sc's one-roll squad outcome resolves");
+    // Axe's damage+Push tier is conserved as residue, so the one-roll path
+    // opens/resolves successfully but leaves the packet for the table.
+    expect(session.execute('status').output).toContain('stamina 15/15');
+    const freeStrike = session.execute('squadfs squad-sc warrior sc3,sc4').output;
     expect(freeStrike).toContain('combines 2 free-strike contribution');
-    expect(session.execute('status').output).toContain('stamina 10/15');
+    expect(session.execute('status').output).toContain('stamina 11/15');
     expect(session.transcript().violationCount).toBe(0);
   });
 

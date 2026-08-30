@@ -29,6 +29,9 @@ build/
 # test coverage
 coverage/
 
+# python bytecode (tools/)
+__pycache__/
+
 # local corpus extraction work products
 .artifacts/
 

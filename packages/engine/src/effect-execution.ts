@@ -36,6 +36,7 @@ import type {
   ParticipantState,
   TestTier,
 } from './schemas.js';
+import { nonrollingAbilityApplicationClaim } from './schemas.js';
 
 /** Canon grounding for recorded terrain facts [R-0022]. */
 export const TERRAIN_CANON = {
@@ -94,6 +95,15 @@ function receipt(intent: UseEffectIntent): Record<string, unknown> {
       resolutionKind: intent.payload.effect.resolution.kind,
       targets: intent.payload.targets,
     },
+    ...(intent.payload.partOf === undefined
+      ? {
+          nonrollingAbilityApplication: nonrollingAbilityApplicationClaim({
+            actorId: intent.payload.actorParticipantId,
+            abilityArtifactId: intent.payload.effect.effectArtifactId,
+            targetIds: intent.payload.targets,
+          }),
+        }
+      : {}),
   };
 }
 

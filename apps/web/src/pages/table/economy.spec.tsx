@@ -773,6 +773,27 @@ describe('ResolutionsSection', () => {
       asParticipantId: 'fury',
     });
   });
+
+  test('a declared card exposes no post-roll Downgrade control', () => {
+    setScene({
+      ...combatView,
+      participants: [fury, monarch],
+      squads: [],
+      resolutions: [
+        {
+          ...resolution,
+          phase: 'declared' as const,
+          declaredTargets: ['goblin-monarch'],
+          roll: null,
+        },
+      ],
+    });
+    render(<EncounterPanel campaignId={campaignId} />);
+    expect(screen.getByText(/declared against goblin-monarch · roll pending/)).toBeTruthy();
+    expect(screen.queryByText('Downgrade')).toBeNull();
+    expect(screen.queryByLabelText('Downgrade tier for d7-blood-for-blood')).toBeNull();
+    expect((screen.getByText('Commit') as HTMLButtonElement).disabled).toBe(true);
+  });
 });
 
 describe('hold toggle [R-0032]', () => {

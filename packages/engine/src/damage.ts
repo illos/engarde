@@ -603,6 +603,7 @@ export function applySquadDamage(
         [MINION_CANON.droppingOne],
         {
           squadDeaths: [{ squadId: squad.squadId, memberId }],
+          healthTransitions: [{ participantId: memberId, squadId: squad.squadId, kind: 'died' }],
           zeroStaminaTrigger: {
             participantId: memberId,
             squadId: squad.squadId,
@@ -672,6 +673,15 @@ export function applySquadDamage(
             squadId: squad.squadId,
             ruling: 'R-0027',
           },
+          healthTransitions: [
+            {
+              participantId: null,
+              squadId: squad.squadId,
+              kind: 'died',
+              pending: true,
+              count: remaining,
+            },
+          ],
         },
       ),
     );

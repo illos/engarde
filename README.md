@@ -22,15 +22,31 @@ Production home: [en-garde.app](https://en-garde.app) (deployment pending).
 
 ## Development
 
-Requires Node 24+ and pnpm 9.
+Requires Node 24+, pnpm 9, and Python 3.11+ for the deterministic tooling gates
+(CI pins Python 3.13).
 
 ```sh
 pnpm install
 pnpm dev        # player UI :5173 + control center :5174 + Convex backend
-pnpm test       # vitest across all workspaces
+pnpm test       # deterministic Python tools + vitest across all workspaces
 pnpm typecheck
 pnpm lint
 ```
+
+The gitignored common-action review artifacts have named, reproducible commands:
+
+```sh
+pnpm common-actions:build
+pnpm common-actions:verify-quotes
+pnpm common-actions:surface
+pnpm corpus-map:build
+```
+
+The quote command is a certification gate: any missing or non-verbatim fragment
+returns a nonzero exit. Transport normalization and the accepted pinned bundles
+mechanically reduced the original 198-fragment audit to a frozen residual of
+109 fragments across 64 claims. The build command removes those qids from the
+settled and valid-user exports; quote certification deliberately remains red.
 
 ### Authentication environment
 

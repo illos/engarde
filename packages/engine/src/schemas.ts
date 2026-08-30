@@ -606,6 +606,20 @@ export const RollReceiptSchema = z.object({
       }),
     )
     .default([]),
+  /** Persistent per-target data-derived modifiers (for example, Angulotl
+   * Dart's edge against a target below maximum Stamina). */
+  perTargetDerivedModifiers: z
+    .record(
+      ParticipantIdSchema,
+      z.array(
+        z.object({
+          sourceText: z.string().min(1),
+          edges: z.number().int().min(0),
+          banes: z.number().int().min(0),
+        }),
+      ),
+    )
+    .default({}),
 });
 export type RollReceipt = z.infer<typeof RollReceiptSchema>;
 
@@ -820,6 +834,25 @@ export function resolutionOpenedClaim(entry: ResolutionEntry): Record<string, un
 }
 
 /**
+ * The ONE claim for an ability application that does not open a resolution
+ * entry. `use-effect` and the asserted-band apply intents emit this only for
+ * the primary dispatch of a composed use; child dispatches carrying `partOf`
+ * are effects of the same use, not additional uses [R-0040].
+ */
+export function nonrollingAbilityApplicationClaim(input: {
+  actorId: string;
+  abilityArtifactId: string;
+  targetIds: readonly string[];
+}): Record<string, unknown> {
+  return {
+    actorId: input.actorId,
+    abilityArtifactId: input.abilityArtifactId,
+    targetIds: [...input.targetIds],
+    resolutionId: null,
+  };
+}
+
+/**
  * The events a printed Trigger can condition on [R-0040]. Every arm is
  * derived from a machine-readable claim the engine already emits — see
  * `deriveOccurrences` in occurrences.ts, which is the ONE home. Nothing
@@ -880,7 +913,11 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     occurrenceId: z.string().min(1),
     intentId: z.string().min(1),
     round: z.number().int().positive().nullable(),
-    participantId: ParticipantIdSchema,
+    /** Pending squad deaths are real before the table supplies the nearest
+     * victim's identity [R-0024/R-0040]. */
+    participantId: ParticipantIdSchema.nullable(),
+    squadId: z.string().min(1).nullable().default(null),
+    pendingIdentity: z.boolean().default(false),
     transition: z.enum([
       'winded',
       'no-longer-winded',
@@ -897,7 +934,8 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     round: z.number().int().positive().nullable(),
     actorId: z.string().min(1),
     abilityArtifactId: z.string().min(1),
-    resolutionId: z.string().min(1),
+    /** Null for a nonrolling application, which opens no stack entry. */
+    resolutionId: z.string().min(1).nullable(),
   }),
   z.object({
     kind: z.literal('targeted'),
@@ -909,7 +947,8 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
     /** Who is targeting them, and with what. */
     actorId: z.string().min(1),
     abilityArtifactId: z.string().min(1),
-    resolutionId: z.string().min(1),
+    /** Null for a nonrolling application, which opens no stack entry. */
+    resolutionId: z.string().min(1).nullable(),
   }),
   z.object({
     kind: z.literal('roll-made'),
@@ -1458,6 +1497,29 @@ export const SquadTierPacketSchema = z.discriminatedUnion('kind', [
 ]);
 export type SquadTierPacket = z.infer<typeof SquadTierPacketSchema>;
 
+/** Closed, compiler-produced semantics for trailing squad `Effect:` lines.
+ * The phase is data because execution order is rules content: a modifier to
+ * the current roll must exist before dice resolution, while extra damage is
+ * part of the damage phase (before tier riders). Unrecognized prose never
+ * enters this union and remains a verbatim table directive. */
+export const SquadAbilityEffectProgramSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('target-edge-if-stamina-below-max'),
+    phase: z.literal('pre-roll'),
+    sourceText: z.string().min(1),
+    canonRefs: z.array(z.string().min(1)),
+  }),
+  z.object({
+    kind: z.literal('extra-damage-if-target-has-condition'),
+    phase: z.literal('damage'),
+    sourceText: z.string().min(1),
+    canonRefs: z.array(z.string().min(1)),
+    conditionId: z.string().min(1),
+    amount: z.number().int().positive(),
+  }),
+]);
+export type SquadAbilityEffectProgram = z.infer<typeof SquadAbilityEffectProgramSchema>;
+
 /** Lossless signature/common-maneuver cluster: individual tiers can remain
  * residue without erasing the shared roll [R-0034(b/c), R-0036]. */
 export const SquadAbilityDataSchema = z.object({
@@ -1479,11 +1541,14 @@ export const SquadAbilityDataSchema = z.object({
    * power-roll tiers; before this field existed an ability's Effect clause
    * was parsed, passed grammar conservation, and then discarded — losing,
    * for instance, Bugbear Snare's "the target is automatically grabbed".
-   * These are DIRECTIVES, not automation: the engine surfaces the printed
-   * text and the table resolves it. Defaults `[]` so payloads serialized
-   * before this field still parse.
+   * The exact line remains provenance whether a closed `effectPrograms`
+   * member executes it or the engine surfaces it as a table directive.
+   * Defaults `[]` so payloads serialized before this field still parse.
    */
   effectLines: z.array(z.string().min(1)).default([]),
+  /** Machine semantics for the closed trailing-Effect subset. Defaults to
+   * empty for payloads compiled before phase-aware squad Effects existed. */
+  effectPrograms: z.array(SquadAbilityEffectProgramSchema).default([]),
 });
 export type SquadAbilityData = z.infer<typeof SquadAbilityDataSchema>;
 export type SquadAbilityDataInput = z.input<typeof SquadAbilityDataSchema>;

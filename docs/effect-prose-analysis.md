@@ -8,9 +8,6 @@
 > provenance of the candidate inventory; do not use its 1,200 / 397 / 24 split
 > or its 117 / 134 / 54 ordering as committed accounting.
 
-> Drafted by Claude Opus 5; no second-model read yet — see
-> [`authorship.md`](authorship.md).
-
 ## Why this exists
 
 `grammar-sweep` names one unshipped mechanism — **Effect prose semantics** —

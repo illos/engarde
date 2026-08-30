@@ -12,9 +12,10 @@
 > landed from action-economy base `5baaa39`; verification and dispositions are
 > in `docs/squad-attack-report.md`. The accepted R-0036 premise was partly
 > falsified by the bounded grammar attempt: Knockback's pure Push tiers compile,
-> but Grab's interleaved target free strike requires reaction nesting. Grab
-> therefore remains a verbatim, maneuver-debiting directive pending the exact
-> human amendment review; no support was invented.
+> but Grab's interleaved target free strike required an ordering ruling. The
+> 2026-08-28 amendment was accepted: Grab is sequential. It remains a verbatim,
+> maneuver-debiting directive until hero free-strike mechanics ship; no support
+> was invented.
 
 Rev 1 was red-teamed by four independent lanes (Gate-2 PDF confirmation,
 canon fidelity, substrate scalability, rules-lawyer counterexamples); the

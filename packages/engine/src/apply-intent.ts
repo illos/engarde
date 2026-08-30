@@ -32,7 +32,14 @@ import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health
 import { deriveOccurrences } from './occurrences.js';
 import { hashDeclaration } from './payload-hash.js';
 import { commitResolutionEntry, isOpenResolution, openResolutionsOwnedBy } from './resolution.js';
-import { type EncounterState, type Intent, IntentSchema, type LogEntry } from './schemas.js';
+import {
+  type AssertedAbilityUse,
+  type EncounterState,
+  type Intent,
+  IntentSchema,
+  type LogEntry,
+  nonrollingAbilityApplicationClaim,
+} from './schemas.js';
 import {
   executeSquadFreeStrike,
   executeSquadManeuver,
@@ -66,6 +73,30 @@ function refusal(intent: Intent, message: string): LogEntry {
   };
 }
 
+function assertedApplicationEntry(
+  intent: Intent,
+  asserted: AssertedAbilityUse,
+  targetId: string,
+): LogEntry | null {
+  // `partOf` is a child application of an already-recorded printed use,
+  // not another ability use in its own right.
+  if (asserted.partOf !== undefined) return null;
+  return {
+    kind: 'informational',
+    intentId: intent.intentId,
+    actor: intent.actor,
+    canonRefs: [asserted.abilityArtifactId],
+    message: `${asserted.actorParticipantId} applies ${asserted.abilityArtifactId} to ${targetId} without a power roll`,
+    data: {
+      nonrollingAbilityApplication: nonrollingAbilityApplicationClaim({
+        actorId: asserted.actorParticipantId,
+        abilityArtifactId: asserted.abilityArtifactId,
+        targetIds: [targetId],
+      }),
+    },
+  };
+}
+
 function applyIntentCore(
   state: EncounterState,
   rawIntent: Intent,
@@ -93,6 +124,10 @@ function applyIntentCore(
       // violations), and opens NO resolution entry (nothing rolled).
       let preState = state;
       const preLog: LogEntry[] = [];
+      if (asserted !== null) {
+        const application = assertedApplicationEntry(intent, asserted, intent.payload.target);
+        if (application !== null) preLog.push(application);
+      }
       if (asserted !== null && state.turnState !== null) {
         const debited = debitActionCost(
           preState,
@@ -309,6 +344,10 @@ function applyIntentCore(
       // home like the rolled path, and opens NO resolution entry.
       let economyState = state;
       const economyLog: LogEntry[] = [];
+      if (asserted !== null) {
+        const application = assertedApplicationEntry(intent, asserted, intent.payload.target);
+        if (application !== null) economyLog.push(application);
+      }
       if (asserted !== null && state.turnState !== null) {
         const debited = debitActionCost(
           economyState,
@@ -594,7 +633,10 @@ function applyIntentCore(
             message: `${turnId} ends their turn`,
             data: {
               turnStateDeltas: deltas,
-              turnOccurrences: [{ kind: 'turn-ended', participantId: turnId }],
+              turnOccurrences: endingIds.map((participantId) => ({
+                kind: 'turn-ended',
+                participantId,
+              })),
             },
           });
         }
@@ -908,7 +950,10 @@ function applyIntentCore(
         canonRefs: [ECONOMY_CANON.turn],
         message: `${turnId} starts their turn (round ${turnState.round})`,
         data: {
-          turnOccurrences: [{ kind: 'turn-started', participantId: turnId }],
+          turnOccurrences: (squad ? squad.memberIds : [turnId]).map((participantId) => ({
+            kind: 'turn-started',
+            participantId,
+          })),
           turnStateDeltas: [
             { field: 'activeTurnId', from: turnState.activeTurnId, to: turnId },
             ...(turnState.sideToChoose !== (side === 'heroes' ? 'director' : 'heroes')

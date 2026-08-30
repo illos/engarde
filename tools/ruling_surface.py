@@ -14,28 +14,123 @@ Design constraints, learned the hard way:
 
 usage: ruling_surface.py <questions.json> <sources.json> <out.html> [--title T]
 """
-import json, sys, html, hashlib, re
+import hashlib
+import html
+import json
+import os
+import sys
+import tempfile
+
+from build_ruling_set import stable_qid
 
 def esc(s): return html.escape(s or '', quote=True)
 
-def main():
-    qs_path, src_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
+def load_json(path):
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def write_atomic(path, text):
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".ruling-surface-", suffix=".html", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def prepare(questions_data, sources_data):
+    if not isinstance(questions_data, list):
+        raise ValueError("questions must be an array")
+    if not isinstance(sources_data, list):
+        raise ValueError("sources must be an array")
+
+    sources = {}
+    for index, source in enumerate(sources_data):
+        if not isinstance(source, dict) or not isinstance(source.get("id"), str):
+            raise ValueError(f"source {index} needs a string id")
+        if source["id"] in sources:
+            raise ValueError(f"duplicate source id: {source['id']}")
+        if not isinstance(source.get("text"), str) or not source["text"].strip():
+            raise ValueError(f"source {source['id']} needs nonblank string text")
+        sources[source["id"]] = source
+
+    prepared = []
+    seen_qids = set()
+    for index, question_row in enumerate(questions_data):
+        if not isinstance(question_row, dict) or not isinstance(question_row.get("question"), str):
+            raise ValueError(f"question {index} needs string question")
+        row = dict(question_row)
+        qid = stable_qid(row["question"])
+        if row.get("qid") not in (None, qid):
+            raise ValueError(
+                f"question {index} has non-canonical qid {row.get('qid')!r}; expected {qid}"
+            )
+        if qid in seen_qids:
+            raise ValueError(f"duplicate question/qid: {qid}")
+        seen_qids.add(qid)
+        row["qid"] = qid
+
+        source_ids = row.get("sourceArtifactIds")
+        if (
+            not isinstance(source_ids, list)
+            or not source_ids
+            or not all(isinstance(sid, str) for sid in source_ids)
+        ):
+            raise ValueError(f"question {qid} sourceArtifactIds must be a non-empty array of strings")
+        missing = [sid for sid in source_ids if sid not in sources]
+        if missing:
+            raise ValueError(f"question {qid} has missing source artifacts: {', '.join(missing)}")
+        incomplete = [
+            sid
+            for sid in source_ids
+            if not str(sources[sid].get("versionSha256", "")).strip()
+            or not str(sources[sid].get("sourcePath", "")).strip()
+        ]
+        if incomplete:
+            raise ValueError(f"question {qid} has incomplete source provenance: {', '.join(incomplete)}")
+        row["sources"] = [
+            {
+                "id": sid,
+                "version": sources[sid].get("versionSha256", "")[:12],
+                "path": sources[sid].get("sourcePath", ""),
+                "text": sources[sid]["text"],
+            }
+            for sid in source_ids
+        ]
+        prepared.append(row)
+    return prepared
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if len(argv) < 3:
+        print(
+            "usage: ruling_surface.py <questions.json> <sources.json> <out.html> [--title T]",
+            file=sys.stderr,
+        )
+        return 2
+    qs_path, src_path, out_path = argv[0], argv[1], argv[2]
     title = 'Canon rulings'
-    if '--title' in sys.argv:
-        title = sys.argv[sys.argv.index('--title') + 1]
+    if '--title' in argv:
+        title_index = argv.index('--title')
+        if title_index + 1 >= len(argv):
+            print("ERROR: --title needs a value", file=sys.stderr)
+            return 2
+        title = argv[title_index + 1]
 
-    questions = json.load(open(qs_path))
-    sources = {s['id']: s for s in json.load(open(src_path))}
-
-    for q in questions:
-        q['qid'] = hashlib.sha256(q['question'].encode()).hexdigest()[:12]
-        srcs = []
-        for sid in q.get('sourceArtifactIds', []) or []:
-            s = sources.get(sid)
-            if s:
-                srcs.append({'id': sid, 'version': s.get('versionSha256', '')[:12],
-                             'path': s.get('sourcePath', ''), 'text': s['text']})
-        q['sources'] = srcs
+    try:
+        questions = prepare(load_json(qs_path), load_json(src_path))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
 
     payload = json.dumps(questions, ensure_ascii=False)
     doc_key = hashlib.sha256(payload.encode()).hexdigest()[:16]
@@ -43,8 +138,9 @@ def main():
     tpl = TEMPLATE.replace('__TITLE__', esc(title))
     tpl = tpl.replace('__DOCKEY__', doc_key)
     tpl = tpl.replace('__DATA__', payload.replace('</', '<\\/'))
-    open(out_path, 'w').write(tpl)
+    write_atomic(out_path, tpl)
     print(f'wrote {out_path}  questions={len(questions)}  docKey={doc_key}')
+    return 0
 
 TEMPLATE = r'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -242,8 +338,11 @@ document.addEventListener('keydown', e => {
   if (k === 'j') { focus(cur + 1); e.preventDefault(); }
   else if (k === 'k') { focus(cur - 1); e.preventDefault(); }
   else if (['y','n','d','x','s'].includes(k) && view[cur]) {
+    const unruledOnly = document.getElementById('only').checked;
     setV(view[cur].qid, { y:'yes', n:'no', d:'director', x:'defer', s:'source' }[k]);
-    focus(cur + 1); e.preventDefault();
+    // In unruled-only mode render() already removes the ruled card, so the
+    // next card slides into the current index. Advancing again would skip it.
+    focus(cur + (unruledOnly ? 0 : 1)); e.preventDefault();
   } else if (e.key === 'Enter' && view[cur]) {
     const c = document.getElementById('c' + view[cur].qid);
     c?.querySelector('textarea')?.focus(); e.preventDefault();
@@ -267,4 +366,4 @@ render();
 '''
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

@@ -240,6 +240,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
             ...LEGACY_ROLL_RECEIPT,
             perTarget: {},
             derivedModifiers: [],
+            perTargetDerivedModifiers: {},
           },
         },
       ],

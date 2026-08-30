@@ -498,12 +498,25 @@ const BOUNDARY_SWEEP_REGISTRY: readonly SlotSweeps[] = [
       const open = openResolutions(state);
       const log: LogEntry[] = [];
       if (open.length > 0) {
+        const declared = open.filter((candidate) => 'declaredTargets' in candidate);
+        const rolled = open.filter((candidate) => !('declaredTargets' in candidate));
         log.push({
           kind: 'warning',
           intentId: context.intentId,
           actor: context.actor,
           canonRefs: [POWER_ROLL],
-          message: `${open.length} rolled resolution(s) never committed before the encounter ended (${open.map((candidate) => candidate.resolutionId).join(', ')}) — their printed outcomes are table-adjudicated`,
+          message: [
+            ...(declared.length > 0
+              ? [
+                  `${declared.length} declared resolution(s) never rolled before the encounter ended (${declared.map((candidate) => candidate.resolutionId).join(', ')}) — the declarations are cancelled with no rolled outcome`,
+                ]
+              : []),
+            ...(rolled.length > 0
+              ? [
+                  `${rolled.length} rolled resolution(s) never committed before the encounter ended (${rolled.map((candidate) => candidate.resolutionId).join(', ')}) — their printed outcomes are table-adjudicated`,
+                ]
+              : []),
+          ].join('; '),
           data: { uncommittedResolutions: open.map((candidate) => candidate.resolutionId) },
         });
       }

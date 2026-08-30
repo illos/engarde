@@ -57,6 +57,35 @@ function isUseAbilityPayload(payload: ResolutionPayload): payload is UseAbilityP
   return 'actorParticipantId' in payload;
 }
 
+/** Hashes of exact historical squad wire forms whose only difference is a
+ * subsequently defaulted empty field. This is deliberately not a general
+ * normalization: nonempty semantics can never be removed to make a hash
+ * match. */
+function historicalSquadPayloadHashes(
+  payload: ResolutionPayload,
+): Array<{ hash: string; omitted: string[] }> {
+  if (isUseAbilityPayload(payload) || payload.ability === null) return [];
+  const ability = payload.ability;
+  if (ability.effectPrograms.length !== 0) return [];
+  const withoutPrograms: Record<string, unknown> = { ...ability };
+  withoutPrograms.effectPrograms = undefined;
+  const variants = [
+    {
+      hash: hashPayload({ ...payload, ability: withoutPrograms }),
+      omitted: ['SquadAbilityData.effectPrograms'],
+    },
+  ];
+  if (ability.effectLines.length === 0) {
+    const beforeEffectLines = { ...withoutPrograms };
+    beforeEffectLines.effectLines = undefined;
+    variants.push({
+      hash: hashPayload({ ...payload, ability: beforeEffectLines }),
+      omitted: ['SquadAbilityData.effectLines', 'SquadAbilityData.effectPrograms'],
+    });
+  }
+  return variants;
+}
+
 export function commitResolutionEntry(
   state: EncounterState,
   args: CommitArgs,
@@ -83,7 +112,10 @@ export function commitResolutionEntry(
     };
   }
   const suppliedHash = hashPayload(args.payload);
-  if (suppliedHash !== stackEntry.payloadHash) {
+  const historicalHashMatch = historicalSquadPayloadHashes(args.payload).find(
+    (candidate) => candidate.hash === stackEntry.payloadHash,
+  );
+  if (suppliedHash !== stackEntry.payloadHash && historicalHashMatch === undefined) {
     return {
       ok: false,
       refusal: `re-supplied payload hash ${suppliedHash.slice(0, 8)}… does not match resolution ${args.resolutionId} (${stackEntry.payloadHash.slice(0, 8)}…) — commit must re-supply the rolled payload byte-for-byte [R-0032]`,
@@ -98,6 +130,24 @@ export function commitResolutionEntry(
   }
 
   const log: LogEntry[] = [];
+  if (historicalHashMatch !== undefined && suppliedHash !== stackEntry.payloadHash) {
+    log.push(
+      entry(
+        context,
+        'informational',
+        `resolution ${args.resolutionId} matches its historical squad payload hash after omitting only defaulted empty field(s): ${historicalHashMatch.omitted.join(', ')}`,
+        [POWER_ROLL_CANON.abilityRoll],
+        {
+          historicalPayloadHashCompatibility: {
+            resolutionId: args.resolutionId,
+            storedHash: stackEntry.payloadHash,
+            suppliedHash,
+            omitted: historicalHashMatch.omitted,
+          },
+        },
+      ),
+    );
+  }
 
   // LIFO discipline with named-insertion exceptions is a WARN, never
   // corruption — Breaking Point's inserted turn is printed play [R-0032].

@@ -1,0 +1,225 @@
+{
+  "schema": "engarde-ruling-dispositions-v1",
+  "scope": "common-actions",
+  "authority": "GOTCHA-0011 mandatory quarantine and audited finding links, 2026-08-29. This tracked file is the source of truth for ruling-set generation.",
+  "findingLinks": [
+    {
+      "question": "How much Stamina Heal restores [Heal S1]",
+      "qids": ["d62478e95db4"]
+    },
+    {
+      "question": "The §Free Strikes section was not supplied — may implementation proceed? [S1]",
+      "qids": ["fcde12f9c723"]
+    },
+    {
+      "question": "Is an off-turn free strike this main action? [S4] / Is a free strike capped? [S9]",
+      "qids": ["f0ea62c5284f", "e3b54a8ecc09"]
+    },
+    {
+      "question": "Does the 'more impactful main actions' sentence carry mechanical weight? [S10]",
+      "qids": ["42097da9f7bd"]
+    },
+    {
+      "question": "What ends the window when there is no next turn — death, skip, encounter end? [Defend 2, Aid Attack S8]",
+      "qids": ["b9b20ef7a246"]
+    },
+    {
+      "question": "\"Until the start of their next turn\" for the 21 solo statblocks that take two turns per round: next turn slot, or next round's turn? [Defend 1, Aid Attack S7, Hide 8]",
+      "qids": ["5ff039fccc86"]
+    },
+    {
+      "question": "Do Director-controlled creatures use Catch Breath / receive Heal? [CB S5, Heal S12]",
+      "qids": ["b3240c58ad78"]
+    },
+    {
+      "question": "[Defend 8 / Aid Attack S4 / Hide 10] Repeat and stacking — two aiders on one enemy, Defend taken twice, and whether addGrant's source-agnostic collapse is correct",
+      "qids": ["f76207c62dc1"]
+    },
+    {
+      "question": "[Defend 5] Whose ability rolls does Defend's double bane reach — allies' too?",
+      "qids": ["6fbe9062019d"]
+    },
+    {
+      "question": "[Defend 4] What does Defend's \"no benefit\" cover — both printed clauses, or one?",
+      "qids": ["d008580450f5"]
+    },
+    {
+      "question": "Hide 3 — printed-word-to-occurrence mapping for \"If you use an ability.\"",
+      "qids": ["d0450e98d6e9"]
+    },
+    {
+      "question": "S10 — Does Aid Attack apply to an allied minion squad's attack roll?",
+      "qids": ["0427ef0aea0d"]
+    },
+    {
+      "question": "Hide 4 — Does an Area ability that catches a hidden creature reveal them?",
+      "qids": ["3c262f0beaac"]
+    },
+    {
+      "question": "Hide 3 — printed-word-to-occurrence mapping (enumeration completeness)",
+      "qids": ["d0450e98d6e9"]
+    },
+    {
+      "question": "Hide 2 — \"Unless the Director deems otherwise\": refusal, warning, or a flag that writes no fact?",
+      "qids": ["fcb9c938a2b0"]
+    },
+    {
+      "question": "Hide 6 — Movement in combat: does any movement reveal?",
+      "qids": ["68579235ec80"]
+    },
+    {
+      "question": "S9 — Off-turn Aid Attack: is the round-and-a-bit window intended?",
+      "qids": ["b1e45c1ce16d"]
+    },
+    {
+      "question": "Hide 6 — Movement in combat (source attribution)",
+      "qids": ["68579235ec80"]
+    },
+    {
+      "question": "Hide 8 — Whose turn is \"the end of the turn in which you are no longer hidden\"?",
+      "qids": ["2140f49adb1c"]
+    },
+    {
+      "question": "The size ordering type — what datum is stored, and how does an object of irregular size compare? [Grab S7, Escape S6, Knockback K9]",
+      "qids": ["bf4cbc141ad0"]
+    },
+    {
+      "question": "The size ordering type — how does an object of irregular size compare? [Grab S7, Escape S6, Knockback K9]",
+      "qids": ["bf4cbc141ad0"]
+    },
+    {
+      "question": "May more than one creature assist, and how do assists combine? [S8]",
+      "qids": ["1a6fad65a54b"]
+    },
+    {
+      "question": "Grab S4 / Escape S4 — the tier-2 free strike's action cost",
+      "qids": ["587b06f5b974"]
+    },
+    {
+      "question": "Grab S5 — \"if the grabber remains\" on the hero path",
+      "qids": ["1384821bd1f1"]
+    },
+    {
+      "question": "Escape S7 — does grabbed's own bane apply to Escape Grab itself?",
+      "qids": ["f753d091f24f"]
+    },
+    {
+      "question": "Escape S1 / Grab S10 — several grabbers: does tier 2 produce one free strike or one per grabber?",
+      "qids": ["e11c2b1e5847"]
+    },
+    {
+      "question": "Grab S2 / Knockback K4 / Free Strike S7 — may these actions target an object?",
+      "qids": ["900cd5e12da3"]
+    },
+    {
+      "question": "Grab S1 / Knockback K1 — what does the printed hedge \"usually\" mean on the size targeting gate?",
+      "qids": ["ad64d2296ac9"]
+    },
+    {
+      "question": "**Who pays the action** on the administer branch, and does the recipient spend anything at all? The engine has an operator-pays concept precisely because the book sometimes charges the other party. [S5]",
+      "qids": ["ca16cbd61e97"]
+    },
+    {
+      "question": "Is the middle tier's \"You can escape\" a live choice? [Escape S3]",
+      "qids": ["2b287c93862f"]
+    },
+    {
+      "question": "Who applies stability, and when? [K2]",
+      "qids": ["3843a5c027af"]
+    },
+    {
+      "question": "Which prone instance(s) end when a creature carries more than one? [S1, with Escape S1]",
+      "qids": ["7be3b72f60d3"]
+    },
+    {
+      "question": "Does an unscoped \"can't stand\" rider bar an ally's Stand Up? [S5, with S4]",
+      "qids": ["c988be25666e"]
+    }
+  ],
+  "dispositions": [
+    {
+      "qid": "d62478e95db4",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "fcde12f9c723",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "b3240c58ad78",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "f76207c62dc1",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "bf4cbc141ad0",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "587b06f5b974",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "1384821bd1f1",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "f753d091f24f",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "e11c2b1e5847",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "2b287c93862f",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "7be3b72f60d3",
+      "disposition": "quarantined",
+      "reasonCode": "unsafe-agent-settlement",
+      "reason": "A material refuter finding did not join to this card, so its agent answer is not settled and must not be implemented."
+    },
+    {
+      "qid": "3843a5c027af",
+      "disposition": "quarantined",
+      "reasonCode": "user-ruled-without-material-finding",
+      "reason": "The user ruled without seeing the material finding that stability is optional rather than automatic, so the prior ruling is not settled and must not be implemented."
+    },
+    {
+      "qid": "5a8b19296f97",
+      "disposition": "quarantined",
+      "reasonCode": "user-ruled-without-material-finding",
+      "reason": "The user ruled without seeing the material finding that out-of-combat Recovery spending is not necessarily a Catch Breath dispatch, so the prior ruling is not settled and must not be implemented."
+    },
+    {
+      "qid": "3e8c328d28bc",
+      "disposition": "quarantined",
+      "reasonCode": "user-ruled-without-material-finding",
+      "reason": "The user ruled without seeing the material finding that one dying prohibition is combat-scoped while out-of-combat Recovery spending remains legal, so the prior ruling is not settled and must not be implemented."
+    }
+  ]
+}

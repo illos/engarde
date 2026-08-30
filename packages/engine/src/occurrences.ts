@@ -38,8 +38,11 @@ interface StaminaEventClaim {
 }
 
 interface HealthTransitionClaim {
-  participantId: string;
+  participantId: string | null;
   kind: string;
+  squadId?: string;
+  pending?: boolean;
+  count?: number;
 }
 
 export interface DerivationContext {
@@ -176,16 +179,56 @@ export function deriveOccurrences(
 
     for (const row of asRows(item.data.healthTransitions)) {
       const claim = row as unknown as HealthTransitionClaim;
+      const count = claim.pending === true && typeof claim.count === 'number' ? claim.count : 1;
+      for (let ordinal = 0; ordinal < count; ordinal += 1) {
+        derived.push(
+          OccurrenceSchema.parse({
+            kind: 'health-transition',
+            occurrenceId: next(),
+            intentId,
+            round,
+            participantId: claim.participantId,
+            squadId: typeof claim.squadId === 'string' ? claim.squadId : null,
+            pendingIdentity: claim.pending === true,
+            transition: claim.kind,
+          }),
+        );
+      }
+    }
+
+    // Nonrolling applications have no resolution-stack lifecycle. Their
+    // exact causal claim is emitted by the successful application dispatch,
+    // rather than inferred from an unrelated economy debit or nearby log.
+    const application = asRecord(item.data.nonrollingAbilityApplication);
+    if (application !== null) {
       derived.push(
         OccurrenceSchema.parse({
-          kind: 'health-transition',
+          kind: 'ability-used',
           occurrenceId: next(),
           intentId,
           round,
-          participantId: claim.participantId,
-          transition: claim.kind,
+          actorId: application.actorId,
+          abilityArtifactId: application.abilityArtifactId,
+          resolutionId: null,
         }),
       );
+      if (Array.isArray(application.targetIds)) {
+        for (const targetId of application.targetIds) {
+          if (typeof targetId !== 'string') continue;
+          derived.push(
+            OccurrenceSchema.parse({
+              kind: 'targeted',
+              occurrenceId: next(),
+              intentId,
+              round,
+              participantId: targetId,
+              actorId: application.actorId,
+              abilityArtifactId: application.abilityArtifactId,
+              resolutionId: null,
+            }),
+          );
+        }
+      }
     }
 
     // Using an ability and making its roll are two printed trigger

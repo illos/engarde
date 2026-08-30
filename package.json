@@ -14,7 +14,12 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
-    "test": "pnpm -r test",
+    "test": "pnpm run test:tools && pnpm -r test",
+    "test:tools": "python3 -m unittest discover -s tools/tests -v",
+    "common-actions:build": "python3 tools/verify_quotes.py .artifacts/canon/common-actions-spec/answers.json .artifacts/canon/common-actions-spec/ruling-sources.json .artifacts/canon/campaign/accepted/*.bundle.json --quarantine tools/common-actions-quote-quarantine.json --allow-exact-quarantine && python3 tools/build_ruling_set.py .artifacts/canon/common-actions-spec/answers.json .artifacts/canon/common-actions-spec/silences.json tools/common-actions-ruling-safety.json .artifacts/canon/common-actions-spec/review-set.json .artifacts/canon/common-actions-spec/ledger.json tools/common-actions-quote-quarantine.json && python3 tools/apply_quote_quarantine.py .artifacts/canon/common-actions-spec/rulings.json .artifacts/canon/common-actions-spec/answers.json tools/common-actions-quote-quarantine.json .artifacts/canon/common-actions-spec/rulings.json .artifacts/canon/common-actions-spec/ruling-sources.json .artifacts/canon/campaign/accepted/*.bundle.json",
+    "common-actions:surface": "python3 tools/ruling_surface.py .artifacts/canon/common-actions-spec/review-set.json .artifacts/canon/common-actions-spec/ruling-sources.json .artifacts/canon/common-actions-spec/review.html --title 'Common actions — rulings requiring review'",
+    "common-actions:verify-quotes": "python3 tools/verify_quotes.py .artifacts/canon/common-actions-spec/answers.json .artifacts/canon/common-actions-spec/ruling-sources.json .artifacts/canon/campaign/accepted/*.bundle.json --quarantine tools/common-actions-quote-quarantine.json",
+    "corpus-map:build": "python3 tools/build_corpus_map.py .artifacts/canon/corpus-map",
     "corpus:certify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts",
     "corpus:verify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts --verify"
   },

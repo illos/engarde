@@ -98,39 +98,43 @@ export function ResolutionsSection({
                 </ul>
               ) : null}
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <select
-                  aria-label={`Downgrade tier for ${entry.resolutionId}`}
-                  className="h-11 border border-line bg-ink-1 px-2 text-sm"
-                  value={downgradePick}
-                  onChange={(event) =>
-                    setDowngradePicks((current) => ({
-                      ...current,
-                      [entry.resolutionId]: event.target.value as '1' | '2',
-                    }))
-                  }
-                >
-                  <option value="2">tier 2</option>
-                  <option value="1">tier 1</option>
-                </select>
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    run(() =>
-                      modifyResolution({
-                        campaignId,
-                        resolutionId: entry.resolutionId,
-                        modification: {
-                          kind: 'downgrade',
-                          toTier: downgradePick === '1' ? 1 : 2,
-                        },
-                        ...authority(entry),
-                      }),
-                    )
-                  }
-                >
-                  Downgrade
-                </Button>
+                {entry.roll !== null ? (
+                  <>
+                    <select
+                      aria-label={`Downgrade tier for ${entry.resolutionId}`}
+                      className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                      value={downgradePick}
+                      onChange={(event) =>
+                        setDowngradePicks((current) => ({
+                          ...current,
+                          [entry.resolutionId]: event.target.value as '1' | '2',
+                        }))
+                      }
+                    >
+                      <option value="2">tier 2</option>
+                      <option value="1">tier 1</option>
+                    </select>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      onClick={() =>
+                        run(() =>
+                          modifyResolution({
+                            campaignId,
+                            resolutionId: entry.resolutionId,
+                            modification: {
+                              kind: 'downgrade',
+                              toTier: downgradePick === '1' ? 1 : 2,
+                            },
+                            ...authority(entry),
+                          }),
+                        )
+                      }
+                    >
+                      Downgrade
+                    </Button>
+                  </>
+                ) : null}
                 <Button
                   variant="primary"
                   disabled={busy || entry.roll === null}
