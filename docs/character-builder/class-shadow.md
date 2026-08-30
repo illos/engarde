@@ -516,6 +516,13 @@ text, point-buy.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition (seeded, shared, versioned by source)
 
 ```ts
@@ -769,7 +776,7 @@ entities, no point-buy, no `selectAt` other than `'build'`.
 
 23. **Terminology note carried from the brief.** `HeroOverview.background` in
     the source is a display concatenation of ancestry/culture/career; Draw Steel
-    has no "background". It is not referenced by any Shadow data and must not
+    has no "background" mechanic. It is not referenced by any Shadow data and must not
     become a field in our model.
 
 24. **Nothing in this file is canon.** Every skill name (`Hide`, `Sneak`,

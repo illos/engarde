@@ -579,6 +579,13 @@ Nothing else in the class is `selectAt: 'respite'`, and nothing is
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded once, shared, versioned by source)
 
 - `classes` — one row: identity fields above. `primaryCharacteristicsOptions`

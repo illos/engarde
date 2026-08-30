@@ -506,6 +506,13 @@ free text (none from the class; hero name/details live outside this spec).
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded, versioned by source, shared)
 
 - `classes` — one document for Null: id, name, description, `type`,
@@ -739,5 +746,5 @@ deep-copy.
 18. **Unresolved from the source:** whether the level-1 `Choice`
     (`selectAt: 'respite'`) is also re-selectable during play, whether
     `HeroOverview.background` matters here (it does not — Null contributes
-    nothing to it; it is a display concatenation and there is no "background" in
+    nothing to it; it is a display concatenation and there is no "background" mechanic in
     Draw Steel), and what the missing `null-1-3` was.

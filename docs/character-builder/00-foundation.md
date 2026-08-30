@@ -48,7 +48,8 @@ flat feature bags with no per-level progression. This is the single most
 important shape fact for the builder UI: the level-up flow touches exactly one
 pillar.
 
-> **Terminology.** Draw Steel has no "background". Ancestry / culture / career
+> **Terminology.** Draw Steel has no "background" mechanic or build step (the
+> rulebook's Background chapter uses the word narratively). Ancestry / culture / career
 > are three separate build steps. The source's `HeroOverview.background` is a
 > display-only concatenation, not a domain concept.
 
@@ -359,6 +360,20 @@ increase to 3"* (absolute) in the pin; Forge Steel models it as two
 base is 2. Representation differences like this are exactly what the join will
 surface.
 
+**Import rules (pin overrides FS structure) — added 2026-08-30 after pin
+review:**
+
+1. **Characteristic-increase rows are absolute-with-cap, never bare deltas.**
+   The pin phrases them absolutely or with an explicit cap the FS model drops
+   entirely — Fury L4 `feature/fury/level-4/characteristic-increase.md`
+   ("increase to 3") and Fury L7 `feature/fury/level-7/characteristic-increase.md`
+   ("increases by 1, to a maximum of 4"). Seed from the pin prose.
+2. **`selectAt` / respite-mutability is re-derived from pin prose, not FS
+   fields.** FS models some respite-changeable choices as plain build choices —
+   e.g. Summoner Formation/Quick Command
+   (`feature/summoner/level-1/formation.md`: changeable "as a respite
+   activity"). Feeds R-D.
+
 ## 7. Build order (the wizard)
 
 The source's own tab order is
@@ -381,8 +396,9 @@ section. The cross-cutting rules:
 
 1. **Which sources does V1 ship?** The source bundles official
    (core / orden / beastheart / summoner / patreon), community, and third-party
-   sourcebooks. Our canon pin is core + Beastheart (per the license milestone).
-   Summoner's status needs a ruling.
+   sourcebooks. Our canon pin is core + Summoner (admitted 2026-08-30);
+   Beastheart is `exclude` in the pin config until its own admission decision,
+   so `class-beastheart.md` currently has NO admitted canon substrate.
 2. **Do we keep `selectAt: 'respite' | 'play'`?** It couples the builder to the
    runtime. Either the hero document is writable from the encounter runtime, or
    those choices move to a runtime-side overlay.

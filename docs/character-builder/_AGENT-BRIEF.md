@@ -54,8 +54,9 @@ guide. Their **shape** is the valuable part. Capture shape.
 
 Draw Steel terms only: **Director** (not GM/DM), **Stamina** (not HP),
 **power roll** (not attack roll/to-hit), **characteristic** (not ability
-score), **ancestry / culture / career**. There is no "background" in Draw
-Steel — `HeroOverview.background` in the source is a display concatenation;
+score), **ancestry / culture / career**; no "proficiency" (canon phrasing: you can
+wear/wield gear "effectively"). There is no "background" mechanic in Draw
+Steel (the rulebook's Background chapter is narrative) — `HeroOverview.background` in the source is a display concatenation;
 note that if it comes up.
 
 ## Provenance header (paste verbatim at the top of your file)

@@ -511,6 +511,13 @@ simpler classes to build.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition (seeded, shared, versioned by source)
 
 ```
@@ -596,7 +603,7 @@ sheet is derived.
 
 1. **`selectAt: 'respite'` on `talent-1-5` and `talent-1-6`.** Two of Talent's
    most consequential build choices are **not build-time**. The augmentation
-   feeds Stamina, Speed, Stability, Disengage, weapon/armour proficiency and
+   feeds Stamina, Speed, Stability, Disengage, usable weapons/armor and
    ability distance/damage; the ward can add a whole triggered ability. Both are
    rewritable between encounters. **The encounter runtime must be able to write
    `hero.selections`**, or these two keys must live in a runtime-side overlay
@@ -669,7 +676,7 @@ Both level-1 `Choice` features are respite-scoped. `talent-1-5a` Battle
 Augmentation grants `Proficiency` (light weapons + light armour) and
 `Bonus{ Stamina, valuePerEchelon: 3 }`; `talent-1-5b` grants
 `Bonus{ Stamina, valuePerEchelon: 6 }` and `+1 Stability`. **A hero's maximum
-Stamina and weapon/armour proficiency therefore change at a respite.** Any
+Stamina and usable weapons/armor therefore change at a respite.** Any
 cached sheet, exported PDF, or encounter snapshot has to be invalidated on
 respite. This is the sharpest instance of foundation §6 category 2 in the
 class set so far.
@@ -730,7 +737,7 @@ but the ids must survive if we key anything on them.
 No `FeatureType.Kit` appears at any level in the class or any tradition. The
 `hero-respite-modal` surfaces all `Kit` features unconditionally, which for
 Talent contributes nothing. Battle Augmentation is the substitute path to
-weapon/armour proficiency, and its prose explicitly excludes stacking with a kit
+usable weapons/armor, and its prose explicitly excludes stacking with a kit
 (unenforced — see §A4). Our builder must not assume every class has a kit step.
 
 ### A9 — Respite-time and play-time behaviours hidden inside `Text`

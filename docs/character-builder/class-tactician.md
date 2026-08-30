@@ -466,6 +466,13 @@ sub-choice.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition (seeded, shared, versioned by source)
 
 ```

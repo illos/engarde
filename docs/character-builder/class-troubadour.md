@@ -509,6 +509,13 @@ read-only panel. **Not needed:** toggle, free text, dependent-option-list
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded once, versioned by source)
 
 Immutable, shared, keyed by the Forge Steel-shaped ids above:
@@ -765,7 +772,7 @@ it must be fixpoint-iterated. Troubadour needs none of it.
 15. **`Choice.respiteChange` is marked `@deprecated`** in `models/feature.ts`
     and is unused by Troubadour. Do not carry it forward.
 
-16. **`HeroOverview.background` does not apply.** There is no "background" in
+16. **`HeroOverview.background` does not apply.** There is no "background" mechanic in
     Draw Steel; the Forge Steel field of that name is a display concatenation
     of ancestry / culture / career. Not relevant to this class file, noted per
     the brief.

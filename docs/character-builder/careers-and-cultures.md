@@ -22,7 +22,8 @@ Read [`00-foundation.md`](00-foundation.md) first — it defines the `Feature`
 vocabulary, the definition/selection split, and the wizard order that this file
 conforms to. Career and culture are steps 3 and 2 of that order.
 
-**There is no "background" in Draw Steel.** Ancestry, culture and career are
+**There is no "background" build step in Draw Steel** (the rulebook's
+Background chapter is narrative framing). Ancestry, culture and career are
 three separate, independently-selected build steps. See §8.1 for the source's
 `HeroOverview.background` field, which is a display-only concatenation.
 
@@ -664,6 +665,13 @@ these three need first-class representations — see §7.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### 7.1 Definition data (seeded, shared, versioned by source)
 
 ```ts
@@ -808,7 +816,7 @@ explicitly (`cultureName` above).
 
 ### 8.1 `HeroOverview.background` is a display-only concatenation
 
-There is no "background" concept in Draw Steel, and the source does not model one.
+There is no "background" mechanic in Draw Steel, and the source does not model one.
 `HeroOverview.background: string | null` is built by `HeroLogic.createOverview`
 as a comma-joined string of **culture name** (omitted when the culture is
 Bespoke) + **career name** + **inciting incident name**. It is consumed in

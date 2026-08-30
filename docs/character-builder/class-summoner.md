@@ -817,6 +817,13 @@ this class where the player can produce data that is not expressible as an id.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded, versioned by source)
 
 - `classes` — one row: `class-summoner`. Fields per §Identity. Source id `summoner`.
@@ -948,7 +955,7 @@ heroSelections: {
     body without touching selection state.
 
 11. **`HeroOverview.background`** is a display concatenation in the source; there
-    is no "background" in Draw Steel. It does not appear anywhere in the Summoner
+    is no "background" mechanic in Draw Steel. It does not appear anywhere in the Summoner
     tree — noted only so it is not mistaken for a Summoner field.
 
 ---

@@ -752,12 +752,19 @@ change are (a) hiding unaffordable options instead of disabling them, and
 
 Terminology: `HeroOverview.background` in the source is a **display
 concatenation** used in hero list rows, not a Draw Steel concept. Draw Steel has
-ancestry / culture / career; there is no "background". Do not carry the field
+ancestry / culture / career; there is no "background" mechanic. Do not carry the field
 name across.
 
 ---
 
 ## Convex data model notes
+
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
 
 ### Definition data (seeded, versioned by source, shared)
 
@@ -784,8 +791,10 @@ Key deltas from Forge Steel:
 - **Do not deep-copy the ancestry into the hero.** Store an `ancestryId` (or
   source-qualified slug) reference.
 - **Flatten the nesting into rows** with `parentFeatureId`, so a feature is
-  addressable by a single id regardless of depth. All ids in the corpus are
-  already unique and stable, including nested ones (`devil-feature-2-7b`,
+  addressable by a single id regardless of depth. All ids in the Forge Steel
+  source tree are unique and stable (never call FS "the corpus" — that word is
+  reserved for the pin; FS ids are labels, never keys, per §6b + R-L),
+  including nested ones (`devil-feature-2-7b`,
   `time-raider-feature-2-5-3`).
 - **Do not store `selected` in the definition.** The 54-variant `Feature` union
   interleaves definition and selection in the same object (`FeatureChoiceData`

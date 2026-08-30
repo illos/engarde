@@ -45,7 +45,7 @@ imbued-item containers), **86 imbuements**.
 | `name` | `string` | `''` | |
 | `description` | `string` | `''` | flavour prose — `text: VERIFY-AGAINST-PIN` |
 | `type` | `string` | `''` | **free-form discriminator**, not an enum. `''` = the standard pool; `'Stormwight'` in core; third-party books add `'Kiln'`. See §5 for how it filters. |
-| `armor` | `KitArmor[]` | `[]` | enum: `Light`/`Medium`/`Heavy`/`Shield` — grants armor **proficiency**, not an armor item |
+| `armor` | `KitArmor[]` | `[]` | enum: `Light`/`Medium`/`Heavy`/`Shield` — grants FS's armor "proficiency" (canon has no proficiency concept; its phrasing is wearing armor "effectively"), not an armor item |
 | `weapon` | `KitWeapon[]` | `[]` | enum: `Bow`/`Ensnaring`/`Heavy`/`Light`/`Medium`/`Polearm`/`Unarmed`/`Whip` |
 | `stamina` | `number` | `0` | **multiplied by echelon** when applied — see §1d |
 | `speed` | `number` | `0` | |
@@ -86,7 +86,7 @@ imbued-item containers), **86 imbuements**.
 | `name` | `string` | required arg | |
 | `description` | `string` | required arg | |
 | `type` | `ItemType` | required arg | 16-value enum, see below |
-| `keywords` | `(AbilityKeyword \| KitArmor \| KitWeapon)[]` | `[]` | **union across three enums** — this is how `canUseItem` matches a leveled weapon/armor against kit proficiencies |
+| `keywords` | `(AbilityKeyword \| KitArmor \| KitWeapon)[]` | `[]` | **union across three enums** — this is how `canUseItem` matches a leveled weapon/armor against FS's kit proficiency lists |
 | `crafting` | `Project \| null` | `null` | `Project` = `{ id, name, description, itemPrerequisites, source, characteristic[], goal, isCustom, progress }` |
 | `effect` | `string` | `''` | prose used when the item has no mechanical features |
 | `featuresByLevel` | `{ level, features }[]` | `[{1,[]},{5,[]},{9,[]}]` | gated at read time by `lvl.level <= heroLevel` |
@@ -137,8 +137,8 @@ be re-derived wrongly if not written down once:
 | Disengage | `max(kit.disengage)` | base value is `1` |
 | Melee/ranged ability distance | `max` over the kits, gated on the ability carrying both the matching distance keyword and `Weapon` | |
 | Damage bonus | **not** max — every kit's melee and ranged bonus is emitted as a separate row, functionally identical rows are collated by name-join, and a row strictly dominated on all three tiers is dropped | `getKitDamageBonuses` |
-| Armor proficiency | union of `kit.armor` ∪ `FeatureProficiency.armor`, deduped | |
-| Weapon proficiency | union of `kit.weapon` ∪ `FeatureProficiency.weapons`, deduped | |
+| Usable armor (FS "proficiency") | union of `kit.armor` ∪ `FeatureProficiency.armor`, deduped | |
+| Usable weapons (FS "proficiency") | union of `kit.weapon` ∪ `FeatureProficiency.weapons`, deduped | |
 
 Kit `features` are injected into the hero's feature list with
 **`level: undefined`** and `source: kit.name` — they are deliberately not
@@ -771,7 +771,7 @@ Ours need not match, but the *inputs each control needs* do.
 | 5 | Kit picker | **searchable list in a drawer** (`KitSelectModal`, free-text over name + description), one full `KitPanel` per row, plus a "Choose a kit" button that only appears while `selected.length < count`; each chosen kit gets a removable selection box | kits filtered by `types.includes(kit.type)` **and** excluding kits already held anywhere on the hero | `Empty` state when the filtered list is empty |
 | 6 | └ kit "Configure" expander | nested sub-choice panel | the kit's own choice-typed features | only non-empty for Stormwight kits (their toggles) |
 | 7 | Kit detail drawer | read-only `KitPanel` | selected kit | |
-| 8 | Item picker | **searchable list in a drawer** (`ItemSelectModal`) with a **per-`ItemType` toggle filter panel**, a "Show everything" toggle, and an **"Only show items you can use" toggle** (`canUseItem`: leveled armor/weapon must match a kit-granted proficiency) | all sourcebook items **plus the three `ImbuedItem` containers**, filtered to `data.types` | search matches name, description, keywords, and nested feature names |
+| 8 | Item picker | **searchable list in a drawer** (`ItemSelectModal`) with a **per-`ItemType` toggle filter panel**, a "Show everything" toggle, and an **"Only show items you can use" toggle** (`canUseItem`: leveled armor/weapon must match kit-granted usability (FS "proficiency")) | all sourcebook items **plus the three `ImbuedItem` containers**, filtered to `data.types` | search matches name, description, keywords, and nested feature names |
 | 9 | Item detail drawer | read-only `ItemPanel` | selected item | |
 | 10 | Respite modal | list of re-selectable features | **every `Kit` feature unconditionally**, plus `Choice`/`LanguageChoice`/`SkillChoice` whose `selectAt === 'respite'` | domains and item choices are **not** offered at respite |
 
@@ -782,6 +782,13 @@ homebrew *authoring* UI, not the hero builder).
 ---
 
 ## 7. Convex data model notes
+
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
 
 ### Definition data (seeded, versioned by source, shared)
 

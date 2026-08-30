@@ -17,6 +17,34 @@ verification obligation** against the pinned rulebook data before import — the
 set direction; they are not yet canon-confirmed. Those are R-A, R-B, R-C, R-E
 (plus a light check on R-I).
 
+> **Pin check 2026-08-30 (independent review bot, sampled against the pin —
+> not a Gate-3 sign-off):** all five confirmed **in direction**.
+>
+> - **R-A** — every sampled pre-fill is a grant in canon (Fury "You gain the
+>   Nature skill" `class/fury.md`; Berserker "You have the Lift skill"
+>   `feature/fury/level-1/primordial-aspect.md`; Agent skills, Fey Friend
+>   language `title/fey-friend.md`). Caveat: canon has **1-of-2 grants** FS
+>   cannot express (Performer: "The Music or Perform skill…"
+>   `career/performer.md`), so the per-row pass over the ~90 pre-seeded rows
+>   remains mandatory — R-L's join performs it.
+> - **R-B** — Conduit L7 `feature/conduit/level-7/faithfuls-reward.md` is
+>   whole-roll replacement ("you gain 1d3 + 1 piety"), same "instead of" shape
+>   as Fury/Censor; FS's missing replace flag is an upstream bug. Threshold
+>   precedence is stated per feature in canon
+>   (`feature/fury/level-1/primordial-strength.md`: "cumulative except where
+>   an improved benefit replaces a lesser benefit").
+> - **R-C** — Censor virtue is epic ("gain virtue equal to the XP you gain",
+>   `feature/censor/level-10/virtue.md`; the XP-gained hook still needs a
+>   representation decision). Beastheart rampage is a **companion-side**
+>   accumulator (`feature/beastheart/level-1/rampage.md`), not a hero heroic
+>   resource — FS's dual-heroic typing is definitively wrong.
+> - **R-E** — titles are Director-awarded and cumulative; echelon is "most
+>   likely to be earned", early grants sanctioned (Heroes rewards chapter).
+>   No build-time picker.
+> - **R-I** — subclass abilities are per-level embedded 1-of-2 choices
+>   (`feature/shadow/level-2/2nd-level-college-ability.md`); FS's
+>   `fromSelectedSubclassAbilities` mask is a no-op; drop it.
+
 | # | Ruling | Verify against the pin first? |
 |---|---|---|
 | **R-A** | Fixed grant — the rulebook wins | **yes** |
@@ -296,6 +324,12 @@ in Draw Steel.**
 **Options:** get it upstream · extract into an `ironyard-corrections`-style
 source of our own · ship language selection deferred in V1.
 
+> **Same-class gap found 2026-08-30: imbuements.** The pin has no structured
+> imbuement records either — only `rule/treasure/enhancement.md` prose and
+> tables — while `kits-domains-items.md` §7 sketches an `imbuements` table of
+> 86 rows. Whatever disposition R-J gets (upstream / own corrections source /
+> defer) should cover imbuements too.
+
 ---
 
 ## R-K · Real decisions with no data model
@@ -328,6 +362,29 @@ ids have 61 duplicates including **cross-class collisions**
 **Key on the pin's `scc`** — 3,081 records, 3,081 distinct, zero collisions.
 Every spec row must be joined to an `scc` id during seeding; any row that will
 not join is a discrepancy to resolve against the pin.
+
+> **Join pre-load (2026-08-30 pin review) — known deltas to seed into the
+> join's discrepancy list rather than rediscover:**
+>
+> - **Cardinality is not 1:1.** One pin record can hide several choice points
+>   (a career's skills/languages/perk/incident live in one record; the
+>   culture-axis skill choice lives inside one `culture/*` record) — the
+>   overlay key is `(scc, discriminator)`, not bare `scc`. Conversely several
+>   FS rows collapse to one pin record (Fury's kit is one class-level
+>   `feature.fury.level-1/kit`, not per-subclass), and nested FS sub-features
+>   have no individual pin records.
+> - **Name drift:** FS "Tactic Call" = pin **"Quick Command"**
+>   (`feature/summoner/level-1/quick-command.md`); FS "Professional cultures"
+>   = pin **"Archetypical Cultures Table"** (16 rows,
+>   `chapter/background.md`).
+> - **No pin records exist for:** languages (R-J), **imbuements** (R-J-class
+>   gap — the pin has only `rule/treasure/enhancement.md` prose), FS's preset
+>   cultures (pin has exactly the 13 axis records), domain-level records
+>   (membership is `subclass:` frontmatter on conduit features), and
+>   inciting-incident identity (table rows inside career records).
+> - **Count deltas:** core titles FS 62 vs pin 60 (2 unreconciled); pin has
+>   8 beastheart perks FS lacks; **Beastheart's book is `exclude` in the pin
+>   config** — every beastheart row joins as `excluded-book` until admission.
 
 ---
 

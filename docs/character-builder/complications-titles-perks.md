@@ -49,7 +49,7 @@ The **hero-side** slot:
 | Field | Type | Notes |
 |---|---|---|
 | `Hero.complication` | `Complication \| null` | A deep copy of the pool record, with the player's selections written into its features. Optional — the builder page reports `PageState.Optional` when it is `null`. |
-| `HeroOverview.complication` | `string \| null` | Display-only projection of the name. (Note: `HeroOverview.background` in the same interface is a *display concatenation* of ancestry/culture/career — there is no "background" in Draw Steel.) |
+| `HeroOverview.complication` | `string \| null` | Display-only projection of the name. (Note: `HeroOverview.background` in the same interface is a *display concatenation* of ancestry/culture/career — there is no "background" mechanic in Draw Steel.) |
 
 A **second** channel exists: `FeatureType.Complication` / `FeatureComplicationData = { selected: Complication \| null }`. No data file ever emits one; it is created only by the hero **Customize** modal (`hero-customize-modal.tsx` → `FactoryLogic.feature.createComplication`). `HeroLogic.getComplications` unions `hero.complication` with every such feature's `selected`.
 
@@ -757,6 +757,13 @@ builder should diverge, that is called out.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded once, shared, versioned by source)
 
 | Table | Key | Payload | Rows (core) |
@@ -993,5 +1000,5 @@ because both read `PerkList`. Keep them the same enum in our schema, but do not 
 fields in the UI: a perk belongs to exactly one list, a grant allows several.
 
 **A-17 — `HeroOverview.background`.** Present in `src/models/hero.ts` next to `complication`.
-There is **no "background" in Draw Steel** — it is a display concatenation of ancestry / culture /
+There is **no "background" mechanic in Draw Steel** — the FS field is a display concatenation of ancestry / culture /
 career for list views. Do not carry the field name into our schema.

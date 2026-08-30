@@ -494,6 +494,13 @@ sub-choice, or toggle.
 
 ## Convex data model notes
 
+> **Superseded keying note (2026-08-30):** the FS-id keys sketched in this
+> section are illustrative only and are **superseded** by `00-foundation.md`
+> §6b + ruling R-L: every persistent key joins on the pin's `scc` identity
+> (with a discriminator where one pin record carries several choice points).
+> FS ids are labels, never keys.
+
+
 ### Definition data (seeded once, versioned by source, shared)
 
 | Table | Key | Contents |
@@ -597,7 +604,7 @@ re-prompted rather than silently dropped.
    condition field the source does not provide (A-8).
 8. **`HeroOverview.background` is a display concatenation**, built in
    `HeroLogic` from `culture.name`, `career.name` and the selected inciting
-   incident. There is no "background" concept in Draw Steel; do **not** create a
+   incident. There is no "background" mechanic in Draw Steel; do **not** create a
    `background` column.
 
 ---
