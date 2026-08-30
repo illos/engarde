@@ -386,6 +386,29 @@ not join is a discrepancy to resolve against the pin.
 >   8 beastheart perks FS lacks; **Beastheart's book is `exclude` in the pin
 >   config** — every beastheart row joins as `excluded-book` until admission.
 
+> **Join BUILT 2026-08-31** (`pnpm character-builder:extract` →
+> `character-builder:join`; artifacts regenerate under
+> `.artifacts/canon/character-builder/`, gitignored like all canon
+> artifacts — the committed scripts are the source of truth). Numbers:
+> 2,918 FS rows, 2,387 joined (96.7% of joinable), every row accounted
+> exactly once; R-A worklist emitted at 40 rows (the "~90" estimate
+> counted affected features more loosely). Pre-load corrections from the
+> mechanical pass:
+>
+> - **WRONG — "pin has 8 beastheart perks FS lacks":** FS carries all 8,
+>   names matching 1:1 (`summary.json → beastheartPerkCrossCheck`).
+> - **Titles reconciliation is 4 names, not 2:** one delta was drift (FS
+>   "Dwarf Legionnaire" = pin `title/dwarven-legionnaire.md`), leaving
+>   FS-only Angler / Goldenrod / Master of Reels and pin-only Stronghold.
+> - Domain features live as conduit `subclass:`-frontmatter records **and**
+>   as conduit/censor ability records (Reap, Seance) — pre-load missed the
+>   second home.
+> - 12 additional observed name drifts beyond the seeded map are in the
+>   join's documented `OBSERVED_DRIFT` dict (each with 1:1 leftover-pair
+>   evidence) — review them in the R-L ruling pass, plus the parked
+>   judgment calls in `discrepancies.json` (Summoner circle machinery,
+>   subclass L1 skill grants, Vampire Sire↔Scion, etc.).
+
 ---
 
 ## R-M · Hero potency derivation: class characteristic or highest? *(not an FS question — pin-internal; rulebot evidence 2026-08-30, Gates 1+2 run)*
