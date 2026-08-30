@@ -17,8 +17,9 @@ import type {
  * example pins the boundary: Agility 0 vs `A < 0` → resisted).
  *
  * Named thresholds (WEAK/AVERAGE/STRONG) resolve from the imposer's STORED
- * potency values — never derived here (Gate-3 Q2: the corpus carries an
- * unresolved "highest characteristic" vs "determined by your class" tension).
+ * potency values — never derived here. Derivation's one home is canon's
+ * `heroStats`, from the class-printed characteristic (R-M ruled 2026-08-30;
+ * the old Gate-3 Q2 tension is resolved — see PotencyValuesSchema).
  */
 
 export const POTENCY_CANON = 'mcdm.heroes.v1/rule.character/potency';

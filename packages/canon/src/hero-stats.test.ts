@@ -30,7 +30,9 @@ describe.skipIf(!sourceRoot)('heroStats over real class records', () => {
       characteristics: furyStart,
       immunities: [],
       weaknesses: [],
-      potencies: null,
+      // R-M: from the class-printed lines ❝Weak Potency: Might − 2❞ /
+      // ❝Average Potency: Might − 1❞ / ❝Strong Potency: Might❞ at Might 2.
+      potencies: { weak: 0, average: 1, strong: 2 },
       organization: null,
       recoveriesMax: 10,
       freeStrike: null,
@@ -69,7 +71,10 @@ describe.skipIf(!sourceRoot)('heroStats over real class records', () => {
     const parsed = ParticipantStatsSchema.parse(stats);
     expect(parsed.staminaMax).toBe(18 + 6);
     expect(parsed.recoveriesMax).toBe(8);
-    expect(parsed.potencies).toBeNull();
+    // R-M: conduit's printed potency characteristic is Intuition (score 2
+    // here) — and conduit.json prints its offsets with an ASCII hyphen,
+    // exercising the permissive minus-glyph parse.
+    expect(parsed.potencies).toEqual({ weak: 0, average: 1, strong: 2 });
   });
 
   it('tactician at 1st level: schema-valid with printed values (21 / 9 / 10)', async () => {
@@ -85,6 +90,9 @@ describe.skipIf(!sourceRoot)('heroStats over real class records', () => {
     const parsed = ParticipantStatsSchema.parse(stats);
     expect(parsed.staminaMax).toBe(21);
     expect(parsed.recoveriesMax).toBe(10);
+    // R-M: tactician's printed potency characteristic is Reason (score 2
+    // here), NOT the tied-highest Might — the class-printed line decides.
+    expect(parsed.potencies).toEqual({ weak: 0, average: 1, strong: 2 });
   });
 
   it('every class record produces schema-valid stats at every printed level', async () => {
@@ -106,6 +114,9 @@ describe.skipIf(!sourceRoot)('heroStats over real class records', () => {
         const stats = heroStats(record, level, zero);
         expect(stats, `${name} L${level}`).not.toBeNull();
         expect(() => ParticipantStatsSchema.parse(stats), `${name} L${level}`).not.toThrow();
+        // R-M: every class record's three printed potency lines parse, and
+        // at an all-zero assignment every class yields score − 2/−1/−0.
+        expect(stats?.potencies, `${name} L${level}`).toEqual({ weak: -2, average: -1, strong: 0 });
       }
     }
   });
@@ -129,6 +140,24 @@ describe('heroStats input guards (no corpus needed)', () => {
 
   it('returns null for a non-class record', () => {
     expect(heroStats({ type: 'statblock', stamina: 15 }, 1, zero)).toBeNull();
+  });
+
+  it('unparseable potency lines yield a null triple, never a guess — stats still ship', () => {
+    const stats = heroStats(
+      {
+        type: 'class',
+        starting_stamina: 21,
+        stamina_per_level: 9,
+        recoveries: 10,
+        weak_potency: 'Might − 2', // no scc link — not the printed structure
+        average_potency: '[Might](scc.v1:mcdm.heroes.v1/rule.character/might) − 1',
+        strong_potency: '[Might](scc.v1:mcdm.heroes.v1/rule.character/might)',
+      },
+      1,
+      zero,
+    );
+    expect(stats).not.toBeNull();
+    expect(stats?.potencies).toBeNull();
   });
 
   it('returns null when the printed stamina/recoveries fields are missing or unusable', () => {

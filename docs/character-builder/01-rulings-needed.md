@@ -390,7 +390,14 @@ not join is a discrepancy to resolve against the pin.
 
 ## R-M · Hero potency derivation: class characteristic or highest? *(not an FS question — pin-internal; rulebot evidence 2026-08-30, Gates 1+2 run)*
 
-**Decision needed:** which derivation is *definitional* for a hero's
+> **RULED 2026-08-30 — recommendation accepted (user: "Let's go with your
+> recommendation"): the class-printed characteristic is definitional.**
+> Implemented same day in `packages/canon/src/hero-stats.ts`: the
+> characteristic AND offset are parsed from each class record's printed
+> potency line (never hardcoded); an unparseable line yields a null triple.
+> The engine continues to consume stored values only.
+
+**Decision needed (resolved above):** which derivation is *definitional* for a hero's
 weak/average/strong potency values — the class-printed characteristic, or
 "your highest characteristic score"? This is the decision **R-0003**
 (`docs/power-roll-design.md` §10 Q2) deferred to the character-build

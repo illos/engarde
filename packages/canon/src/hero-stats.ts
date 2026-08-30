@@ -27,17 +27,22 @@ import {
  * Characteristics are an INPUT — the player's assignment (starting array +
  * any increases), never derived here.
  *
+ * Potencies derive from the CLASS-PRINTED characteristic — **RULED R-M,
+ * accepted 2026-08-30** (docs/character-builder/01-rulings-needed.md §R-M;
+ * resolves the tension R-0003 deferred). Each class prints its own three
+ * lines (fury Basics: ❝Weak Potency: Might − 2❞ / ❝Average Potency:
+ * Might − 1❞ / ❝Strong Potency: Might❞); the structured
+ * `weak_potency`/`average_potency`/`strong_potency` fields carry them as
+ * characteristic links with a printed offset, and both the characteristic
+ * and the offset are PARSED from each line, never hardcoded. The two corpus
+ * formulations are extensionally equal for every RAW hero (verified all 9
+ * classes × printed advancement — see §R-M); the class-printed reading is
+ * definitional. A line that fails the permissive parse yields
+ * `potencies: null` (lossless residue — automation never guesses), which
+ * the engine surfaces as a not-automated receipt at resolution time.
+ *
  * NOT included (compose above this function, never inside it):
  * - Kit / feature Stamina bonuses — this is the CLASS contribution only.
- * - Potencies: stays null per R-0003 (power-roll-design.md §10 Q2). The
- *   corpus prints two mappings that can diverge — `rule.character/potency`
- *   says ❝your highest characteristic score❞ while the same record says the
- *   value is ❝determined by your class❞ and each class record prints a fixed
- *   characteristic (fury: ❝Weak Potency: Might − 2❞). After a level-4/7/10
- *   characteristic increase another score can pass the class-printed one, so
- *   the readings disagree; deriving here would pick a side R-0003 deferred.
- *   The structured `weak_potency`/`average_potency`/`strong_potency` fields
- *   are ready input once ruled.
  */
 
 /** Printed hero level range: the Heroic Advancement Table and every class
@@ -48,6 +53,24 @@ export const HERO_LEVEL_MAX = 10;
 
 function positiveInt(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+}
+
+/** A printed class potency line as structured in the paired JSON:
+ * `[Might](scc.v1:…/rule.character/might) − 2` — a characteristic link plus
+ * an optional printed offset (strong prints none). Permissive over the
+ * pin's two minus glyphs (U+2212 and ASCII hyphen — conduit.json uses the
+ * latter). The characteristic is read from the scc slug, not the display
+ * label. */
+const POTENCY_LINE =
+  /^\[[A-Za-z]+\]\(scc\.v1:[^)]*\/rule\.character\/(might|agility|reason|intuition|presence)\)(?:\s*[−-]\s*(\d+))?\s*$/;
+
+function potencyValue(line: unknown, characteristics: Characteristics): number | null {
+  if (typeof line !== 'string') return null;
+  const match = POTENCY_LINE.exec(line.trim());
+  if (!match) return null;
+  const key = match[1] as keyof Characteristics;
+  const offset = match[2] === undefined ? 0 : Number.parseInt(match[2], 10);
+  return characteristics[key] - offset;
 }
 
 /**
@@ -69,6 +92,14 @@ export function heroStats(
   // One home for the −5..+5 characteristic range: the engine schema.
   const parsedCharacteristics = CharacteristicsSchema.safeParse(characteristics);
   if (!parsedCharacteristics.success) return null;
+  // R-M: each value = the class-printed characteristic's score minus the
+  // printed offset, all three parsed from the record's own lines. Any
+  // unparseable line → null triple (residue, never a guess).
+  const weak = potencyValue(classRecord.weak_potency, parsedCharacteristics.data);
+  const average = potencyValue(classRecord.average_potency, parsedCharacteristics.data);
+  const strong = potencyValue(classRecord.strong_potency, parsedCharacteristics.data);
+  const potencies =
+    weak !== null && average !== null && strong !== null ? { weak, average, strong } : null;
   return {
     // ❝Starting Stamina at 1st Level❞ + ❝Stamina Gained at 2nd and Higher
     // Levels❞ (class Basics): the per-level gain lands at each of levels
@@ -78,8 +109,8 @@ export function heroStats(
     /** Class records print no immunity/weakness rows (measured, all 9). */
     immunities: [],
     weaknesses: [],
-    /** Deferred per R-0003 — see the module doc comment. */
-    potencies: null,
+    /** Class-printed characteristic minus printed offset (R-M ruled). */
+    potencies,
     /** Organization is a stat-block field; class records carry none. */
     organization: null,
     /** ❝Recoveries: 10❞ (class Basics) — flat, no printed level scaling. */

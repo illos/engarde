@@ -267,9 +267,12 @@ export const DamageWeaknessSchema = z.object({
 });
 
 /**
- * Hero potency values are STORED, never derived by the engine — the corpus
- * carries an unresolved tension between "highest characteristic" and
- * "determined by your class" (power-roll-design.md Gate-3 Q2).
+ * Hero potency values are STORED, never derived by the engine. The corpus's
+ * "highest characteristic" vs "determined by your class" tension is RULED —
+ * R-M, accepted 2026-08-30 (character-builder/01-rulings-needed.md §R-M):
+ * the class-printed characteristic is definitional, and the derivation's one
+ * home is canon's `heroStats` (extensionally equal readings for every RAW
+ * hero). The engine's contract is unchanged: consume the stored triple.
  */
 export const PotencyValuesSchema = z.object({
   weak: z.number().int(),
