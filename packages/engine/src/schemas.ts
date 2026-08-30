@@ -1214,6 +1214,78 @@ export const TierEffectDataSchema = z.object({
 export type TierEffectData = z.infer<typeof TierEffectDataSchema>;
 
 /**
+ * The printed resource names observed in cost position at the accepted pin
+ * (frontmatter `cost` fields in the heroes/summoner books; bold name-line
+ * parentheticals in the monsters/summoner books). Closed and measured — a
+ * FUTURE resource name refuses to parse and surfaces as residue, never a
+ * guess. `point` is the ancestry-trait purchase cost exactly as printed
+ * ("1 Point" / "2 Points"); no build-time semantics are implied here.
+ * `eidos` is printed only as the "1 Eidos" action-cost cell of four
+ * summoner champion stat blocks — that cell is FROZEN action-cost residue
+ * pending ruling R-0046 and is deliberately not routed through the
+ * resource-cost parser anywhere; the member exists so resolving R-0046 is
+ * a wiring change, not a vocabulary change.
+ */
+export const RESOURCE_COST_RESOURCES = [
+  'clarity',
+  'discipline',
+  'drama',
+  'eidos',
+  'essence',
+  'ferocity',
+  'focus',
+  'insight',
+  'malice',
+  'piety',
+  'point',
+  'wrath',
+] as const;
+export const ResourceCostResourceSchema = z.enum(RESOURCE_COST_RESOURCES);
+export type ResourceCostResource = z.infer<typeof ResourceCostResourceSchema>;
+
+/**
+ * Structured carry slot for one printed resource cost (ROAD-0005
+ * generalizing seam #1). CARRY-ONLY: this records exactly what the book
+ * prints — no debit semantics, no spend logic, no resource pools. Any
+ * mechanism that actually spends a resource is future, separately ruled
+ * work that consumes this one representation instead of growing its own
+ * cost parser.
+ *
+ * The measured printed forms at the accepted pin:
+ * - `N <Resource>` — flat ("5 Ferocity", "3 Malice", "2 Points");
+ * - `N+ <Resource>` — open-ended minimum ("1+ Essence", "5+ Malice");
+ * - `N <resource> per <unit>` — per-unit pricing ("1 essence per minion
+ *   summoned", "1 Malice per target");
+ * - `N <resource> for <count> <unit>` — bulk pricing ("3 essence for two
+ *   minions", "9 essence for one champion").
+ * Range labels ("3-7 Malice") and any unmeasured form refuse to parse.
+ */
+export const ResourceCostSchema = z.object({
+  /** Printed leading integer. For the `N+` form this is the printed
+   * minimum; for the `for <count>` form it is the whole printed price. */
+  amount: z.number().int().nonnegative(),
+  resource: ResourceCostResourceSchema,
+  /** True exactly when the book prints the open-ended `N+` marker. */
+  openEnded: z.boolean(),
+  /** Verbatim per-unit qualifier, lowercased, from the closed measured set
+   * ("N <resource> per <unit>"). Null = not a per-unit price. */
+  per: z.enum(['minion summoned', 'minion', 'target']).nullable(),
+  /** The printed bulk qualifier "for <count> <unit>" ("3 essence for two
+   * minions"), count folded from the printed number word. Null = not a
+   * bulk price. */
+  forQuantity: z
+    .object({
+      count: z.number().int().positive(),
+      unit: z.enum(['minion', 'champion']),
+    })
+    .nullable(),
+  /** The exact printed cost text this slot was parsed from (scc links
+   * stripped where it came from a linked name line). */
+  sourceText: z.string().min(1),
+});
+export type ResourceCost = z.infer<typeof ResourceCostSchema>;
+
+/**
  * Compiled action-economy fields shared by the ability and Effect-program
  * shapes [R-0029, R-0031]. Defaults keep pre-v6 compiled literals valid.
  */
@@ -1236,6 +1308,15 @@ const compiledEconomyShape = {
   /** R-0031 interception-point classification, present exactly on compiled
    * triggered/free-triggered abilities. */
   reactionInterception: ReactionInterceptionSchema.nullable().default(null),
+  /** Printed resource-cost carry slot (ROAD-0005 seam #1), parsed from the
+   * cost-shaped bold name-line parenthetical the header walkback reads
+   * ("Net Trap (3 Malice)"). CARRY-ONLY — no debit is implied or taken.
+   * Null = the name line prints no cost-shaped parenthetical. Defaults
+   * keep pre-existing compiled literals valid. */
+  resourceCost: ResourceCostSchema.nullable().default(null),
+  /** Why a cost-shaped parenthetical refused to parse, when it did (honest
+   * residue accounting; the verbatim printed text rides in the message). */
+  resourceCostResidue: z.string().nullable().default(null),
 };
 
 export const AbilityEffectDataSchema = z.object({
@@ -1527,6 +1608,11 @@ export const SquadAbilityDataSchema = z.object({
   actionType: z.string().nullable(),
   actionCost: ActionCostSchema.nullable().default(null),
   actionCostResidue: z.string().nullable().default(null),
+  /** Printed resource-cost carry slot (ROAD-0005 seam #1) — same
+   * carry-only semantics as the ability/Effect-program shapes. Defaults
+   * keep payloads serialized before this field valid. */
+  resourceCost: ResourceCostSchema.nullable().default(null),
+  resourceCostResidue: z.string().nullable().default(null),
   keywords: z.array(z.string().min(1)).default([]),
   targetsText: z.string().nullable(),
   powerRollBonus: PowerRollBonusSchema,

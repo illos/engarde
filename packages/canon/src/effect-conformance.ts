@@ -249,7 +249,8 @@ export function resolvePowerRollAbilityHeader(
 }
 
 /** Economy fields for one compiled shape from its header's annotation
- * [R-0029, R-0031]; a headerless shape carries the schema defaults. */
+ * [R-0029, R-0031], including the carry-only printed resource-cost slot
+ * (ROAD-0005 seam #1); a headerless shape carries the schema defaults. */
 function economyFieldsOf(annotation: HeaderCostAnnotation | undefined): Record<string, unknown> {
   if (!annotation) return {};
   return {
@@ -258,6 +259,8 @@ function economyFieldsOf(annotation: HeaderCostAnnotation | undefined): Record<s
     operatorPays: annotation.operatorPays,
     usesPerRound: annotation.usesPerRound,
     reactionInterception: annotation.reactionInterception,
+    resourceCost: annotation.resourceCost,
+    resourceCostResidue: annotation.resourceCostResidue,
   };
 }
 
@@ -509,6 +512,8 @@ export function compileSquadAbilities(
         actionType: lastHeader?.actionType ?? null,
         actionCost: annotation?.actionCost ?? null,
         actionCostResidue: annotation?.actionCostResidue ?? null,
+        resourceCost: annotation?.resourceCost ?? null,
+        resourceCostResidue: annotation?.resourceCostResidue ?? null,
         keywords: lastHeader?.keywords ?? [],
         targetsText: lastHeader?.targets ?? null,
         powerRollBonus: event.clause.bonusData,
