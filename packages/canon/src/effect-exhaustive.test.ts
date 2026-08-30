@@ -124,7 +124,7 @@ describe.skipIf(!existsSync(manifestPath))('exhaustive core Effect conformance',
       checkout: EFFECT_CANON_PIN,
       clean: true,
     });
-    expect(manifest.counts.artifactRecords).toBe(3529);
+    expect(manifest.counts.artifactRecords).toBe(3785);
     expect(expectationByKey.size).toBe(AUTOMATIC_EFFECT_CANON_EXPECTATIONS.length);
     expect(expectationByKey.size).toBe(12);
     expect(testExpectationByKey.size).toBe(TEST_EFFECT_CANON_EXPECTATIONS.length);

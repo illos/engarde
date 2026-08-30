@@ -150,10 +150,10 @@ def main(argv=None):
     try:
         pool_b_source, result = build(root)
         critical = sum(row["criticalPath"] for row in result["rows"])
-        if len(result["rows"]) != 3529 or critical != 30:
+        if len(result["rows"]) != 3785 or critical != 30:
             raise ValueError(
                 f"map invariant failed: artifacts={len(result['rows'])} criticalPath={critical}; "
-                "expected 3529/30"
+                "expected 3785/30"
             )
         write_json_atomic(root / "pool-b-map.json", pool_b_source)
         write_json_atomic(root / "corpus-map.json", result)

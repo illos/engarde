@@ -306,11 +306,23 @@ describe.skipIf(!existsSync(BUNDLE_ROOT))('byte-defect repair against the pinned
         }
       }
     }
-    // Frozen at the accepted pin: the honest baseline counts, then zero
-    // residue on every compiled shape.
-    expect(abilityCount).toBe(587);
-    expect(programCount).toBe(1688);
-    expect(residues).toEqual([]);
+    // Frozen at the accepted pin: the honest baseline counts. The Summoner
+    // admission adds 1 compiled ability and 77 programs on top of the core
+    // 587/1,688, and introduces exactly one new printed surface value:
+    // "1 Eidos" on four summoner champion stat blocks. Eidos is NOT in
+    // R-0029's closed vocabulary and no ruling covers it yet — the runtime
+    // path correctly surfaces a table directive instead of a debit for
+    // these four. Ruling needed before they can compile to debits; until
+    // then this freeze pins the residue set exactly so any FIFTH residue
+    // still breaks loudly.
+    expect(abilityCount).toBe(588);
+    expect(programCount).toBe(1765);
+    expect([...residues].sort()).toEqual([
+      'mcdm.summoner.v1/monster.champion.summoner.demon.statblock/demon-lords-aspect#3: unrecognized action-cost value "1 Eidos"',
+      'mcdm.summoner.v1/monster.champion.summoner.elemental.statblock/dragons-portent#1: unrecognized action-cost value "1 Eidos"',
+      'mcdm.summoner.v1/monster.champion.summoner.fey.statblock/celestial-attendant#3: unrecognized action-cost value "1 Eidos"',
+      'mcdm.summoner.v1/monster.champion.summoner.undead.statblock/avatar-of-death#3: unrecognized action-cost value "1 Eidos"',
+    ]);
   });
 
   it('classifies the real Tongue Slap onto the rolled point', () => {

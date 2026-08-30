@@ -1,9 +1,11 @@
-# Corpus map — coarse bucket classification of all 3,529 artifacts
+# Corpus map — coarse bucket classification of all 3,785 artifacts
 
-Status: first full sweep complete 2026-08-29. **Navigational only.** This map is
-not a canon ruling, not a Gate-3 disposition, and not authority for any engine
-behavior. Its single purpose is to chop a large unexamined body of text into
-chunks a human can navigate. Rows will move; that is expected and fine.
+Status: first full sweep complete 2026-08-29 (3,529 core artifacts);
+Summoner admission extended the map by 256 Pool B rows on 2026-08-30 (see
+"Summoner extension" below). **Navigational only.** This map is not a canon
+ruling, not a Gate-3 disposition, and not authority for any engine behavior.
+Its single purpose is to chop a large unexamined body of text into chunks a
+human can navigate. Rows will move; that is expected and fine.
 
 ## Why this exists
 
@@ -158,14 +160,41 @@ All under `.artifacts/canon/corpus-map/` (gitignored, regenerable):
 Regenerate the joined map with `pnpm corpus-map:build`. The producer preserves
 Pool A's 30 individually reviewed critical-path rows and forces every Pool B
 family rule/materialized row false; it refuses output unless the result is
-exactly 30 of 3,529.
+exactly 30 of 3,785.
 
-- `corpus-map.json` — all 3,529 rows: id, chapter, bytes, pool, primary,
+- `corpus-map.json` — all 3,785 rows: id, chapter, bytes, pool, primary,
   secondaries, spatial, criticalPath, confidence, justification
 - `rulings/batch-01..27.json` — pool A, one file per agent
 - `rulings/recheck-1..3.json` — the blind re-read sample
-- `pool-b-map.json` — the 90 family rules (corrected) + materialized rows
+- `pool-b-map.json` — the 100 family rules (90 core corrected + 10 summoner) +
+  materialized rows
 - `batches/`, `pool-b-sample.json`, `batch-index.json` — inputs
+- `summoner-row-inputs.json`, `extend_pool_b_summoner.py` — the Summoner
+  extension's mechanical inputs and the merge script
 
 Regenerate the inputs from the accepted campaign manifest; the rulings are model
 output and are not reproducible byte-for-byte.
+
+## Summoner extension — 256 Pool B rows (2026-08-30)
+
+The Summoner admission (config flip + full regeneration) grew the accepted
+campaign manifest from 3,529 to 3,785 artifacts: 222 structured records (118
+feature / 84 monster / 13 treasure / 6 title / 1 class) and 34 chapter chunks
+across the book's five chapters. All 256 entered **Pool B** — family-derived,
+confidence low, `criticalPath` false, per this map's standing rules:
+
+- Ten new family rules mirror the corresponding core rulings
+  (`feature.ability` → engine; per-class features → character-builder;
+  statblocks → engine per the adversarial Pool B correction; treasures →
+  reference-data; titles → campaign-layer).
+- The 34 chapter chunks were refined per-chunk from a direct read: lore and
+  player advice are `prose`; Director advice, the standby-minions alternate
+  rule and the minion-conversion tables are `director-tools`; the rewards
+  chunks are `reference-data` pointers at treasure records.
+- The 30-row critical path is unchanged: no summoner row was individually
+  read at Pool A depth, so none may carry `criticalPath` (a playable core
+  session does not depend on the supplement).
+- Known open surface value from the same admission: four summoner champion
+  statblocks print the action cost `1 Eidos`, which is outside R-0029's
+  closed vocabulary; the residue set is frozen exactly in
+  `packages/canon/src/action-cost.test.ts` pending a ruling.

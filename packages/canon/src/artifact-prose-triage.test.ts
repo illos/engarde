@@ -110,6 +110,9 @@ describe.skipIf(!existsSync(manifestPath))('whole-artifact prose triage (accepte
   it('freezes and provenance-checks the conservative candidate inventory', async () => {
     const report = await loadArtifactProseTriage(manifestPath);
     expect(report.canonPin).toBe(CANON_PIN);
+    // The triage funnel is deliberately scoped to the two core books; the
+    // campaign manifest itself carries 3,785 artifacts since the Summoner
+    // admission, of which the heroes/monsters core is this frozen 3,529.
     expect(report.acceptedArtifacts).toBe(3529);
     expect(report.candidates).toHaveLength(365);
     expect(new Set(report.candidates.map((candidate) => candidate.artifactId)).size).toBe(365);
