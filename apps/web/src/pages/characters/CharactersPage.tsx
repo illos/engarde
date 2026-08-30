@@ -72,7 +72,7 @@ function CharacterCard({
   };
 
   return (
-    <li className="border border-line bg-ink-1 p-4">
+    <li className="border border-line bg-ink-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="font-display text-xl">{character.name}</h2>
@@ -126,7 +126,7 @@ function CharacterCard({
               value={campaignId}
               onChange={(event) => setCampaignId(event.target.value as Id<'campaigns'> | '')}
               aria-label={`Campaign for ${character.name}`}
-              className="h-9 min-w-48 border border-line bg-ink-2 px-2 text-sm focus:border-accent focus:outline-none"
+              className="h-9 min-w-48 border border-line bg-ink-2 px-2 text-sm focus:border-rule focus:outline-none"
             >
               <option value="">Choose a campaign…</option>
               {campaigns.map((campaign) => (
@@ -195,7 +195,7 @@ function CreateCharacter({ campaigns }: { campaigns: ActiveCampaign[] }) {
             value={name}
             onChange={(event) => setName(event.target.value)}
             maxLength={80}
-            className="h-11 border border-line bg-ink-1 px-3 text-base focus:border-accent focus:outline-none"
+            className="h-11 border border-line bg-ink-1 px-3 text-base focus:border-rule focus:outline-none"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -206,7 +206,7 @@ function CreateCharacter({ campaigns }: { campaigns: ActiveCampaign[] }) {
             maxLength={300}
             rows={3}
             placeholder="A short description (optional)"
-            className="border border-line bg-ink-1 px-3 py-2 text-base placeholder:text-text-mute focus:border-accent focus:outline-none"
+            className="border border-line bg-ink-1 px-3 py-2 text-base placeholder:text-text-mute focus:border-rule focus:outline-none"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
@@ -214,7 +214,7 @@ function CreateCharacter({ campaigns }: { campaigns: ActiveCampaign[] }) {
           <select
             value={campaignId}
             onChange={(event) => setCampaignId(event.target.value as Id<'campaigns'> | '')}
-            className="h-11 border border-line bg-ink-1 px-3 text-base focus:border-accent focus:outline-none"
+            className="h-11 border border-line bg-ink-1 px-3 text-base focus:border-rule focus:outline-none"
           >
             <option value="">Keep unbound</option>
             {campaigns.map((campaign) => (

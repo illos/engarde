@@ -32,7 +32,7 @@ export function DirectoryPage() {
                 className="group block"
               >
                 <div
-                  className={`border border-line bg-ink-1 p-4 transition-colors group-hover:border-accent ${
+                  className={`border border-line bg-ink-4 p-4 transition-colors group-hover:border-accent ${
                     entry.joinability === 'closed' ? 'opacity-60' : ''
                   }`}
                 >

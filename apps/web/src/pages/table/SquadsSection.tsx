@@ -111,9 +111,9 @@ export function SquadsSection({
                 <span className="font-mono">{squad.perMinionStamina}</span>
                 <span className="type-label text-text-mute">Per minion</span>
               </div>
-              <div className="mt-1 h-1.5 w-full bg-ink-1" aria-hidden>
+              <div className="mt-1 h-1.5 w-full bg-seg-empty" aria-hidden>
                 <div
-                  className={`h-full ${squad.poolCurrent === 0 ? 'bg-foe' : 'bg-accent'}`}
+                  className={`h-full ${squad.poolCurrent === 0 ? 'bg-state-dire' : 'bg-state-good'}`}
                   style={{
                     width: `${Math.max(0, Math.min(100, (squad.poolCurrent / squad.poolMax) * 100))}%`,
                   }}
@@ -181,7 +181,7 @@ export function SquadsSection({
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   <select
                     aria-label={`Captain for ${squad.name}`}
-                    className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                    className="h-11 border border-line bg-ink-4 px-2 text-base"
                     value={captainPick}
                     onChange={(event) =>
                       setCaptainPicks((current) => ({
@@ -223,7 +223,7 @@ export function SquadsSection({
                       Target
                       <select
                         aria-label={`Squad attack target for ${squad.name}`}
-                        className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 text-sm"
+                        className="mt-1 h-11 w-full border border-line bg-ink-4 px-2 text-base"
                         value={attackTarget}
                         onChange={(event) =>
                           setAttackTargets((current) => ({
@@ -243,7 +243,7 @@ export function SquadsSection({
                       Instance owner
                       <select
                         aria-label={`Instance owner for ${squad.name}`}
-                        className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 text-sm"
+                        className="mt-1 h-11 w-full border border-line bg-ink-4 px-2 text-base"
                         value={attackOwner}
                         onChange={(event) => {
                           const owner = event.target.value;
@@ -266,7 +266,7 @@ export function SquadsSection({
                     Printed ability slug
                     <input
                       aria-label={`Ability slug for ${squad.name}`}
-                      className="mt-1 h-11 w-full border border-line bg-ink-1 px-2 font-mono text-sm"
+                      className="mt-1 h-11 w-full border border-line bg-ink-4 px-2 font-mono text-base"
                       placeholder="spit"
                       value={abilitySlug}
                       onChange={(event) =>

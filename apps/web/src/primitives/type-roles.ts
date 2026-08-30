@@ -37,21 +37,22 @@ export const TYPE_ROLES = {
   display: {
     token: '--font-display',
     utility: 'font-display',
-    face: 'Cormorant Garamond',
-    usage: 'Headings, character/foe names, big numerals (EV totals, stats).',
+    face: 'Playfair Display',
+    usage:
+      'Names, page titles, ability names, ceremonial numerals. Roman is the nameplate; italic is the editorial aside (statblock names, notes, placeholders). Never uppercase, never tracked.',
   },
   body: {
     token: '--font-body',
     utility: 'font-body',
-    face: 'EB Garamond',
-    usage: 'Prose, descriptions, and general reading text. The global default.',
+    face: 'Barlow Semi Condensed',
+    usage: 'Data prose: log lines, effect text, descriptions. The global default.',
   },
   label: {
     token: '--font-mono',
     utility: 'font-mono',
     face: 'Geist Mono',
     usage:
-      'Small-caps engraved labels, section tags, pill/metadata text, plus literal data (IDs, dice, code). Often via the .type-label composite.',
+      'Small-caps engraved labels, section tags, pill/metadata text, plus literal data (IDs, dice, stamina fractions, deltas, timestamps). Often via the .type-label composite; data columns add .tabular.',
   },
 } satisfies Record<TypeRole, TypeRoleDef>;
 

@@ -58,7 +58,7 @@ export function AddGrantSection({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           aria-label="Grant target"
-          className="h-11 border border-line bg-ink-1 px-2 text-sm"
+          className="h-11 border border-line bg-ink-4 px-2 text-base"
           value={resolvedTarget}
           onChange={(event) => setTargetId(event.target.value)}
         >
@@ -70,7 +70,7 @@ export function AddGrantSection({
         </select>
         <select
           aria-label="Grant kind"
-          className="h-11 border border-line bg-ink-1 px-2 text-sm"
+          className="h-11 border border-line bg-ink-4 px-2 text-base"
           value={kind}
           onChange={(event) => setKind(event.target.value as 'action' | 'turn' | 'next-roll')}
         >
@@ -81,7 +81,7 @@ export function AddGrantSection({
         {kind === 'action' ? (
           <select
             aria-label="Granted action cost"
-            className="h-11 border border-line bg-ink-1 px-2 text-sm"
+            className="h-11 border border-line bg-ink-4 px-2 text-base"
             value={cost}
             onChange={(event) => setCost(event.target.value as BudgetActionCost)}
           >
@@ -95,7 +95,7 @@ export function AddGrantSection({
         {kind === 'turn' ? (
           <select
             aria-label="Turn grant mode"
-            className="h-11 border border-line bg-ink-1 px-2 text-sm"
+            className="h-11 border border-line bg-ink-4 px-2 text-base"
             value={turnMode}
             onChange={(event) => setTurnMode(event.target.value as 'allowance' | 'insertion')}
           >
@@ -107,7 +107,7 @@ export function AddGrantSection({
           <>
             <select
               aria-label="Next-roll polarity"
-              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 border border-line bg-ink-4 px-2 text-base"
               value={polarity}
               onChange={(event) =>
                 setPolarity(event.target.value as 'edge' | 'double-edge' | 'bane' | 'double-bane')
@@ -120,7 +120,7 @@ export function AddGrantSection({
             </select>
             <select
               aria-label="Next-roll scope"
-              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 border border-line bg-ink-4 px-2 text-base"
               value={scope}
               onChange={(event) => setScope(event.target.value as 'strike' | 'power-roll')}
             >
@@ -129,7 +129,7 @@ export function AddGrantSection({
             </select>
             <select
               aria-label="Next-roll direction"
-              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 border border-line bg-ink-4 px-2 text-base"
               value={direction}
               onChange={(event) => setDirection(event.target.value as 'outbound' | 'inbound')}
             >

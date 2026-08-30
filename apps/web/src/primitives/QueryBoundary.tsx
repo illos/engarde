@@ -31,7 +31,7 @@ export class QueryBoundary extends Component<
         </p>
         <button
           type="button"
-          className="mt-5 inline-flex h-11 items-center justify-center border border-accent-strong bg-accent px-4 text-sm font-semibold text-ink-0 hover:bg-accent-strong"
+          className="type-label mt-5 inline-flex h-11 items-center justify-center border border-accent bg-accent px-4 text-xs font-semibold text-on-accent hover:bg-accent-strong"
           onClick={() => this.setState({ error: null })}
         >
           Try again

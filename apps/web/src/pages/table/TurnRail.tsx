@@ -96,7 +96,7 @@ export function TurnRail({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <select
                 aria-label="First side"
-                className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                className="h-11 border border-line bg-ink-4 px-2 text-base"
                 value={firstSide}
                 onChange={(event) => setFirstSide(event.target.value as Side)}
               >
@@ -116,7 +116,7 @@ export function TurnRail({
               </label>
               <select
                 aria-label="Who chose the first side"
-                className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                className="h-11 border border-line bg-ink-4 px-2 text-base"
                 value={chosenBy}
                 onChange={(event) => setChosenBy(event.target.value as '' | 'players' | 'director')}
               >
@@ -126,7 +126,7 @@ export function TurnRail({
               </select>
               <select
                 aria-label="Entirely surprised side"
-                className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                className="h-11 border border-line bg-ink-4 px-2 text-base"
                 value={surprised}
                 onChange={(event) => setSurprised(event.target.value as '' | Side)}
               >
@@ -216,7 +216,7 @@ export function TurnRail({
           {unspentWarn ? (
             // R-0030 warn-and-apply must be VISIBLE: the Director advanced
             // the round past living unspent turns — loud, never buried.
-            <div role="alert" className="mt-2 border border-accent bg-ink-1 p-2">
+            <div role="alert" className="mt-2 border border-accent-tint-line bg-accent-tint p-2">
               <p className="type-label text-xs text-accent">Rule warning</p>
               <p className="mt-1 text-sm text-accent">{unspentWarn.message}</p>
             </div>
@@ -226,7 +226,7 @@ export function TurnRail({
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   aria-label="Turn to start"
-                  className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                  className="h-11 border border-line bg-ink-4 px-2 text-base"
                   value={turnPick === '' ? (turnActors[0]?.id ?? '') : turnPick}
                   onChange={(event) => setTurnPick(event.target.value)}
                 >
@@ -280,7 +280,7 @@ export function TurnRail({
                     />
                     <select
                       aria-label="Villain actor"
-                      className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                      className="h-11 border border-line bg-ink-4 px-2 text-base"
                       value={
                         villainActorId === ''
                           ? (encounter.participants[0]?.id ?? '')

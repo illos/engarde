@@ -90,13 +90,13 @@ importers:
       '@engarde/engine':
         specifier: workspace:^
         version: link:../../packages/engine
-      '@fontsource/cormorant-garamond':
-        specifier: ^5.3.0
-        version: 5.3.0
-      '@fontsource/eb-garamond':
+      '@fontsource/barlow-semi-condensed':
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/geist-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/playfair-display':
         specifier: ^5.3.0
         version: 5.3.0
       '@tanstack/react-router':
@@ -761,6 +761,9 @@ packages:
       '@noble/hashes':
         optional: true
 
+  '@fontsource/barlow-semi-condensed@5.3.0':
+    resolution: {integrity: sha512-EdpQ1GlLMofGqDsQhEw+g6DonNKmzt21p8y/oNbTl4BFzEkqYkFyE2fj25YGxmZBL/LZZGAxe74FlvEWcgc31w==}
+
   '@fontsource/cormorant-garamond@5.3.0':
     resolution: {integrity: sha512-weuGsCirGVWBWqpt6YUp0yLThTe4G8YO45noq8wxeJCRvEpq5lFrxNMFSTxcyOyV5k5otzJ8guDzYegdYlcLMQ==}
 
@@ -769,6 +772,9 @@ packages:
 
   '@fontsource/geist-mono@5.3.0':
     resolution: {integrity: sha512-UtJ1BBBCVpMYdIcW7nEB45UAoAw5M53ZXs2t0ciPW+IokuAAIc56M8+kW5tXbRJCTpDw4XTtU7proT6NdQAHTg==}
+
+  '@fontsource/playfair-display@5.3.0':
+    resolution: {integrity: sha512-uJSABalvdWc10fEPppQjQocamT21LEyRfzzWfRfqbkPz+sRv+kKpYDKyluBUskvJREkJTos9epj1WjQROGu99Q==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -2265,11 +2271,15 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
+  '@fontsource/barlow-semi-condensed@5.3.0': {}
+
   '@fontsource/cormorant-garamond@5.3.0': {}
 
   '@fontsource/eb-garamond@5.3.0': {}
 
   '@fontsource/geist-mono@5.3.0': {}
+
+  '@fontsource/playfair-display@5.3.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

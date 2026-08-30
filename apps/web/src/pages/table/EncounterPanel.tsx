@@ -75,13 +75,13 @@ function StartEncounter({
   const { run, error, busy } = useRun();
   if (!isDirector)
     return (
-      <section className="border border-line bg-ink-1 p-4">
+      <section className="border border-line bg-ink-4 p-4">
         <h2 className="text-xl">Encounter</h2>
         <p className="mt-1 text-sm text-text-dim">The Director sets the field.</p>
       </section>
     );
   return (
-    <section className="border border-line bg-ink-1 p-4">
+    <section className="border border-line bg-ink-4 p-4">
       <h2 className="text-xl">Start an encounter</h2>
       <p className="mt-1 text-sm text-text-dim">
         Pick combatants from the books — every participant is a real canon record.
@@ -178,7 +178,7 @@ function ManualDamageSection({
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
           aria-label="Manual damage target"
-          className="h-9 border border-line bg-ink-1 px-2 text-sm"
+          className="h-9 border border-line bg-ink-4 px-2 text-base"
           value={targetId}
           onChange={(event) => setTargetId(event.target.value)}
         >
@@ -190,14 +190,14 @@ function ManualDamageSection({
         </select>
         <input
           aria-label="Manual damage amount"
-          className="h-9 w-20 border border-line bg-ink-1 px-2 text-sm"
+          className="h-9 w-20 border border-line bg-ink-4 px-2 text-base"
           inputMode="numeric"
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
         />
         <select
           aria-label="Manual damage type"
-          className="h-9 border border-line bg-ink-1 px-2 text-sm"
+          className="h-9 border border-line bg-ink-4 px-2 text-base"
           value={damageType}
           onChange={(event) => setDamageType(event.target.value as DamageType | '')}
         >
@@ -210,7 +210,7 @@ function ManualDamageSection({
         </select>
         <input
           aria-label="Manual damage reason"
-          className="h-9 min-w-48 flex-1 border border-line bg-ink-1 px-2 text-sm"
+          className="h-9 min-w-48 flex-1 border border-line bg-ink-4 px-2 text-base"
           placeholder="reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
@@ -258,7 +258,7 @@ function ManualDamageSection({
               <span className="font-mono text-xs">{abilityRecord.slug}</span>
               <select
                 aria-label="Manual damage ability actor"
-                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                className="h-9 border border-line bg-ink-4 px-2 text-base"
                 value={actorId}
                 onChange={(event) => setActorId(event.target.value)}
               >
@@ -270,14 +270,14 @@ function ManualDamageSection({
               </select>
               <input
                 aria-label="Manual damage ability slug"
-                className="h-9 w-44 border border-line bg-ink-1 px-2 text-xs"
+                className="h-9 w-44 border border-line bg-ink-4 px-2 text-base"
                 placeholder="ability-slug (if stat block)"
                 value={abilitySlug}
                 onChange={(event) => setAbilitySlug(event.target.value)}
               />
               <input
                 aria-label="Manual damage parent intent"
-                className="h-9 w-40 border border-line bg-ink-1 px-2 text-xs"
+                className="h-9 w-40 border border-line bg-ink-4 px-2 text-base"
                 placeholder="partOf intent (optional)"
                 value={partOf}
                 onChange={(event) => setPartOf(event.target.value)}
@@ -393,7 +393,7 @@ function ActiveEncounter({
   ));
 
   return (
-    <section className="border border-line bg-ink-1 p-4">
+    <section className="border border-line bg-ink-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <h2 className="text-xl">Encounter</h2>
         {encounter.viewerIsDirector ? (
@@ -483,9 +483,9 @@ function ActiveEncounter({
                     <span className="border border-accent px-1 text-accent">winded</span>
                   ) : null}
                 </div>
-                <div className="mt-1 h-1.5 w-full bg-ink-1" aria-hidden>
+                <div className="mt-1 h-1.5 w-full bg-seg-empty" aria-hidden>
                   <div
-                    className={`h-full ${participant.vitals.dying ? 'bg-foe' : 'bg-accent'}`}
+                    className={`h-full ${participant.vitals.dying ? 'bg-state-dire' : 'bg-state-good'}`}
                     style={{
                       width: `${Math.max(0, Math.min(100, (participant.vitals.staminaCurrent / participant.vitals.staminaMax) * 100))}%`,
                     }}
@@ -702,7 +702,7 @@ function ActiveEncounter({
               <span className="font-mono text-xs">{pickedAbility.slug}</span>
               <select
                 aria-label="Acting participant"
-                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                className="h-9 border border-line bg-ink-4 px-2 text-base"
                 value={actorId}
                 onChange={(event) => setActorId(event.target.value)}
               >
@@ -711,7 +711,7 @@ function ActiveEncounter({
               <span className="text-xs text-text-mute">on</span>
               <select
                 aria-label="Target participant"
-                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                className="h-9 border border-line bg-ink-4 px-2 text-base"
                 value={targetId}
                 onChange={(event) => setTargetId(event.target.value)}
               >
@@ -811,7 +811,7 @@ function ActiveEncounter({
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   aria-label="Tier outcome"
-                  className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                  className="h-9 border border-line bg-ink-4 px-2 text-base"
                   value={band}
                   onChange={(event) => setBand(event.target.value as Band)}
                 >
@@ -881,7 +881,7 @@ function ActiveEncounter({
               {pickedEffect.effects.length > 1 ? (
                 <select
                   aria-label="Effect instruction"
-                  className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                  className="h-9 border border-line bg-ink-4 px-2 text-base"
                   value={effectOrdinal}
                   onChange={(event) => {
                     setEffectOrdinal(Number(event.target.value));
@@ -909,7 +909,7 @@ function ActiveEncounter({
             <div className="flex flex-wrap items-center gap-2">
               <select
                 aria-label="Effect acting participant"
-                className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                className="h-9 border border-line bg-ink-4 px-2 text-base"
                 value={actorId}
                 onChange={(event) => setActorId(event.target.value)}
               >
@@ -985,7 +985,7 @@ function ActiveEncounter({
                     type="text"
                     aria-label="Test object targets"
                     placeholder="door, statue"
-                    className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                    className="h-9 border border-line bg-ink-4 px-2 text-base"
                     value={effectObjectLabels}
                     onChange={(event) => setEffectObjectLabels(event.target.value)}
                   />
@@ -1089,7 +1089,7 @@ function ActiveEncounter({
             />
             <select
               aria-label="Triggered actor"
-              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 border border-line bg-ink-4 px-2 text-base"
               value={triggeredActorId === '' ? first : triggeredActorId}
               onChange={(event) => setTriggeredActorId(event.target.value)}
             >
@@ -1099,7 +1099,7 @@ function ActiveEncounter({
                 server [I-6d]; overriding is the asserted-case escape. */}
             <select
               aria-label="Triggered cost override"
-              className="h-11 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 border border-line bg-ink-4 px-2 text-base"
               value={triggeredCostMode}
               onChange={(event) =>
                 setTriggeredCostMode(event.target.value as '' | 'free' | 'counts')
@@ -1113,7 +1113,7 @@ function ActiveEncounter({
                 stays the fallback for table-only events. */}
             <select
               aria-label="Trigger occurrence"
-              className="h-11 max-w-72 border border-line bg-ink-1 px-2 text-sm"
+              className="h-11 max-w-72 border border-line bg-ink-4 px-2 text-base"
               value={triggerOccurrenceId}
               onChange={(event) => setTriggerOccurrenceId(event.target.value)}
             >
@@ -1328,7 +1328,7 @@ function EncounterLog({
           log.map((entry) => {
             if (entry.kind === 'table-card' || entry.kind === 'table-directive')
               return (
-                <div key={entry.entryId} className="border border-line bg-ink-1 p-2">
+                <div key={entry.entryId} className="border border-line bg-ink-4 p-2">
                   <p className="type-label text-xs text-text-mute">Resolve at the table</p>
                   <p className="mt-1 whitespace-pre-wrap font-mono text-xs">{entry.message}</p>
                 </div>
@@ -1336,7 +1336,7 @@ function EncounterLog({
             const rollData = (entry.data as { powerRoll?: PowerRollLogData } | null)?.powerRoll;
             if (rollData)
               return (
-                <div key={entry.entryId} className="border border-line-soft bg-ink-1 p-2">
+                <div key={entry.entryId} className="border border-line-soft bg-ink-4 p-2">
                   <p className="text-sm">{entry.message}</p>
                   <p className="mt-1 font-mono text-xs text-text-mute">
                     {rollData.dice[0]}+{rollData.dice[1]}
@@ -1361,7 +1361,7 @@ function EncounterLog({
                 (candidate) => candidate.squadId === receipt.squadId,
               );
               return (
-                <div key={entry.entryId} className="border border-line-soft bg-ink-1 p-2">
+                <div key={entry.entryId} className="border border-line-soft bg-ink-4 p-2">
                   <p className="text-sm">{entry.message}</p>
                   <p className="mt-1 font-mono text-xs text-text-mute">
                     {delta
@@ -1383,7 +1383,11 @@ function EncounterLog({
               // receipts render loud and distinct, never buried in the
               // receipt stream (permissive engine — warn, never block).
               return (
-                <div key={entry.entryId} role="alert" className="border border-accent bg-ink-1 p-2">
+                <div
+                  key={entry.entryId}
+                  role="alert"
+                  className="border border-accent-tint-line bg-accent-tint p-2"
+                >
                   <p className="type-label text-xs text-accent">Rule warning</p>
                   <p className="mt-1 text-sm text-accent">{entry.message}</p>
                 </div>

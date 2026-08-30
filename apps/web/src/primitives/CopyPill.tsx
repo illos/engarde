@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react';
 
 // Compact click-to-copy pill — the whole pill is the copy target, the icon is
 // the affordance hint (swaps to a check for a beat after a copy). Shared by the
-// /campaigns card invite + the campaign status-pane eyebrow. `bg-ink-2` reads on
-// both the dark UI surface and the cream presentation surface (one step off the
-// container ramp on either). It stays visually compact while preserving the
-// shared 44px touch floor.
+// /campaigns card invite + the campaign status-pane eyebrow. `bg-ink-1` is a
+// recessed well on either surface scope (paper or chrome). It stays visually
+// compact while preserving the shared 44px touch floor.
 export function CopyPill({ value, label }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   // Clear the "copied" flash; cancels on unmount so a fast navigate-away doesn't
@@ -30,7 +29,7 @@ export function CopyPill({ value, label }: { value: string; label?: string }) {
       type="button"
       onClick={copy}
       aria-label={copied ? `${name} copied` : `Copy ${name} ${value}`}
-      className="group inline-flex min-h-11 min-w-11 items-center gap-1 rounded border border-line bg-ink-2 px-2 transition-colors hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
+      className="group inline-flex min-h-11 min-w-11 items-center gap-1 border border-line bg-ink-1 px-2 transition-colors hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rule"
     >
       <code className="text-sm font-mono tabular">{value}</code>
       <span

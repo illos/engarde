@@ -99,6 +99,10 @@ One accent. It means **"the table's attention is here"**: the current
 round badge, the active figure in the spine, the primary damage/commit
 action, costs, warnings, awaiting states.
 
+The mockups carried two reds; **the darker one is the primary** (user
+call, 2026-08-30). The brighter red is strictly the hover/active variant
+of an accent fill — never a resting color.
+
 | Token | Value | ≈ hex | Use |
 |---|---|---|---|
 | `--accent` | `oklch(0.46 0.128 25)` | `#923433` | fills (badges, active spine cell, commit button); text on paper (costs, deltas, danger numbers) |
