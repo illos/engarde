@@ -23,11 +23,13 @@ describe.skipIf(!sourceRoot)('real SteelCompendium snapshot', () => {
 
     expect(status.checkoutMatchesPin).toBe(true);
     expect(inventory.entries).toHaveLength(3_081);
+    // Summoner admitted to the baseline (official MCDM class, Creator License):
+    // +222 structured, +5 chapter chunks, -227 excluded. Beastheart remains excluded.
     expect(inventory.entries.filter((entry) => entry.disposition === 'structured')).toHaveLength(
-      2_593,
+      2_815,
     );
-    expect(inventory.entries.filter((entry) => entry.disposition === 'chunk')).toHaveLength(20);
-    expect(inventory.entries.filter((entry) => entry.disposition === 'exclude')).toHaveLength(468);
+    expect(inventory.entries.filter((entry) => entry.disposition === 'chunk')).toHaveLength(25);
+    expect(inventory.entries.filter((entry) => entry.disposition === 'exclude')).toHaveLength(241);
     expect(errors).toEqual([]);
   });
 

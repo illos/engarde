@@ -57,8 +57,8 @@
     },
     {
       "id": "summoner",
-      "disposition": "exclude",
-      "reason": "Supplement content is inventoried but deferred until the core-book baseline closes.",
+      "disposition": "include",
+      "reason": "Official MCDM class, covered by the Draw Steel Creator License; admitted to the engine baseline alongside the core books.",
       "categories": {
         "chapter": "chunk",
         "class": "structured",

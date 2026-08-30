@@ -1,7 +1,7 @@
 {
   "schema": "engarde-corpus-certification-v1",
   "canonPin": "520553438a4e8d199bfaaf676b8aa9bd273f4d61",
-  "treeDigest": "4a35bcd5a204bf5efa4b8d45f37069a58e20bf39f689c7cbbce30de589b52692",
-  "certifiedAt": "2026-08-29T13:33:55.599Z",
+  "treeDigest": "adc089ce791a13278878ef438f7c61e9453e91480b42442e5a278561f7318b2f",
+  "certifiedAt": "2026-08-30T01:08:38.895Z",
   "suite": "packages/canon corpus-enabled vitest run"
 }
