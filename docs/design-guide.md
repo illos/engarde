@@ -1,10 +1,11 @@
 # Design guide
 
-> The working rules for building En Garde UI. The visual language is ported
-> from the ironyard-v2 predecessor (its `docs/design-ref/` +
-> `docs/milestones/ui-refresh.md` hold the full rationale); this file is the
-> distilled, binding version for this codebase. Living document — add rules
-> as they're decided, with the why.
+> The working rules for building En Garde UI. The visual language is **The
+> Ledger** — [`design-system.md`](design-system.md) is the authoritative
+> spec (palette, type voices, surfaces, components, sigils), replacing the
+> twilight values ported from the ironyard-v2 predecessor. This file is the
+> binding *working rules* layer. Living document — add rules as they're
+> decided, with the why.
 
 ## Tokens, not values
 
@@ -14,15 +15,17 @@ via `@theme inline`). Components use the token utilities — `bg-ink-1`,
 `text-text-dim`, `border-line`, `text-accent` — never raw hex/oklch values or
 Tailwind's stock palette (`stone-*`, `zinc-*`, …).
 
-**Two surface kinds, one set of token names.** UI-heavy (dark twilight ramp)
-is the default; paper-analog content (sheets, stat blocks, the join-screen
-campaign card) wraps in `<Surface kind="presentation">`, which remaps the
-same `ink/text/line` names to the cream ramp. Components never switch
-classes between surfaces — only the surface scope changes.
+**Two surface kinds, one set of token names.** Paper (the Ledger's warm
+off-white ramp) is the default; the black app frame, statblock mastheads,
+and chrome commit actions wrap in `<Surface kind="chrome">`, which remaps
+the same `ink/text/line` names to the near-black ramp. Components never
+switch classes between surfaces — only the surface scope changes.
+(Pre-Ledger this was dark-default with a `presentation` cream scope; the
+polarity flipped with `design-system.md`.)
 
-**Accent packs** (`data-pack`: regal / lightning / shadow / fireball /
-chrome) retheme `--accent` at the document root. Default is regal (muted
-gold).
+**Accent** is the Ledger's brick red — "the table's attention is here."
+The accent-pack machinery (`data-pack`) is parked for future per-character
+color; no pack picker ships.
 
 ## Type roles, never typefaces
 
@@ -31,9 +34,9 @@ swap in `tokens.css`:
 
 | Role | Utility | Face | Use |
 |---|---|---|---|
-| display | `font-display` (default on `h1`–`h3`) | Cormorant Garamond | Headings, names, big numerals |
-| body | `font-body` (global default) | EB Garamond | Prose and reading text |
-| label | `.type-label` composite (mono + uppercase + tracking) or `font-mono` | Geist Mono | Engraved section tags, metadata, badges, IDs, codes |
+| display | `font-display` (default on `h1`–`h3`) | Playfair Display (roman + italic) | Names, page titles, ability names, ceremonial numerals; italic = the editorial aside |
+| body | `font-body` (global default) | Barlow Semi Condensed | Data prose: log lines, effect text, descriptions |
+| label | `.type-label` composite (mono + uppercase + tracking) or `font-mono` | Geist Mono | Engraved section tags, metadata, badges, IDs, data numerals |
 
 Never hardcode a `font-family` or use `font-serif`/`font-sans` in a
 component. Registry: `apps/web/src/primitives/type-roles.ts`.
