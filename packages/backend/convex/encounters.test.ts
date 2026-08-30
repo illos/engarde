@@ -219,6 +219,72 @@ describe('encounter host', () => {
     ).rejects.toThrow('An encounter is already running');
   });
 
+  test('start seeds a recordId-less hero with Director-asserted stats (hero-participant seam)', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    // Director-asserted hero stats (test assertion, not rule content): the
+    // handle doubles as the display name; no canon record behind the hero.
+    const heroStats = {
+      staminaMax: 18,
+      characteristics: { might: 0, agility: 0, reason: 2, intuition: 0, presence: 0 },
+      recoveriesMax: 8,
+    };
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [
+        { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId },
+        { id: 'skitter', recordId: SKITTERLING.artifactId },
+        { id: 'nerevar', kind: 'hero', stats: heroStats },
+      ],
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    if (!view) throw new Error('no active encounter');
+    const hero = view.participants.find((participant) => participant.id === 'nerevar');
+    // No canon record behind the hero — the view carries null, never a slug.
+    expect(hero?.recordId).toBeNull();
+    expect(hero?.recordSlug).toBeNull();
+    // Stamina initialized to its asserted maximum; Recoveries tracked.
+    expect(hero?.vitals).toMatchObject({
+      staminaCurrent: 18,
+      staminaMax: 18,
+      recoveriesCurrent: 8,
+      recoveriesMax: 8,
+    });
+    // The engine state carries the hero kind + the asserted stats verbatim.
+    const stored = await t.run(async (ctx) => {
+      const doc = await ctx.db.get(view.encounterId);
+      if (!doc) throw new Error('encounter row missing');
+      return upgradeEncounterState(doc.state);
+    });
+    const heroState = stored.participants.nerevar;
+    expect(heroState?.kind).toBe('hero');
+    expect(heroState?.sourceRecordId ?? null).toBeNull();
+    expect(heroState?.stats).toMatchObject(heroStats);
+    // Monster entries stay untouched by the widening (kind defaults).
+    expect(stored.participants.warrior?.kind).toBe('director-creature');
+
+    // Refusals: a Director creature embodies a canon record and never takes
+    // asserted stats (invalid-payload refusal, not a rule warn).
+    await table.owner.client.mutation(api.encounters.endEncounter, {
+      campaignId: table.campaignId,
+      keepInstanceIds: [],
+    });
+    await expect(
+      table.owner.client.mutation(api.encounters.start, {
+        campaignId: table.campaignId,
+        participants: [{ id: 'ghost' }],
+      }),
+    ).rejects.toThrow('recordId is required');
+    await expect(
+      table.owner.client.mutation(api.encounters.start, {
+        campaignId: table.campaignId,
+        participants: [{ id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId, stats: heroStats }],
+      }),
+    ).rejects.toThrow('asserted stats are for hero entries');
+  });
+
   test('member (non-director) cannot start but can act; non-member sees nothing', async () => {
     const t = makeHarness();
     const table = await setupTable(t);

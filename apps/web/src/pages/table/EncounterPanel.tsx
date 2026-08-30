@@ -48,6 +48,30 @@ export function EncounterPanel({ campaignId }: { campaignId: Id<'campaigns'> }) 
   return <ActiveEncounter campaignId={campaignId} encounter={encounter} />;
 }
 
+/** The five characteristics — labels only; the values are the Director's
+ * free-form assertions (no defaults, no client-side rule bounds). */
+const CHARACTERISTIC_KEYS = ['might', 'agility', 'reason', 'intuition', 'presence'] as const;
+type CharacteristicKey = (typeof CHARACTERISTIC_KEYS)[number];
+
+interface HeroDraftStats {
+  staminaMax: number;
+  characteristics: Record<CharacteristicKey, number>;
+  recoveriesMax: number | null;
+}
+
+/** Start-draft entry: a picked canon record, or a Director-asserted hero
+ * (hero-participant seam, gap 3 — no canon record behind it). */
+type DraftEntry =
+  | { id: string; kind: 'record'; recordId: string; slug: string }
+  | { id: string; kind: 'hero'; stats: HeroDraftStats };
+
+function parseInteger(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  const value = Number(trimmed);
+  return Number.isInteger(value) ? value : null;
+}
+
 function handleFromSlug(slug: string, taken: Set<string>): string {
   const base = slug
     .toLowerCase()
@@ -71,8 +95,54 @@ function StartEncounter({
   isDirector: boolean;
 }) {
   const start = useMutation(api.encounters.start);
-  const [draft, setDraft] = useState<Array<{ id: string; recordId: string; slug: string }>>([]);
+  const [draft, setDraft] = useState<DraftEntry[]>([]);
+  // Director-asserted hero fields — free-form text, no defaults (the
+  // Director asserts every number; nothing here encodes a rule).
+  const [heroName, setHeroName] = useState('');
+  const [heroStamina, setHeroStamina] = useState('');
+  const [heroRecoveries, setHeroRecoveries] = useState('');
+  const [heroCharacteristics, setHeroCharacteristics] = useState<Record<CharacteristicKey, string>>(
+    { might: '', agility: '', reason: '', intuition: '', presence: '' },
+  );
   const { run, error, busy } = useRun();
+  const heroStaminaValue = parseInteger(heroStamina);
+  const heroCharacteristicValues = CHARACTERISTIC_KEYS.map((key) => ({
+    key,
+    value: parseInteger(heroCharacteristics[key]),
+  }));
+  // Blank Recoveries = untracked (null); a filled field must be an integer.
+  const heroRecoveriesBlank = heroRecoveries.trim().length === 0;
+  const heroRecoveriesValue = parseInteger(heroRecoveries);
+  const heroValid =
+    heroName.trim().length > 0 &&
+    heroStaminaValue !== null &&
+    heroCharacteristicValues.every((entry) => entry.value !== null) &&
+    (heroRecoveriesBlank || heroRecoveriesValue !== null);
+  const addHero = () => {
+    if (!heroValid || heroStaminaValue === null) return;
+    // Every characteristic must be asserted — never defaulted.
+    const characteristics = {} as Record<CharacteristicKey, number>;
+    for (const entry of heroCharacteristicValues) {
+      if (entry.value === null) return;
+      characteristics[entry.key] = entry.value;
+    }
+    setDraft((current) => [
+      ...current,
+      {
+        id: handleFromSlug(heroName, new Set(current.map((entry) => entry.id))),
+        kind: 'hero',
+        stats: {
+          staminaMax: heroStaminaValue,
+          characteristics,
+          recoveriesMax: heroRecoveriesBlank ? null : (heroRecoveriesValue ?? null),
+        },
+      },
+    ]);
+    setHeroName('');
+    setHeroStamina('');
+    setHeroRecoveries('');
+    setHeroCharacteristics({ might: '', agility: '', reason: '', intuition: '', presence: '' });
+  };
   if (!isDirector)
     return (
       <section className="border border-line bg-ink-1 p-4">
@@ -97,12 +167,71 @@ function StartEncounter({
               ...current,
               {
                 id: handleFromSlug(hit.slug, new Set(current.map((entry) => entry.id))),
+                kind: 'record',
                 recordId: hit.artifactId,
                 slug: hit.slug,
               },
             ])
           }
         />
+      </div>
+      <div className="mt-3 border border-line-soft bg-ink-2 p-3">
+        {/* Hero-participant seam (gap 3): a hero is the player's own, not a
+            canon record — the Director asserts name and numbers, and the
+            host lifts them through the engine's one stats schema. */}
+        <h3 className="type-label text-xs text-text-mute">Add a hero (Director-asserted)</h3>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            aria-label="Hero name"
+            className="h-11 min-w-40 flex-1 border border-line bg-ink-1 px-2 text-sm"
+            placeholder="name"
+            value={heroName}
+            onChange={(event) => setHeroName(event.target.value)}
+          />
+          <label className="flex items-center gap-1 text-xs text-text-mute">
+            Stamina max
+            <input
+              aria-label="Hero Stamina maximum"
+              className="h-11 w-16 border border-line bg-ink-1 px-1 text-center text-sm"
+              inputMode="numeric"
+              value={heroStamina}
+              onChange={(event) => setHeroStamina(event.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-text-mute">
+            Recoveries
+            <input
+              aria-label="Hero Recoveries"
+              className="h-11 w-16 border border-line bg-ink-1 px-1 text-center text-sm"
+              inputMode="numeric"
+              placeholder="untracked"
+              value={heroRecoveries}
+              onChange={(event) => setHeroRecoveries(event.target.value)}
+            />
+          </label>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {CHARACTERISTIC_KEYS.map((key) => (
+            <label key={key} className="flex items-center gap-1 text-xs text-text-mute">
+              {key}
+              <input
+                aria-label={`Hero ${key}`}
+                className="h-11 w-12 border border-line bg-ink-1 px-1 text-center text-sm"
+                inputMode="numeric"
+                value={heroCharacteristics[key]}
+                onChange={(event) =>
+                  setHeroCharacteristics((current) => ({
+                    ...current,
+                    [key]: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+        <Button className="mt-2" size="sm" disabled={!heroValid} onClick={addHero}>
+          Add hero
+        </Button>
       </div>
       {draft.length > 0 ? (
         <ul className="mt-3 flex flex-wrap gap-2">
@@ -112,9 +241,13 @@ function StartEncounter({
               className="flex items-center gap-2 border border-line-soft bg-ink-2 px-2 py-1"
             >
               <span className="font-mono text-xs">{entry.id}</span>
+              {entry.kind === 'hero' ? (
+                <span className="type-label text-xs text-text-mute">hero</span>
+              ) : null}
               <Button
                 size="sm"
                 variant="danger"
+                aria-label={`Remove ${entry.id}`}
                 onClick={() =>
                   setDraft((current) => current.filter((item) => item.id !== entry.id))
                 }
@@ -133,7 +266,11 @@ function StartEncounter({
           run(() =>
             start({
               campaignId,
-              participants: draft.map((entry) => ({ id: entry.id, recordId: entry.recordId })),
+              participants: draft.map((entry) =>
+                entry.kind === 'hero'
+                  ? { id: entry.id, kind: 'hero' as const, stats: entry.stats }
+                  : { id: entry.id, recordId: entry.recordId },
+              ),
             }),
           )
         }

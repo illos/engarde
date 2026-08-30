@@ -188,6 +188,53 @@ describe('EncounterPanel', () => {
     });
   });
 
+  test('Director adds a hand-entered hero: asserted stats ride the start payload', () => {
+    setRoster('director');
+    setSessionActive();
+    setQuery(api.encounters.getActive, null);
+    setQuery(api.encounters.searchRecords, []);
+    render(<EncounterPanel campaignId={campaignId} />);
+
+    // Incomplete assertions never submit — no defaults are filled in.
+    const addHero = screen.getByText('Add hero') as HTMLButtonElement;
+    expect(addHero.disabled).toBe(true);
+
+    // Director-asserted values (test assertion, not rule content).
+    fireEvent.change(screen.getByLabelText('Hero name'), { target: { value: 'Nerevar' } });
+    fireEvent.change(screen.getByLabelText('Hero Stamina maximum'), { target: { value: '18' } });
+    fireEvent.change(screen.getByLabelText('Hero Recoveries'), { target: { value: '8' } });
+    for (const [key, value] of [
+      ['might', '0'],
+      ['agility', '0'],
+      ['reason', '2'],
+      ['intuition', '0'],
+      ['presence', '0'],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText(`Hero ${key}`), { target: { value } });
+    }
+    expect(addHero.disabled).toBe(false);
+    fireEvent.click(addHero);
+    // The handle derives from the name and shows in the draft list.
+    expect(screen.getByText('nerevar')).toBeTruthy();
+    expect(screen.getByText('hero')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Start encounter'));
+    expect(spyFor(api.encounters.start)).toHaveBeenCalledWith({
+      campaignId,
+      participants: [
+        {
+          id: 'nerevar',
+          kind: 'hero',
+          stats: {
+            staminaMax: 18,
+            characteristics: { might: 0, agility: 0, reason: 2, intuition: 0, presence: 0 },
+            recoveriesMax: 8,
+          },
+        },
+      ],
+    });
+  });
+
   test('active encounter: conditions render, end turn asserts typed rolls', () => {
     setRoster('director');
     setSessionActive();
