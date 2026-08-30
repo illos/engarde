@@ -285,6 +285,36 @@ describe('encounter host', () => {
     ).rejects.toThrow('asserted stats are for hero entries');
   });
 
+  test('start seeds an explicit side independent of kind (side/kind decoupling seam)', async () => {
+    const t = makeHarness();
+    const table = await setupTable(t);
+    await table.owner.client.mutation(api.encounters.start, {
+      campaignId: table.campaignId,
+      participants: [
+        // A hero-side statblock creature (the retainer / Summoner-minion
+        // shape): the real goblin-warrior record played on the heroes'
+        // side. Substrate only — no retainer mechanics implied.
+        { id: 'ally', recordId: GOBLIN_WARRIOR.artifactId, side: 'heroes' },
+        { id: 'warrior', recordId: GOBLIN_WARRIOR.artifactId },
+      ],
+    });
+    const view = await table.owner.client.query(api.encounters.getActive, {
+      campaignId: table.campaignId,
+    });
+    if (!view) throw new Error('no active encounter');
+    const stored = await t.run(async (ctx) => {
+      const doc = await ctx.db.get(view.encounterId);
+      if (!doc) throw new Error('encounter row missing');
+      return upgradeEncounterState(doc.state);
+    });
+    // Kind stays what the participant IS; side says who it fights for.
+    expect(stored.participants.ally?.kind).toBe('director-creature');
+    expect(stored.participants.ally?.side).toBe('heroes');
+    // Omitted side stays the kind-derived sentinel (seam, not a behavior
+    // change).
+    expect(stored.participants.warrior?.side).toBeNull();
+  });
+
   test('member (non-director) cannot start but can act; non-member sees nothing', async () => {
     const t = makeHarness();
     const table = await setupTable(t);

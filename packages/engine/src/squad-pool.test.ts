@@ -236,6 +236,51 @@ describe('squad seeding [R-0023]', () => {
     ).toThrow(/mixes stat blocks/);
   });
 
+  it('refuses a mixed-side squad (one turn slot cannot alternate for two sides) [v9 seam]', () => {
+    expect(() =>
+      initialEncounterState(
+        [
+          {
+            id: 'sc1',
+            kind: 'director-creature' as const,
+            sourceRecordId: SPINECLEAVER_RECORD,
+            stats: SPINECLEAVER_STATS,
+          },
+          {
+            id: 'sc2',
+            kind: 'director-creature' as const,
+            // Explicit hero side on the same statblock (the Summoner-minion
+            // shape): the squad occupies one turn slot [R-0033], so a squad
+            // split across sides is substrate-incoherent.
+            side: 'heroes' as const,
+            sourceRecordId: SPINECLEAVER_RECORD,
+            stats: SPINECLEAVER_STATS,
+          },
+        ],
+        [{ squadId: 'split', name: 'split goblins', memberIds: ['sc1', 'sc2'] }],
+      ),
+    ).toThrow(/mixes sides/);
+  });
+
+  it('seeds a whole hero-side squad (same statblock, explicit side) [v9 seam]', () => {
+    const state = initialEncounterState(
+      [
+        ...SC_IDS.slice(0, 4).map((id) => ({
+          id,
+          kind: 'director-creature' as const,
+          side: 'heroes' as const,
+          sourceRecordId: SPINECLEAVER_RECORD,
+          stats: SPINECLEAVER_STATS,
+        })),
+      ],
+      [{ squadId: 'squad-sc', name: 'goblin spinecleavers', memberIds: SC_IDS.slice(0, 4) }],
+    );
+    expect(squad(state).pool).toEqual({ current: 20, max: 20 });
+    for (const id of SC_IDS.slice(0, 4)) {
+      expect(state.participants[id]?.side).toBe('heroes');
+    }
+  });
+
   it('refuses a non-minion member and an unknown member', () => {
     const participants = [
       {

@@ -322,7 +322,7 @@ function reduceStamina(
     );
     const applied = applyConditionInstance(
       {
-        schemaVersion: 8,
+        schemaVersion: 9,
         participants: { [result.id]: result },
         terrainFacts: [],
         squads: [],
@@ -355,7 +355,7 @@ function reduceStamina(
     if (options.knockOut) {
       const applied = applyConditionInstance(
         {
-          schemaVersion: 8,
+          schemaVersion: 9,
           participants: { [result.id]: result },
           terrainFacts: [],
           squads: [],

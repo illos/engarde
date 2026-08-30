@@ -8,6 +8,7 @@ import {
   ActionGrantSchema,
   type EncounterState,
   type Intent,
+  type LogEntry,
   type ParticipantStats,
   type UseAbilityPayloadInput,
 } from './schemas.js';
@@ -1493,5 +1494,92 @@ describe('asserted-band ability use debits the action economy (R-0029/R-0030 par
           (entry.data.ruleViolation as { kind?: string })?.kind === 'per-ability-cap',
       ),
     ).toBe(false);
+  });
+});
+
+describe('side/kind decoupling (v9, ROAD-0005 seam 4)', () => {
+  /** The goblin-warrior record played ON THE HEROES' SIDE — a hero-side
+   * statblock creature (the shape retainers and Summoner minions need).
+   * Substrate only: the fixture is the real corpus record; no retainer
+   * mechanics are implemented or implied. */
+  function allyEncounter(): EncounterState {
+    return initialEncounterState([
+      { id: 'hero', kind: 'hero', stats: GOBLIN_WARRIOR_STATS },
+      {
+        id: 'ally',
+        kind: 'director-creature',
+        side: 'heroes',
+        stats: GOBLIN_WARRIOR_STATS,
+        sourceRecordId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior',
+      },
+      {
+        id: 'warrior',
+        kind: 'director-creature',
+        stats: GOBLIN_WARRIOR_STATS,
+        sourceRecordId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior',
+      },
+    ]);
+  }
+
+  function alternationWarned(log: readonly LogEntry[]): boolean {
+    return log.some(
+      (entry) => (entry.data.ruleViolation as { kind?: string })?.kind === 'out-of-alternation',
+    );
+  }
+
+  it("a hero-side statblock creature spends the heroes' turn choice without an alternation warning", () => {
+    const state = beginCombat(allyEncounter(), 'heroes');
+    const result = dispatchChecked(state, director('start-turn', { turnId: 'ally' }));
+    expect(alternationWarned(result.log)).toBe(false);
+    expect(result.state.turnState?.activeTurnId).toBe('ally');
+    // The pointer flips to the director side: the ally consumed a
+    // heroes-side choice, exactly like a hero-kind participant.
+    expect(result.state.turnState?.sideToChoose).toBe('director');
+  });
+
+  it('the same statblock WITHOUT an explicit side keeps the director-side default (seam, not a behavior change)', () => {
+    const state = beginCombat(allyEncounter(), 'heroes');
+    const result = dispatchChecked(state, director('start-turn', { turnId: 'warrior' }));
+    // hero + ally (heroes side) both hold unspent turns, so this is
+    // out-of-alternation — the pre-v9 outcome for a kind-derived side.
+    expect(alternationWarned(result.log)).toBe(true);
+  });
+
+  it("acting on the director's choice, the hero-side ally is out of alternation (side is symmetric)", () => {
+    const state = beginCombat(allyEncounter(), 'director');
+    const result = dispatchChecked(state, director('start-turn', { turnId: 'ally' }));
+    expect(alternationWarned(result.log)).toBe(true);
+  });
+
+  it("the hero-side ally counts toward the heroes' side-exhaustion (tail-of-round free order)", () => {
+    // Heroes choose first; hero acts and ends, director's warrior acts and
+    // ends; heroes choose again — hero is spent but the ALLY still holds a
+    // turn, so the heroes' side is NOT exhausted and a director actor
+    // taking the slot warns.
+    let state = beginCombat(allyEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
+    state = dispatchChecked(state, director('end-turn', { participantId: 'hero' })).state;
+    state = dispatchChecked(state, director('start-turn', { turnId: 'warrior' })).state;
+    state = dispatchChecked(state, director('end-turn', { participantId: 'warrior' })).state;
+    expect(state.turnState?.sideToChoose).toBe('heroes');
+    const grabbed = dispatchChecked(state, director('start-turn', { turnId: 'warrior' }));
+    expect(alternationWarned(grabbed.log)).toBe(true);
+  });
+
+  it('a hero-side ally resolves its printed ability against a director creature through the existing machinery', () => {
+    let state = beginCombat(allyEncounter(), 'heroes');
+    state = dispatchChecked(state, director('start-turn', { turnId: 'ally' })).state;
+    const payload = spearChargeBy('ally', 'warrior');
+    const roll = dispatchChecked(state, useAbility('ally', payload));
+    expect(roll.state.participants.ally?.actionBudget['main-action']?.used).toBe(1);
+    const entry = roll.state.resolutionStack[0];
+    expect(entry?.phase).toBe('rolled');
+    const commit = dispatchChecked(
+      roll.state,
+      director('commit-resolution', { resolutionId: entry?.resolutionId, payload }),
+    );
+    // dice [5,5] + 2 = 12 → tier 2 → 4 damage [verbatim Spear Charge].
+    expect(commit.state.participants.warrior?.stamina?.current).toBe(11);
+    expect(commit.state.resolutionStack[0]?.phase).toBe('committed');
   });
 });

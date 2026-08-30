@@ -4,6 +4,7 @@ import {
   debitActionCost,
   isOnActiveTurn,
   sideOfParticipant,
+  sideOfSquad,
 } from './action-economy.js';
 import { runBoundarySweeps } from './boundary-sweeps.js';
 import { shiftCaptainBenefit } from './captain-benefits.js';
@@ -770,7 +771,14 @@ function applyIntentCore(
       }
       const log: LogEntry[] = [];
       let nextState = state;
-      const side: 'heroes' | 'director' = participant ? sideOfParticipant(participant) : 'director';
+      // Side comes through the ONE derivation home — never from kind: a
+      // squad's turn slot carries its members' side (a hero-side minion
+      // squad alternates as heroes) [v9, ROAD-0005 seam 4].
+      const side: 'heroes' | 'director' = participant
+        ? sideOfParticipant(participant)
+        : squad
+          ? sideOfSquad(state, squad)
+          : 'director';
 
       if (participant?.traits.subActorOf !== null && participant?.traits.subActorOf !== undefined) {
         log.push({
