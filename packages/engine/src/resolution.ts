@@ -60,27 +60,43 @@ function isUseAbilityPayload(payload: ResolutionPayload): payload is UseAbilityP
 /** Hashes of exact historical squad wire forms whose only difference is a
  * subsequently defaulted empty field. This is deliberately not a general
  * normalization: nonempty semantics can never be removed to make a hash
- * match. */
+ * match — each era variant exists only while every field it omits is
+ * empty/defaulted on the re-supplied payload. Eras, newest first:
+ * pre-resourceCost (the carry-only slot), pre-effectPrograms,
+ * pre-effectLines (f9075a1). */
 function historicalSquadPayloadHashes(
   payload: ResolutionPayload,
 ): Array<{ hash: string; omitted: string[] }> {
   if (isUseAbilityPayload(payload) || payload.ability === null) return [];
   const ability = payload.ability;
-  if (ability.effectPrograms.length !== 0) return [];
-  const withoutPrograms: Record<string, unknown> = { ...ability };
-  withoutPrograms.effectPrograms = undefined;
+  if (ability.resourceCost !== null || ability.resourceCostResidue !== null) return [];
+  const beforeResourceCost: Record<string, unknown> = { ...ability };
+  beforeResourceCost.resourceCost = undefined;
+  beforeResourceCost.resourceCostResidue = undefined;
+  const resourceFields = ['SquadAbilityData.resourceCost', 'SquadAbilityData.resourceCostResidue'];
   const variants = [
     {
-      hash: hashPayload({ ...payload, ability: withoutPrograms }),
-      omitted: ['SquadAbilityData.effectPrograms'],
+      hash: hashPayload({ ...payload, ability: beforeResourceCost }),
+      omitted: [...resourceFields],
     },
   ];
+  if (ability.effectPrograms.length !== 0) return variants;
+  const withoutPrograms: Record<string, unknown> = { ...beforeResourceCost };
+  withoutPrograms.effectPrograms = undefined;
+  variants.push({
+    hash: hashPayload({ ...payload, ability: withoutPrograms }),
+    omitted: ['SquadAbilityData.effectPrograms', ...resourceFields],
+  });
   if (ability.effectLines.length === 0) {
     const beforeEffectLines = { ...withoutPrograms };
     beforeEffectLines.effectLines = undefined;
     variants.push({
       hash: hashPayload({ ...payload, ability: beforeEffectLines }),
-      omitted: ['SquadAbilityData.effectLines', 'SquadAbilityData.effectPrograms'],
+      omitted: [
+        'SquadAbilityData.effectLines',
+        'SquadAbilityData.effectPrograms',
+        ...resourceFields,
+      ],
     });
   }
   return variants;

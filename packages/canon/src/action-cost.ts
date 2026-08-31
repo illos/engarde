@@ -1,9 +1,11 @@
 import {
   type ActionCost,
   type ReactionInterception,
+  type ResourceCost,
   normalizeActionCostValue,
 } from '@engarde/engine';
 import { type EffectClause, type GrammarParse, stripSccLinks } from './effect-grammar.js';
+import { resourceCostFromNameLine } from './resource-cost.js';
 
 /**
  * R-0029 action-cost normalization with CONTEXT — the compile-time half that
@@ -38,6 +40,13 @@ export interface HeaderCostAnnotation {
   operatorPays: boolean;
   usesPerRound: number | null;
   reactionInterception: ReactionInterception | null;
+  /** Printed resource-cost carry slot (ROAD-0005 seam #1), parsed from the
+   * cost-shaped name-line parenthetical ("**Net Trap (3 Malice)**").
+   * CARRY-ONLY — no debit semantics; null when the name line prints no
+   * cost-shaped parenthetical, residue when a cost-shaped one refuses the
+   * closed grammar ("(3-7 Malice)" range labels). */
+  resourceCost: ResourceCost | null;
+  resourceCostResidue: string | null;
 }
 
 type HeaderClause = Extract<EffectClause, { kind: 'ability-header' }>;
@@ -220,6 +229,8 @@ export function annotateHeaderCosts(
         ? classifyReactionInterception(sectionText)
         : null;
 
+    const { resourceCost, resourceCostResidue } = resourceCostFromNameLine(nameLine);
+
     annotations.set(header, {
       abilitySlug: abilitySlugFromNameLine(nameLine),
       actionCost,
@@ -227,6 +238,8 @@ export function annotateHeaderCosts(
       operatorPays,
       usesPerRound,
       reactionInterception,
+      resourceCost,
+      resourceCostResidue,
     });
   }
   return annotations;

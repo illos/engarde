@@ -13,6 +13,7 @@ export type { Clock, RandomSource } from './determinism.js';
 export { createFixedClock, createSeededRandomSource } from './determinism.js';
 export * from './schemas.js';
 export * from './action-cost.js';
+export * from './resource-cost.js';
 export * from './action-economy.js';
 export * from './payload-hash.js';
 export * from './resolution.js';

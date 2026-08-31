@@ -30,6 +30,8 @@ const SPIT: SquadAbilityData = {
   actionType: 'Main action',
   actionCost: 'main-action',
   actionCostResidue: null,
+  resourceCost: null,
+  resourceCostResidue: null,
   keywords: ['Ranged', 'Strike'],
   targetsText: 'One creature or object',
   powerRollBonus: { kind: 'fixed', value: 0 },
@@ -763,6 +765,11 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
     const historicalAbility: Record<string, unknown> = { ...payload.ability };
     historicalAbility.effectLines = undefined;
     historicalAbility.effectPrograms = undefined;
+    // The pre-f9075a1 wire form also predates the carry-only printed
+    // resource-cost slot; reconstructing its exact bytes omits those
+    // defaulted fields too. The pinned hash below is UNCHANGED.
+    historicalAbility.resourceCost = undefined;
+    historicalAbility.resourceCostResidue = undefined;
     const historicalWirePayload = { ...payload, ability: historicalAbility };
     const historicalHash = hashPayload(historicalWirePayload);
     expect(historicalHash).toBe('831abb93056c40caf1036df2841f82fac64232b64350f5e7992d93f92a2d412e');
@@ -802,7 +809,12 @@ describe('one-roll squad attacks [R-0034..R-0039]', () => {
         data: {
           historicalPayloadHashCompatibility: expect.objectContaining({
             storedHash: fixture.historicalHash,
-            omitted: ['SquadAbilityData.effectLines', 'SquadAbilityData.effectPrograms'],
+            omitted: [
+              'SquadAbilityData.effectLines',
+              'SquadAbilityData.effectPrograms',
+              'SquadAbilityData.resourceCost',
+              'SquadAbilityData.resourceCostResidue',
+            ],
           }),
         },
       }),
