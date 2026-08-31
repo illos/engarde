@@ -187,7 +187,10 @@ function conditionLabelsIn(value: string): string[] {
   return labels;
 }
 
-function canonRefsIn(value: string): string[] {
+/** Every explicit scc.v1 reference in a payload, in source order,
+ * de-duplicated. The ONE scanner — the common-action program source reads
+ * prose-feature refs through it rather than growing a second one. */
+export function canonRefsIn(value: string): string[] {
   const refs: string[] = [];
   for (const match of value.matchAll(SCC_LINK)) {
     const target = match[2];

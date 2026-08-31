@@ -8,6 +8,7 @@ import {
 } from './action-economy.js';
 import { runBoundarySweeps } from './boundary-sweeps.js';
 import { shiftCaptainBenefit } from './captain-benefits.js';
+import { executeUseCommonAction } from './common-action-execution.js';
 import {
   CANON,
   SAVING_THROW,
@@ -311,6 +312,8 @@ function applyIntentCore(
       return executeSquadManeuver(state, intent, context.random);
     case 'use-effect':
       return executeUseEffect(state, intent, context.random);
+    case 'use-common-action':
+      return executeUseCommonAction(state, intent, context.random);
     case 'apply-damage': {
       const target = state.participants[intent.payload.target];
       if (!target) {

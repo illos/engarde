@@ -69,7 +69,11 @@ const VILLAIN_ACTION_NAME_LINE = /villain action\s*\d/i;
 const WAVE_OF_BLOOD_ARTIFACT_ID =
   'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord';
 const WAVE_OF_BLOOD_NAME_LINE = '**Wave of Blood:**';
-const ONCE_PER_ROUND = /once per round/i;
+/** The closed printed once-per-round phrase family [R-0029 scope]. Shared
+ * with the common-action program source, which iterates PROSE-feature text
+ * with the same matcher (Ride prints two capped sentences) — one home, so
+ * the header path and the prose path can never read different phrases. */
+export const ONCE_PER_ROUND = /once per round/i;
 
 /** Last non-empty content line of a text block, quote markers and scc links
  * stripped — the survey's dash-cell walkback method. */

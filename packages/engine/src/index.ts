@@ -28,6 +28,7 @@ export * from './ability-execution.js';
 export * from './squad-actions.js';
 export * from './captain-benefits.js';
 export * from './effect-execution.js';
+export * from './common-action-execution.js';
 export * from './boundary-sweeps.js';
 export * from './apply-intent.js';
 export * from './invariants.js';
