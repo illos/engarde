@@ -94,3 +94,34 @@ export function isHealthSourcedInstance(instance: ConditionInstance): boolean {
       instance.source.effectArtifactId === HEALTH_CANON.dying)
   );
 }
+
+/**
+ * R-0004 — the ONE home for "may this condition instance be removed at
+ * all?". The dying-mandated bleeding "can't be negated or removed in any
+ * way until you are no longer dying" [rule.health/dying]: a
+ * REPRESENTATIONAL block, not a permissive warn-and-apply rule violation,
+ * because the engine cannot hold a state in which the printed instance is
+ * gone while the creature is still dying.
+ *
+ * Returns the printed reason, or null when the instance may be removed.
+ *
+ * A function rather than an inline check in the `remove-condition` arm
+ * because removal now has a second dispatch surface — the `end-condition`
+ * resolution [S12] — and a third is already printed (Escape Grab's "You are
+ * no longer grabbed." tier bullet). Every remover asks here; none re-derives
+ * the predicate.
+ */
+export function conditionRemovalBlocker(
+  target: ParticipantState,
+  instance: ConditionInstance,
+): string | null {
+  if (
+    isHealthSourcedInstance(instance) &&
+    instance.source.effectArtifactId === HEALTH_CANON.dying &&
+    target.stamina !== null &&
+    isDying(target.stamina.current)
+  ) {
+    return `${target.id} is still dying — this bleeding instance can't be removed until they are no longer dying`;
+  }
+  return null;
+}

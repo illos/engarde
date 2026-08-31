@@ -29,15 +29,15 @@
 
 
 
-> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–5 are SHIPPED** —
+> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–6 are SHIPPED** —
 > S2 + S3 (prose-feature program source + dispatch-supplied cost),
 > S1 (`use-common-action` over one factored resolution dispatch path),
 > S4 + S5 + S14 (eligibility-gate registry, asserted-fact reader, offer
 > surface), the four wave-4 arms (Advance, Ride, Catch Breath, Free
 > Strike), and wave 5 (S15's keyword extraction, Disengage, Charge,
-> Knockback, and the consolidated forced-movement receipt). ROAD-0005 seam
-> #3 (the per-actor allow/exclude slot) landed with S14. Waves 6–13 are
-> unbuilt.
+> Knockback, and the consolidated forced-movement receipt), and wave 6
+> (S12 + S11 + Stand Up). ROAD-0005 seam #3 (the per-actor allow/exclude
+> slot) landed with S14. Waves 7–13 are unbuilt.
 >
 > Wave 5 added two substrate shapes the design named but did not size:
 > the gate registry's **`sourceArtifactId`** (a gate must be allowed to
@@ -70,8 +70,43 @@
 >    printed cell — and those three are *exactly* the three of the 17 whose
 >    prose never prints its own group's cost words. The compiler enforces
 >    that correspondence.
+>
+> **Wave 6 (S12 + S11 + Stand Up)** added three shapes and made one scope
+> cut, all four worth recording:
+>
+> - **S12 shipped on the RESOLUTION vocabulary only.** `end-condition` is
+>   an `EffectResolutionSchema` member with an executor; the corpus family
+>   the item cites splits across two vocabularies, and the TIER-bullet half
+>   (`TierEffectDataSchema`, whose implementer is Escape Grab's "You are no
+>   longer grabbed.") lands with W12. That is a documented scope cut, not
+>   hidden debt: the removal itself already routes through
+>   `removeConditionInstance` plus the one `conditionRemovalBlocker`, so
+>   the tier executor has a home to call and cannot grow a second copy.
+> - **Instance selection is dispatch-supplied and REFUSED when absent.**
+>   The printed clause names a condition; the engine's unit of removal is
+>   an instance. An `end-condition` dispatch that names no instance for a
+>   bound target is refused rather than resolved by the engine picking one
+>   — picking would be the engine answering the open multi-instance ruling
+>   (§6.14 S1). A named instance of a *different* condition warns and
+>   applies, and the receipt records both condition ids.
+> - **The gate registry grew a printed-BRANCH discriminator.** Stand Up
+>   prints two branches whose preconditions bind to different roles, so a
+>   registration declares `whenAlternative` (omitted = every branch, `null`
+>   = the primary one, a key = that alternative). Without it a gate must
+>   either fabricate a reading for the branch that was not taken or stay
+>   silent about both.
+> - **The shared `willing` consent field landed with its first reader.**
+>   §5 flagged it as "on the strictest reading a receipt field"; Stand Up's
+>   alternative is a printed `willing` precondition, so the field is read
+>   through one consent reader, tri-state — absent is `'unknown'`, not
+>   `false`. Use Consumable (W13) and Ride's mount are implementers #2 and
+>   #3 and get no second field.
+>
+> Wave 6 also removed a second home the audits do not catch: the Convex
+> play-panel query re-typed the whole resolution-kind union by hand. It now
+> builds from the engine's `EFFECT_RESOLUTION_KINDS`.
 
-**Status:** waves 1–4 shipped; waves 5–13 designed, not authorized. **Inputs:** the 17 specs under
+**Status:** waves 1–6 shipped; waves 7–13 designed, not authorized. **Inputs:** the 17 specs under
 `.artifacts/canon/common-actions-spec/specs/`, `SUBSTRATE-BRIEF.md`, and three
 cross-cutting analyses (shared substrate, duplication audit, asserted-fact
 vocabulary). **Repo:** `../engarde`. **Related:** DEC-0011 (spatial belongs to

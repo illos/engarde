@@ -1,6 +1,10 @@
 import { abilityCostOf, targetCountOf } from './ability-execution.js';
 import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
-import { type LifecycleContext, applyConditionInstance } from './condition-lifecycle.js';
+import {
+  type LifecycleContext,
+  applyConditionInstance,
+  removeConditionInstance,
+} from './condition-lifecycle.js';
 import {
   type DamageOutcome,
   MINION_CANON,
@@ -25,7 +29,7 @@ import {
   grantContribution,
   splitGrants,
 } from './grant-lifecycle.js';
-import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
+import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID, conditionRemovalBlocker } from './health.js';
 import { isAreaKeyworded } from './keywords.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
@@ -113,6 +117,10 @@ export interface ResolutionInputs {
   objectTargets: readonly string[];
   knockOut: boolean;
   recoverySpends: Record<string, boolean>;
+  /** Per-target instance selection for an `end-condition` resolution [S12].
+   * The engine never picks: the printed clause names a condition, this
+   * names the instances. */
+  endedInstances: Record<string, string[]>;
 }
 
 /**
@@ -372,6 +380,37 @@ export function resolutionRefusal(
       }
     }
   }
+  if (resolution.kind === 'end-condition') {
+    for (const targetId of targets) {
+      const selected = inputs.endedInstances[targetId];
+      // An unanswered selection is not a rule violation to warn about — it
+      // is a dispatch that did not say what to end. The engine must not
+      // choose for it (which instance a printed "ending that condition"
+      // ends when a creature carries several is an open ruling), so there
+      // is nothing coherent to apply.
+      if (selected === undefined || selected.length === 0) {
+        return entry(
+          context,
+          'refusal',
+          `no condition instance named for ${targetId} — the printed clause names the ${resolution.conditionId} condition, and which instance(s) end is dispatch-supplied`,
+          bindingRefs(binding, [resolution.conditionId]),
+          dispatchReceipt(dispatch),
+        );
+      }
+      const held = state.participants[targetId]?.conditions ?? [];
+      for (const instanceId of selected) {
+        if (!held.some((instance) => instance.instanceId === instanceId)) {
+          return entry(
+            context,
+            'refusal',
+            `no condition instance ${instanceId} on ${targetId}`,
+            bindingRefs(binding, [resolution.conditionId]),
+            dispatchReceipt(dispatch),
+          );
+        }
+      }
+    }
+  }
   if (resolution.kind === 'terrain-fact') {
     const factId = `${binding.artifactId}#${binding.ordinal}#${context.intentId}-terrain`;
     if (state.terrainFacts.some((fact) => fact.factId === factId)) {
@@ -436,6 +475,7 @@ export function executeUseEffect(
         objectTargets: intent.payload.objectTargets,
         knockOut: intent.payload.knockOut,
         recoverySpends: intent.payload.recoverySpends,
+        endedInstances: intent.payload.endedInstances,
       },
       economy: {
         cost: abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType }),
@@ -788,6 +828,71 @@ export function executeResolutionDispatch(
           );
     });
     return { state: regainState, log };
+  }
+
+  if (resolution.kind === 'end-condition') {
+    let endedState = economyState;
+    for (const targetId of targets) {
+      for (const instanceId of inputs.endedInstances[targetId] ?? []) {
+        const target = endedState.participants[targetId];
+        if (!target) continue; // presence proven by the refusal gates
+        const instance = target.conditions.find((candidate) => candidate.instanceId === instanceId);
+        if (instance === undefined) continue; // existence proven by the refusal gates
+        // R-0004, through the one home every remover asks.
+        const blocker = conditionRemovalBlocker(target, instance);
+        if (blocker !== null) {
+          log.push(
+            entry(context, 'refusal', blocker, bindingRefs(binding, [HEALTH_CANON.dying]), {
+              // Per-binding: this one instance cannot be represented as
+              // removed while the rest of the dispatch proceeds, exactly
+              // like a minion's refused Recovery spend.
+              perBinding: true,
+              instanceId,
+            }),
+          );
+          continue;
+        }
+        // The printed clause names ONE condition. A dispatch that ends a
+        // different one is a Director override, not an incoherent payload
+        // — so it warns and applies [R-0030], and the receipt says which
+        // condition the book actually named so the removal is never read
+        // back as licensed by a rule that did not license it.
+        if (instance.conditionId !== resolution.conditionId) {
+          log.push(
+            entry(
+              context,
+              'warning',
+              `${instanceId} is a ${instance.conditionId} instance; ${binding.artifactId} prints its ending for ${resolution.conditionId} — applied anyway; the Director adjudicates`,
+              bindingRefs(binding, [resolution.conditionId, instance.conditionId]),
+              {
+                endedConditionMismatch: {
+                  targetId,
+                  instanceId,
+                  printedConditionId: resolution.conditionId,
+                  endedConditionId: instance.conditionId,
+                },
+              },
+            ),
+          );
+        }
+        const removed = removeConditionInstance(
+          endedState,
+          target,
+          instanceId,
+          context,
+          [resolution.conditionId],
+          `${binding.artifactId} ends ${instance.conditionId} on ${targetId}`,
+        );
+        endedState = removed.state;
+        log.push(
+          ...removed.log.map((item) => ({
+            ...item,
+            canonRefs: bindingRefs(binding, item.canonRefs),
+          })),
+        );
+      }
+    }
+    return { state: endedState, log };
   }
 
   if (resolution.kind === 'terrain-fact') {

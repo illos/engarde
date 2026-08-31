@@ -159,6 +159,7 @@ export function commonActionDispatch(
       objectTargets: intent.payload.objectTargets,
       knockOut: intent.payload.knockOut,
       recoverySpends: intent.payload.recoverySpends,
+      endedInstances: intent.payload.endedInstances,
     },
     economy: {
       cost: resolved.cost,
@@ -227,6 +228,12 @@ function preludeEntries(
     actorId: intent.payload.actorParticipantId,
     targets: intent.payload.targets,
     spatialFacts,
+    // The printed branch and the subject's asserted consent are both
+    // dispatch facts: a gate registered for the alternative must not read
+    // against the primary branch, and "willing" is asserted by the
+    // subject's controller.
+    alternative: intent.payload.alternative,
+    willing: intent.payload.willing,
   })) {
     if (verdict === true) continue;
     log.push(

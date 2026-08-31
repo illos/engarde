@@ -105,11 +105,16 @@ function useCommonAction(
   feature: CommonActionProgramData,
   overrides: Record<string, unknown> = {},
 ): Intent {
+  // `spatialFacts` rides the intent ENVELOPE (every intent may carry
+  // table assertions); everything else is payload. Accepting it in the
+  // same overrides bag keeps each test's dispatch readable.
+  const { spatialFacts, ...payload } = overrides;
   return {
     intentId: nextId('common'),
     kind: 'use-common-action',
     actor: { kind: 'participant', participantId: actorId },
-    payload: { actorParticipantId: actorId, feature, ...overrides },
+    ...(spatialFacts === undefined ? {} : { spatialFacts }),
+    payload: { actorParticipantId: actorId, feature, ...payload },
   } as Intent;
 }
 
@@ -357,6 +362,8 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
       actorId: 'hero',
       targets: ['warrior', 'ally'],
       spatialFacts: [{ fact: 'adjacent' as const, a: 'hero', b: 'warrior', holds: true }],
+      alternative: null,
+      willing: {},
     };
     expect(
       foldAssertedFacts([{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }], input),
@@ -397,6 +404,19 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
         'mcdm.heroes.v1/feature.common.maneuvers/knockback',
         'mcdm.heroes.v1/feature.ability.common/knockback',
       ],
+      // Stand Up registers three: the restrained bar (a third citation of
+      // someone else's artifact, and the ROLE proof — it reads the actor,
+      // never the standee), then one per printed branch, because the two
+      // branches quote different sentences and require different things.
+      ['mcdm.heroes.v1/feature.common.maneuvers/stand-up', 'mcdm.heroes.v1/condition/restrained'],
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
+        'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
+      ],
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
+        'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
+      ],
     ]);
   });
 
@@ -408,6 +428,8 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
         actorId,
         targets: [actorId],
         spatialFacts: [],
+        alternative: null,
+        willing: {},
       })[0]?.verdict;
     expect(read('hero')).toBe(true);
 
@@ -444,6 +466,8 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
         actorId: 'hero',
         targets,
         spatialFacts: [],
+        alternative: null,
+        willing: {},
       })[0]?.verdict;
     // The engine models no mount relation, so it knows exactly one thing:
     // whether a mount was named at all.
@@ -509,7 +533,12 @@ describe('the common-action offer surface (S14)', () => {
       ['mcdm.heroes.v1/feature.common.move-actions/ride', 'move-action', false],
       ['mcdm.heroes.v1/feature.common.main-actions/free-strike', 'main-action', true],
       ['mcdm.heroes.v1/feature.common.maneuvers/catch-breath', 'maneuver', true],
-      ['mcdm.heroes.v1/feature.common.maneuvers/stand-up', 'maneuver', true],
+      // Stand Up with no standee named: the restrained bar on the ACTOR
+      // reads true (the hero is not restrained), but the prone
+      // precondition is about the creature who stands up, and a bare menu
+      // read has not said who that is. Unknown, not false — the surface
+      // reports what it cannot know rather than guessing.
+      ['mcdm.heroes.v1/feature.common.maneuvers/stand-up', 'maneuver', 'unknown'],
     ]);
     const ride = menu.find((offer) => offer.featureArtifactId.endsWith('/ride'));
     expect(ride?.reasons[0]?.verbatim).toBe(
@@ -941,5 +970,313 @@ describe('wave 5 — Knockback and the one forced-movement receipt', () => {
       'mcdm.heroes.v1/rule.character/stability',
       'mcdm.heroes.v1/rule.character/size',
     ]);
+  });
+});
+
+describe('Stand Up — wave 6 (S12 + S11)', () => {
+  const PRONE = 'mcdm.heroes.v1/condition/prone';
+  const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
+  const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
+  const DYING = 'mcdm.heroes.v1/rule.health/dying';
+
+  /** Impose a condition with no imposing ability named — a bare Director
+   * assertion, which keeps the R-0001 imposer free maneuver out of the
+   * picture so the maneuver under test is Stand Up's own. */
+  function impose(
+    state: EncounterState,
+    targetId: string,
+    conditionId = PRONE,
+  ): { state: EncounterState; instanceId: string } {
+    const applied = dispatchChecked(state, {
+      intentId: nextId('impose'),
+      kind: 'apply-condition',
+      actor: { kind: 'director' },
+      payload: {
+        target: targetId,
+        conditionId,
+        ending: { kind: 'external' },
+        source: { participantId: 'warrior' },
+      },
+    } as Intent);
+    const instance = applied.state.participants[targetId]?.conditions.find(
+      (candidate) => candidate.conditionId === conditionId,
+    );
+    expect(instance).toBeDefined();
+    return { state: applied.state, instanceId: instance?.instanceId ?? '' };
+  }
+
+  it('branch A: a prone creature stands up, ending the instance the dispatch named', () => {
+    const { state, instanceId } = impose(onHeroTurn(), 'hero');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero'],
+        endedInstances: { hero: [instanceId] },
+      }),
+    );
+    expect(result.state.participants.hero?.conditions).toHaveLength(0);
+    expect(result.state.participants.hero?.actionBudget.maneuver).toEqual({ used: 1, granted: 0 });
+    const removal = result.log.find((entry) => entry.data.removedInstanceIds !== undefined);
+    expect(removal?.kind).toBe('mutation');
+    expect(removal?.canonRefs).toContain(PRONE);
+    // Every printed precondition of the branch taken holds, so nothing warns
+    // and nothing is routed to the table.
+    expect(result.log.some((entry) => entry.kind === 'warning')).toBe(false);
+    expect(result.log.some((entry) => entry.data.commonActionEligibility !== undefined)).toBe(
+      false,
+    );
+  });
+
+  it('branch B: the actor pays the one printed maneuver; the standee pays nothing', () => {
+    // "Alternatively, they can use this maneuver to make a willing adjacent
+    // prone creature stand up." — one maneuver, and the artifact attributes
+    // it to the user.
+    const { state, instanceId } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['ally'],
+        alternative: 'ally-stands-up',
+        endedInstances: { ally: [instanceId] },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+        willing: { ally: true },
+      }),
+    );
+    expect(result.state.participants.ally?.conditions).toHaveLength(0);
+    expect(result.state.participants.hero?.actionBudget.maneuver).toEqual({ used: 1, granted: 0 });
+    expect(result.state.participants.ally?.actionBudget.maneuver).toBeUndefined();
+    expect(result.log.some((entry) => entry.kind === 'warning')).toBe(false);
+    // With adjacency and consent both asserted, the branch's precondition is
+    // plainly met — no table directive.
+    expect(result.log.some((entry) => entry.data.commonActionEligibility !== undefined)).toBe(
+      false,
+    );
+  });
+
+  it('the printed branch selects which preconditions are read at all', () => {
+    // Branch A must not be told the standee is not adjacent to themself,
+    // and must not be asked for their own consent: the alternative's
+    // sentence is not the sentence being taken.
+    const { state, instanceId } = impose(onHeroTurn(), 'hero');
+    const primary = dispatchChecked(
+      state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero'],
+        endedInstances: { hero: [instanceId] },
+      }),
+    );
+    expect(primary.log.some((entry) => entry.data.commonActionEligibility !== undefined)).toBe(
+      false,
+    );
+
+    // The same dispatch declared as the alternative reads the alternative's
+    // sentence instead, and now asks for two things the table has not said.
+    const alternative = dispatchChecked(
+      state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero'],
+        alternative: 'ally-stands-up',
+        endedInstances: { hero: [instanceId] },
+      }),
+    );
+    const reading = alternative.log.find(
+      (entry) => entry.data.commonActionEligibility !== undefined,
+    );
+    expect(reading?.kind).toBe('table-directive');
+    expect(reading?.message).toContain('willing adjacent prone creature');
+  });
+
+  it('"willing" is read from the ONE consent field, tri-state', () => {
+    const { state, instanceId } = impose(onHeroTurn(), 'ally');
+    const dispatchWith = (willing: Record<string, boolean>) =>
+      dispatchChecked(
+        state,
+        useCommonAction('hero', STAND_UP, {
+          targets: ['ally'],
+          alternative: 'ally-stands-up',
+          endedInstances: { ally: [instanceId] },
+          spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+          willing,
+        }),
+      );
+
+    // Not asserted is UNKNOWN, not refused — the subject's controller has
+    // simply not spoken, and the engine does not answer for them.
+    const unasserted = dispatchWith({});
+    const unknown = unasserted.log.find(
+      (entry) => entry.data.commonActionEligibility !== undefined,
+    );
+    expect(unknown?.kind).toBe('table-directive');
+    expect(
+      (unknown?.data.commonActionEligibility as { verdict: unknown } | undefined)?.verdict,
+    ).toBe('unknown');
+
+    // Asserted-false is a violated printed precondition: a warning, and the
+    // action still happens [R-0030].
+    const refused = dispatchWith({ ally: false });
+    const violated = refused.log.find((entry) => entry.data.commonActionEligibility !== undefined);
+    expect(violated?.kind).toBe('warning');
+    expect(refused.state.participants.ally?.conditions).toHaveLength(0);
+  });
+
+  it('restrained bars the ACTOR from using Stand Up, and says nothing about the standee', () => {
+    // The role proof: `restrained` prints its bar on USING the maneuver.
+    const proned = impose(onHeroTurn(), 'ally');
+    const restrainedActor = impose(proned.state, 'hero', RESTRAINED).state;
+    const barred = dispatchChecked(
+      restrainedActor,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['ally'],
+        alternative: 'ally-stands-up',
+        endedInstances: { ally: [proned.instanceId] },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+        willing: { ally: true },
+      }),
+    );
+    const warning = barred.log.find((entry) => entry.kind === 'warning');
+    expect(warning?.message).toContain("can't use the Stand Up maneuver");
+    // Permissive: warned, and applied anyway.
+    expect(barred.state.participants.ally?.conditions).toHaveLength(0);
+
+    // A restrained STANDEE draws no such warning — the printed sentence is
+    // about using the maneuver, and whether it reaches the target role is
+    // an open ruling, not something the gate decides quietly.
+    const restrainedStandee = impose(proned.state, 'ally', RESTRAINED).state;
+    const allowed = dispatchChecked(
+      restrainedStandee,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['ally'],
+        alternative: 'ally-stands-up',
+        endedInstances: { ally: [proned.instanceId] },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+        willing: { ally: true },
+      }),
+    );
+    expect(allowed.log.some((entry) => entry.kind === 'warning')).toBe(false);
+  });
+
+  it('refuses when the dispatch names no instance — the engine never picks', () => {
+    // The printed clause names a CONDITION; the engine's unit of removal is
+    // an INSTANCE. Which one ends when a creature carries several is an open
+    // ruling, so an unanswered dispatch has nothing coherent to apply.
+    const { state } = impose(onHeroTurn(), 'hero');
+    const result = dispatchChecked(state, useCommonAction('hero', STAND_UP, { targets: ['hero'] }));
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.log[0]?.message).toContain('which instance(s) end is dispatch-supplied');
+    expect(result.state).toEqual(state);
+  });
+
+  it('refuses an unknown instance BEFORE the debit', () => {
+    const { state } = impose(onHeroTurn(), 'hero');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero'],
+        endedInstances: { hero: ['no-such-instance'] },
+      }),
+    );
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    // Byte-identical: no maneuver was spent for a removal that never happened.
+    expect(result.state).toEqual(state);
+  });
+
+  it('warns, and applies, when the named instance is a different condition', () => {
+    // A Director override, not an incoherent payload — but the receipt must
+    // never read as though the printed clause licensed it.
+    const proned = impose(onHeroTurn(), 'hero');
+    const restrained = impose(proned.state, 'hero', RESTRAINED);
+    const result = dispatchChecked(
+      restrained.state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero'],
+        endedInstances: { hero: [restrained.instanceId] },
+      }),
+    );
+    const warning = result.log.find((entry) => entry.data.endedConditionMismatch !== undefined);
+    expect(warning?.kind).toBe('warning');
+    expect(warning?.data.endedConditionMismatch).toEqual({
+      targetId: 'hero',
+      instanceId: restrained.instanceId,
+      printedConditionId: PRONE,
+      endedConditionId: RESTRAINED,
+    });
+    const remaining = result.state.participants.hero?.conditions ?? [];
+    expect(remaining.map((instance) => instance.conditionId)).toEqual([PRONE]);
+  });
+
+  it('asks the ONE removal blocker: R-0004 bleeding survives, and siblings proceed', () => {
+    // The dying-mandated bleeding "can't be negated or removed in any way
+    // until you are no longer dying". The resolution executor is removal's
+    // second dispatch surface and it must not re-derive that predicate.
+    const start = onHeroTurn();
+    const dying = dispatchChecked(start, {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        amount: 15,
+        reason: 'seeded damage to reach the dying band',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+    const bleeding = dying.participants.hero?.conditions.find(
+      (instance) => instance.conditionId === BLEEDING,
+    );
+    expect(bleeding?.source.effectArtifactId).toBe(DYING);
+
+    const allyProne = impose(dying, 'ally');
+    const result = dispatchChecked(
+      allyProne.state,
+      useCommonAction('hero', STAND_UP, {
+        targets: ['hero', 'ally'],
+        alternative: 'ally-stands-up',
+        endedInstances: {
+          hero: [bleeding?.instanceId ?? ''],
+          ally: [allyProne.instanceId],
+        },
+        spatialFacts: [
+          { fact: 'adjacent', a: 'hero', b: 'hero', holds: true },
+          { fact: 'adjacent', a: 'hero', b: 'ally', holds: true },
+        ],
+        willing: { hero: true, ally: true },
+      }),
+    );
+    const refused = result.log.find((entry) => entry.kind === 'refusal');
+    expect(refused?.message).toContain('still dying');
+    expect(refused?.data.perBinding).toBe(true);
+    // Per-binding: the sibling target's removal still happened.
+    expect(
+      result.state.participants.hero?.conditions.some(
+        (instance) => instance.instanceId === bleeding?.instanceId,
+      ),
+    ).toBe(true);
+    expect(result.state.participants.ally?.conditions).toHaveLength(0);
+  });
+
+  it('rejects an endedInstances payload that names an undeclared target', () => {
+    const { state, instanceId } = impose(onHeroTurn(), 'hero');
+    expect(() =>
+      applyIntent(
+        state,
+        useCommonAction('hero', STAND_UP, {
+          targets: ['hero'],
+          endedInstances: { hero: [instanceId], ally: [instanceId] },
+        }),
+        { random: createSeededRandomSource(1) },
+      ),
+    ).toThrow();
+
+    // And an action whose printed clause ends nothing may not carry one.
+    expect(() =>
+      applyIntent(
+        state,
+        useCommonAction('hero', ADVANCE, { endedInstances: { hero: [instanceId] } }),
+        { random: createSeededRandomSource(1) },
+      ),
+    ).toThrow();
   });
 });

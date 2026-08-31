@@ -260,6 +260,9 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     movesActor: false,
   },
   {
+    // "A creature can use the Stand Up maneuver to stand up if they are
+    // prone, ENDING THAT CONDITION." — the printed clause names the
+    // condition; which INSTANCE ends is dispatch-supplied [S12].
     featureArtifactId: `${ID}.maneuvers/stand-up`,
     group: 'maneuvers',
     debitContract: 'self',
@@ -270,7 +273,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     // nothing is charged to the ally, so no targetAction.
     alternatives: [{ key: 'ally-stands-up', targetAction: null }],
     composition: null,
-    resolution: null,
+    resolution: { kind: 'end-condition', conditionId: 'mcdm.heroes.v1/condition/prone' },
     movesActor: false,
   },
   {
@@ -524,13 +527,25 @@ export function compileCommonAction(input: {
     );
   }
 
+  // A condition-ending resolution names a condition [S12]. The name is not
+  // a classification — the artifact LINKS the condition it ends — so it is
+  // proved against the artifact's own scc links through the one scanner,
+  // and a pin bump that relinks the clause breaks loudly.
+  const refs = canonRefsIn(text);
+  if (entry.resolution?.kind === 'end-condition' && !refs.includes(entry.resolution.conditionId)) {
+    fail(
+      artifactId,
+      `resolution ends ${entry.resolution.conditionId}, which the artifact never links`,
+    );
+  }
+
   return CommonActionProgramDataSchema.parse({
     featureArtifactId: artifactId,
     provenance: 'prose-feature',
     group: entry.group,
     sourceSpan: { byteStart: 0, byteEnd: Buffer.byteLength(text, 'utf8') },
     sourceText: text,
-    canonRefs: canonRefsIn(text),
+    canonRefs: refs,
     defaultActionCost: GROUP_DEFAULT_COST[entry.group],
     perRoundCaps,
     alternatives,
