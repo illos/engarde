@@ -386,6 +386,84 @@ not join is a discrepancy to resolve against the pin.
 >   8 beastheart perks FS lacks; **Beastheart's book is `exclude` in the pin
 >   config** — every beastheart row joins as `excluded-book` until admission.
 
+> **Join BUILT 2026-08-31** (`pnpm character-builder:extract` →
+> `character-builder:join`; artifacts regenerate under
+> `.artifacts/canon/character-builder/`, gitignored like all canon
+> artifacts — the committed scripts are the source of truth). Numbers:
+> 2,918 FS rows, 2,387 joined (96.7% of joinable), every row accounted
+> exactly once; R-A worklist emitted at 40 rows (the "~90" estimate
+> counted affected features more loosely). Pre-load corrections from the
+> mechanical pass:
+>
+> - **WRONG — "pin has 8 beastheart perks FS lacks":** FS carries all 8,
+>   names matching 1:1 (`summary.json → beastheartPerkCrossCheck`).
+> - **Titles reconciliation is 4 names, not 2:** one delta was drift (FS
+>   "Dwarf Legionnaire" = pin `title/dwarven-legionnaire.md`), leaving
+>   FS-only Angler / Goldenrod / Master of Reels and pin-only Stronghold.
+> - Domain features live as conduit `subclass:`-frontmatter records **and**
+>   as conduit/censor ability records (Reap, Seance) — pre-load missed the
+>   second home.
+> - 12 additional observed name drifts beyond the seeded map are in the
+>   join's documented `OBSERVED_DRIFT` dict (each with 1:1 leftover-pair
+>   evidence) — review them in the R-L ruling pass, plus the parked
+>   judgment calls in `discrepancies.json` (Summoner circle machinery,
+>   subclass L1 skill grants, Vampire Sire↔Scion, etc.).
+
+---
+
+## R-M · Hero potency derivation: class characteristic or highest? *(not an FS question — pin-internal; rulebot evidence 2026-08-30, Gates 1+2 run)*
+
+> **RULED 2026-08-30 — recommendation accepted (user: "Let's go with your
+> recommendation"): the class-printed characteristic is definitional.**
+> Implemented same day in `packages/canon/src/hero-stats.ts`: the
+> characteristic AND offset are parsed from each class record's printed
+> potency line (never hardcoded); an unparseable line yields a null triple.
+> The engine continues to consume stored values only.
+
+**Decision needed (resolved above):** which derivation is *definitional* for a hero's
+weak/average/strong potency values — the class-printed characteristic, or
+"your highest characteristic score"? This is the decision **R-0003**
+(`docs/power-roll-design.md` §10 Q2) deferred to the character-build
+pipeline; `heroStats` (packages/canon/src/hero-stats.ts) has now arrived and
+ships `potencies: null` until ruled.
+
+**Headline finding: the two readings are extensionally equal for every RAW
+hero.** Verified across all 9 classes: every class starts its potency
+characteristic at 2 (starting-array max), the level 4/10 features set class
+primaries to 3/5 (single-primary classes add a floating +1 under the same
+caps), and level 7 raises all characteristics by 1 capped at 4 — so the
+class potency characteristic is always at least tied for highest, and the
+two formulas always produce the same number. The choice only matters for
+homebrew or out-of-band characteristic changes. No text calls either
+formulation a restatement of the other.
+
+Both formulations coexist in the same passage (Heroes book §Potencies,
+p.74): prose — ❝the value of the potency for your hero's abilities is based
+on one of your characteristics and **determined by your class**❞ —
+immediately followed by bullets — ❝Your weak potency value is equal to
+**your highest characteristic score** − 2❞ (average −1, strong −0). Class
+Basics print the fixed form (Fury p.131: ❝Weak Potency: Might − 2❞;
+Tactician p.175: Reason). The only passage addressing recomputation, the
+conduit worked example (p.74), keys it to the *class* characteristic:
+❝knowing that those values won't change until the character hits 2nd
+echelon and **their Intuition score** becomes 3❞.
+
+Side findings, both settled: the M/A/R/I/P letter in ability notation
+(❝M < WEAK❞) is the **target's resisting** characteristic (per-ability),
+not the source of the attacker's value (per-hero) — the per-ability reading
+of the question is dead. Monsters are explicitly highest-characteristic
+(❝bases those potencies on their highest characteristic❞, Monster Basics).
+
+**Recommendation: class-printed characteristic is definitional.** The
+conduit example is the only text with recomputation semantics and it keys
+to the class characteristic; the class records' structured
+`weak/average/strong_potency` fields make it deterministic data the
+pipeline already holds; and it stays correct if a homebrew source ever
+raises a non-class characteristic past the primary (the highest-score
+reading would silently shift the potency source). Ruling accepted ⇒
+`heroStats` derives the triple from the class-printed characteristic and
+drops `potencies: null`.
+
 ---
 
 ## Suggested order

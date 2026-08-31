@@ -20,11 +20,24 @@ const bindingView = v.object({
   status: bindingStatusValidator,
 });
 
+// Mirrors the engine's CharacteristicsSchema field names (packages/engine
+// schemas). Plain numbers only — legal ranges/arrays are builder-track rule
+// logic backed by canon, never substrate validation.
+const characteristicsValidator = v.object({
+  might: v.number(),
+  agility: v.number(),
+  reason: v.number(),
+  intuition: v.number(),
+  presence: v.number(),
+});
+
 const ownedCharacterView = v.object({
   characterId: v.id('characters'),
   name: v.string(),
   concept: v.string(),
   level: v.number(),
+  classScc: v.union(v.string(), v.null()),
+  characteristics: v.union(characteristicsValidator, v.null()),
   binding: v.union(bindingView, v.null()),
 });
 
@@ -34,6 +47,8 @@ const campaignCharacterView = v.object({
   name: v.string(),
   concept: v.string(),
   level: v.number(),
+  classScc: v.union(v.string(), v.null()),
+  characteristics: v.union(characteristicsValidator, v.null()),
   status: bindingStatusValidator,
   isMine: v.boolean(),
 });
@@ -61,6 +76,33 @@ function validateConcept(concept: string): string {
   const trimmed = concept.trim();
   if (trimmed.length > 300) throw new ConvexError('Concept must be at most 300 characters');
   return trimmed;
+}
+
+// Shape-only: a class reference is a non-empty pinned-corpus scc string
+// (`mcdm.<book>.v1/<category-path>/<slug>`). Which sccs name classes is
+// builder-track knowledge, not substrate validation.
+function validateClassScc(classScc: string): string {
+  const trimmed = classScc.trim();
+  if (trimmed.length < 1 || trimmed.length > 200)
+    throw new ConvexError('Class reference must be 1–200 characters');
+  return trimmed;
+}
+
+type CharacteristicsInput = {
+  might: number;
+  agility: number;
+  reason: number;
+  intuition: number;
+  presence: number;
+};
+
+// Shape-only: finite integers, mirroring the engine schema's number kind.
+// Legal score ranges are canon-backed builder-track rule logic, not substrate.
+function validateCharacteristics(characteristics: CharacteristicsInput): CharacteristicsInput {
+  for (const value of Object.values(characteristics)) {
+    if (!Number.isInteger(value)) throw new ConvexError('Characteristics must be integers');
+  }
+  return characteristics;
 }
 
 async function bindingFor(
@@ -248,6 +290,8 @@ export const listMine = query({
         name: character.name,
         concept: character.concept,
         level: character.level,
+        classScc: character.classScc ?? null,
+        characteristics: character.characteristics ?? null,
         binding:
           binding && campaign
             ? { campaignId: campaign._id, campaignName: campaign.name, status: binding.status }
@@ -302,6 +346,8 @@ export const listForCampaign = query({
         name: character.name,
         concept: character.concept,
         level: character.level,
+        classScc: character.classScc ?? null,
+        characteristics: character.characteristics ?? null,
         status: binding.status,
         isMine: character.ownerUserId === profile.userId,
       });
@@ -324,6 +370,41 @@ export const submit = mutation({
   handler: async (ctx, args) => {
     const { character } = await requireOwnedCharacter(ctx, args.characterId);
     return await bindCharacter(ctx, character, args.campaignId);
+  },
+});
+
+// Hero-participant seams (substrate): owner-only set/clear of the pinned-class
+// reference and the characteristic scores. Passing null clears the field.
+export const setClass = mutation({
+  args: {
+    characterId: v.id('characters'),
+    classScc: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { character } = await requireOwnedCharacter(ctx, args.characterId);
+    await ctx.db.patch(character._id, {
+      classScc: args.classScc === null ? undefined : validateClassScc(args.classScc),
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const setCharacteristics = mutation({
+  args: {
+    characterId: v.id('characters'),
+    characteristics: v.union(characteristicsValidator, v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { character } = await requireOwnedCharacter(ctx, args.characterId);
+    await ctx.db.patch(character._id, {
+      characteristics:
+        args.characteristics === null ? undefined : validateCharacteristics(args.characteristics),
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 

@@ -137,6 +137,24 @@ export default defineSchema({
     name: v.string(),
     concept: v.string(),
     level: v.number(),
+    // Hero-participant seams (substrate only, not the builder). The chosen
+    // class is referenced by its pinned-corpus scc identity — the same
+    // `mcdm.<book>.v1/<category-path>/<slug>` string shape canonRecords keys
+    // as artifactId. The pin owns identity (DEC-0014); Forge Steel ids are
+    // labels, never keys. Characteristics mirror the engine's
+    // CharacteristicsSchema field names. Derived stats (stamina, recoveries)
+    // are deliberately NOT stored — they derive at encounter time from
+    // class + level (one canon rule, one implementation).
+    classScc: v.optional(v.string()),
+    characteristics: v.optional(
+      v.object({
+        might: v.number(),
+        agility: v.number(),
+        reason: v.number(),
+        intuition: v.number(),
+        presence: v.number(),
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_ownerUserId', ['ownerUserId']),

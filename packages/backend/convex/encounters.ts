@@ -14,6 +14,7 @@ import {
   type AssertedAbilityUse,
   BUDGET_ACTION_COSTS,
   type DamageType,
+  type DriverParticipant,
   type DriverSquadSeed,
   type EncounterState,
   type Intent,
@@ -858,7 +859,36 @@ export const searchRecords = query({
 export const start = mutation({
   args: {
     campaignId: v.id('campaigns'),
-    participants: v.array(v.object({ id: v.string(), recordId: v.string() })),
+    /** Hero-participant seam (gap 3): an entry is a Director creature
+     * embodying a canon record (the existing `{id, recordId}` shape,
+     * `kind` defaulted) or a hero. A hero needs no canon record — the
+     * engine's participantShape.sourceRecordId is nullable and the handle
+     * `id` is the display name — and may carry Director-ASSERTED stats,
+     * lifted through the engine's one ParticipantStatsSchema home exactly
+     * like statsJson. No asserted stats = table-mode hero (receipts only). */
+    participants: v.array(
+      v.object({
+        id: v.string(),
+        recordId: v.optional(v.string()),
+        kind: v.optional(v.union(v.literal('hero'), v.literal('director-creature'))),
+        stats: v.optional(
+          v.object({
+            // Free-form Director assertions — bounds come from the engine's
+            // ParticipantStatsSchema in the handler, never re-derived here.
+            staminaMax: v.number(),
+            characteristics: v.object({
+              might: v.number(),
+              agility: v.number(),
+              reason: v.number(),
+              intuition: v.number(),
+              presence: v.number(),
+            }),
+            /** null = untracked Recoveries (engine semantics), never zero. */
+            recoveriesMax: v.union(v.number(), v.null()),
+          }),
+        ),
+      }),
+    ),
     /** Minion squad seeds [R-0023]: members are participant handles from
      * `participants`. Seeding is the automation boundary — the engine's
      * `initialEncounterState` refuses a canon-incoherent seed (mixed
@@ -884,23 +914,52 @@ export const start = mutation({
     if (args.participants.length === 0 || args.participants.length > MAX_PARTICIPANTS)
       throw new ConvexError(`Choose 1–${MAX_PARTICIPANTS} participants`);
     const statsReceipts: string[] = [];
-    const seeded: {
-      id: string;
-      sourceRecordId: string;
-      kind: 'director-creature';
-      stats?: ParticipantStats;
-    }[] = [];
+    const seeded: DriverParticipant[] = [];
     for (const participant of args.participants) {
+      const kind = participant.kind ?? 'director-creature';
       if (!PARTICIPANT_ID.test(participant.id))
         throw new ConvexError(`Participant handle "${participant.id}" must be short kebab-case`);
-      // Participants are real corpus records, never invented (prime directive).
-      const record = await loadRecord(ctx, participant.recordId);
-      if (!record) throw new ConvexError(`Unknown canon record: ${participant.recordId}`);
-      // Deterministic stats from the stat block's checksummed paired JSON
-      // (DEC-0008; seeded by `corpus export-records`). Records without stats
-      // play in table mode — every damage/potency touch becomes a receipt.
+      // A Director creature embodies a real corpus record, never an invented
+      // stat block (prime directive). A hero is the player's own — a record
+      // reference is optional, asserted stats are the Director's.
+      if (kind === 'director-creature' && participant.recordId === undefined)
+        throw new ConvexError(
+          `Participant "${participant.id}": a Director creature embodies a canon record — recordId is required`,
+        );
+      if (kind === 'director-creature' && participant.stats !== undefined)
+        throw new ConvexError(
+          `Participant "${participant.id}": asserted stats are for hero entries — a Director creature's stats come from its stat block`,
+        );
+      let record: Doc<'canonRecords'> | null = null;
+      if (participant.recordId !== undefined) {
+        record = await loadRecord(ctx, participant.recordId);
+        if (!record) throw new ConvexError(`Unknown canon record: ${participant.recordId}`);
+      }
       let stats: ParticipantStats | undefined;
-      if (record.statsJson) {
+      if (participant.stats) {
+        // Director-asserted hero stats, lifted through the engine's ONE
+        // stats home (never a second schema). The unasserted members are
+        // "none asserted": empty immunity/weakness lists, untracked
+        // potencies/organization — no values are invented.
+        try {
+          stats = ParticipantStatsSchema.parse({
+            staminaMax: participant.stats.staminaMax,
+            characteristics: participant.stats.characteristics,
+            immunities: [],
+            weaknesses: [],
+            potencies: null,
+            organization: null,
+            recoveriesMax: participant.stats.recoveriesMax,
+          });
+        } catch (error) {
+          throw new ConvexError(
+            `Hero stats rejected for "${participant.id}": ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      } else if (record?.statsJson) {
+        // Deterministic stats from the stat block's checksummed paired JSON
+        // (DEC-0008; seeded by `corpus export-records`). Records without
+        // stats play in table mode — every touch becomes a receipt.
         const parsed = JSON.parse(record.statsJson) as StatblockStats;
         stats = ParticipantStatsSchema.parse({
           staminaMax: parsed.staminaMax,
@@ -921,12 +980,16 @@ export const start = mutation({
           );
         }
       } else {
-        statsReceipts.push(`${participant.id}: no stat automation for this record — table mode`);
+        statsReceipts.push(
+          record
+            ? `${participant.id}: no stat automation for this record — table mode`
+            : `${participant.id}: no Director-asserted stats — table mode`,
+        );
       }
       seeded.push({
         id: participant.id,
-        sourceRecordId: participant.recordId,
-        kind: 'director-creature',
+        ...(participant.recordId !== undefined ? { sourceRecordId: participant.recordId } : {}),
+        kind,
         stats,
       });
     }

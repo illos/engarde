@@ -10,6 +10,7 @@
     "./action-cost": "./src/action-cost.ts",
     "./fixtures/blood-for-blood": "./src/fixtures/blood-for-blood.verbatim.ts",
     "./statblock-stats": "./src/statblock-stats.ts",
+    "./hero-stats": "./src/hero-stats.ts",
     "./fixtures/goblin-warrior": "./src/fixtures/goblin-warrior.verbatim.ts",
     "./fixtures/devil-adjudicator": "./src/fixtures/devil-adjudicator.verbatim.ts",
     "./fixtures/skitterling": "./src/fixtures/skitterling.verbatim.ts",

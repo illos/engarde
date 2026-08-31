@@ -24,6 +24,7 @@ import type * as profiles from "../profiles.js";
 import type * as rateLimits from "../rateLimits.js";
 import type * as retention from "../retention.js";
 import type * as sessions from "../sessions.js";
+import type * as verbatimFixtures from "../verbatimFixtures.js";
 
 import type {
   ApiFromModules,
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   rateLimits: typeof rateLimits;
   retention: typeof retention;
   sessions: typeof sessions;
+  verbatimFixtures: typeof verbatimFixtures;
 }>;
 
 /**
