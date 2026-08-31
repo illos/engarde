@@ -19,7 +19,9 @@
     "./fixtures/goblin-warrior": "./src/fixtures/goblin-warrior.verbatim.ts",
     "./fixtures/devil-adjudicator": "./src/fixtures/devil-adjudicator.verbatim.ts",
     "./fixtures/skitterling": "./src/fixtures/skitterling.verbatim.ts",
-    "./fixtures/goblin-spinecleaver": "./src/fixtures/goblin-spinecleaver.verbatim.ts"
+    "./fixtures/goblin-spinecleaver": "./src/fixtures/goblin-spinecleaver.verbatim.ts",
+    "./common-actions": "./src/common-actions.ts",
+    "./fixtures/common-actions": "./src/fixtures/common-actions.verbatim.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

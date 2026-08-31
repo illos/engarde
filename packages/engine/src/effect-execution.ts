@@ -29,6 +29,8 @@ import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type {
+  ActionCost,
+  EffectResolution,
   EncounterState,
   LogEntry,
   NextRollGrant,
@@ -68,11 +70,117 @@ interface ExecutionResult {
   log: LogEntry[];
 }
 
-function refs(
-  effect: UseEffectIntent['payload']['effect'],
-  extra: readonly string[] = [],
-): string[] {
-  return [...new Set([effect.effectArtifactId, ...effect.canonRefs, ...extra])];
+/**
+ * What a resolution executes AGAINST — the provenance-carrying source of
+ * the printed instruction, independent of which dispatch surface produced
+ * it. `provenance` is not decoration: a prose common action has no
+ * `**Effect:**` line, so a receipt that labelled one `manualEffect` would
+ * misattribute the printed text to a line the book never printed.
+ */
+export interface ResolutionBinding {
+  artifactId: string;
+  /** One-based occurrence within the artifact (always 1 for a prose
+   * feature, which has no repeatable instruction line). */
+  ordinal: number;
+  sourceText: string;
+  sourceSpan: { byteStart: number; byteEnd: number };
+  canonRefs: readonly string[];
+  targetsText: string | null;
+  distanceText: string | null;
+  keywords: readonly string[];
+  provenance: 'effect-program' | 'prose-feature';
+}
+
+/** The dispatch-supplied inputs a resolution consumes — the shared shape
+ * `use-effect` and `use-common-action` both carry [schemas.ts
+ * `resolutionInputShape`]. */
+export interface ResolutionInputs {
+  actorParticipantId: string;
+  targets: readonly string[];
+  partOf?: string;
+  operatorId?: string;
+  testRolls: Record<
+    string,
+    {
+      dice?: [number, number];
+      edges: number;
+      banes: number;
+      bonuses: Array<{ value: number; reason: string }>;
+      penalties: Array<{ value: number; reason: string }>;
+    }
+  >;
+  objectTargets: readonly string[];
+  knockOut: boolean;
+  recoverySpends: Record<string, boolean>;
+}
+
+/**
+ * The action-economy half of a dispatch, resolved by the CALLER. The two
+ * surfaces read their cost from different printed places — an ability
+ * header cell (normalized at compile time) versus a common action's group
+ * directory plus an optional dispatch override — and exactly one of them
+ * may skip the debit entirely (a companion-paid common action). Resolving
+ * it above this executor keeps `debitActionCost` the one debit home while
+ * letting each surface answer "what does the book charge here?" its own
+ * way.
+ */
+export interface ResolutionEconomy {
+  cost: ActionCost | null;
+  actionCostResidue: string | null;
+  /** The raw printed cell, for the residue directive. */
+  actionType: string | null;
+  operatorPays: boolean;
+  usesPerRound: number | null;
+  /** Per-ability counter key; the artifact id for both surfaces today. */
+  abilityKey: string;
+  /** A `partOf` child that realizes another part of the SAME printed use
+   * shares its parent's use counter [action-economy.ts]. */
+  sharesAbilityUse: boolean;
+  /** Skip the debit entirely: the printed cost is carried by another
+   * dispatch (a common action's compiled companion ability). Never a
+   * silent skip — the caller emits the receipt that says who pays. */
+  debitSuppressed: boolean;
+}
+
+/** One resolution dispatch, whatever surface produced it. */
+export interface ResolutionDispatch {
+  binding: ResolutionBinding;
+  resolution: EffectResolution;
+  inputs: ResolutionInputs;
+  economy: ResolutionEconomy;
+  /**
+   * Emit the nonrolling application claim, from which `deriveOccurrences`
+   * reads `ability-used` / `targeted` [R-0040]. TRUE for compiled Effect
+   * programs (they are ability text). FALSE for common actions: the
+   * printed trigger word is "ability", and Advance, Catch Breath and Stand
+   * Up are not abilities — firing `ability-used` for them would make every
+   * printed "if you use an ability" trigger fire on walking. The
+   * common-action occurrence arm is its own ruled unit of work
+   * [common-actions design S17 + W0-c].
+   */
+  emitsNonrollingClaim: boolean;
+  /**
+   * Entries the calling surface produced before the debit — the printed
+   * eligibility gates, a companion-pays receipt, a selected alternative.
+   * They land after the informational entry and BEFORE the economy debit,
+   * which is where a printed precondition belongs: it is quoted at the
+   * moment it applies, and it never short-circuits [R-0030].
+   */
+  preludeLog?: readonly LogEntry[];
+  /** Surface-specific receipt fields merged into the dispatch receipt. */
+  receiptExtras?: Record<string, unknown>;
+}
+
+/** Receipt identity for a binding, keyed by provenance — a prose feature
+ * has no Effect ordinal and must never be read back as an Effect line. */
+function bindingIdFields(binding: ResolutionBinding): Record<string, unknown> {
+  return binding.provenance === 'prose-feature'
+    ? { featureArtifactId: binding.artifactId }
+    : { effectArtifactId: binding.artifactId, effectOrdinal: binding.ordinal };
+}
+
+function bindingRefs(binding: ResolutionBinding, extra: readonly string[] = []): string[] {
+  return [...new Set([binding.artifactId, ...binding.canonRefs, ...extra])];
 }
 
 function entry(
@@ -85,22 +193,44 @@ function entry(
   return { kind, intentId: context.intentId, actor: context.actor, canonRefs, message, data };
 }
 
-function receipt(intent: UseEffectIntent): Record<string, unknown> {
+/** The identity half of every receipt this executor emits, keyed by
+ * provenance so a prose feature is never read back as an Effect line. */
+function bindingReceiptBody(
+  binding: ResolutionBinding,
+  resolution: EffectResolution,
+  targets: readonly string[],
+): Record<string, unknown> {
+  return binding.provenance === 'prose-feature'
+    ? {
+        featureArtifactId: binding.artifactId,
+        sourceSpan: binding.sourceSpan,
+        sourceText: binding.sourceText,
+        resolutionKind: resolution.kind,
+        targets: [...targets],
+      }
+    : {
+        effectArtifactId: binding.artifactId,
+        effectOrdinal: binding.ordinal,
+        sourceSpan: binding.sourceSpan,
+        sourceText: binding.sourceText,
+        resolutionKind: resolution.kind,
+        targets: [...targets],
+      };
+}
+
+function dispatchReceipt(dispatch: ResolutionDispatch): Record<string, unknown> {
+  const { binding, resolution, inputs } = dispatch;
+  const body = bindingReceiptBody(binding, resolution, inputs.targets);
   return {
-    effectResolution: {
-      effectArtifactId: intent.payload.effect.effectArtifactId,
-      effectOrdinal: intent.payload.effect.effectOrdinal,
-      sourceSpan: intent.payload.effect.sourceSpan,
-      sourceText: intent.payload.effect.sourceText,
-      resolutionKind: intent.payload.effect.resolution.kind,
-      targets: intent.payload.targets,
-    },
-    ...(intent.payload.partOf === undefined
+    ...(binding.provenance === 'prose-feature'
+      ? { commonActionResolution: { ...body, ...dispatch.receiptExtras } }
+      : { effectResolution: { ...body, ...dispatch.receiptExtras } }),
+    ...(dispatch.emitsNonrollingClaim && inputs.partOf === undefined
       ? {
           nonrollingAbilityApplication: nonrollingAbilityApplicationClaim({
-            actorId: intent.payload.actorParticipantId,
-            abilityArtifactId: intent.payload.effect.effectArtifactId,
-            targetIds: intent.payload.targets,
+            actorId: inputs.actorParticipantId,
+            abilityArtifactId: binding.artifactId,
+            targetIds: inputs.targets,
           }),
         }
       : {}),
@@ -121,7 +251,7 @@ function receipt(intent: UseEffectIntent): Record<string, unknown> {
 function applyPerTarget(
   state: EncounterState,
   targets: readonly string[],
-  effect: UseEffectIntent['payload']['effect'],
+  binding: ResolutionBinding,
   log: LogEntry[],
   applyOne: (target: ParticipantState, targetId: string) => DamageOutcome | null,
 ): EncounterState {
@@ -135,107 +265,92 @@ function applyPerTarget(
     log.push(
       ...outcome.log.map((item) => ({
         ...item,
-        canonRefs: refs(effect, item.canonRefs),
+        canonRefs: bindingRefs(binding, item.canonRefs),
       })),
     );
   }
   return nextState;
 }
 
-export function executeUseEffect(
+/**
+ * The shared refusal preamble — every whole-dispatch structural gate, run
+ * BEFORE any mutation so a refusal never follows a state change
+ * (refusal-with-change holds by construction). Returns the refusal entry,
+ * or null when the dispatch may proceed.
+ *
+ * These are substrate invariants only (unknown participants, missing stats
+ * a roll needs, id collisions, an unanswered Recovery offer). Rule
+ * violations warn and apply [R-0030]; nothing here gatekeeps a choice.
+ */
+export function resolutionRefusal(
   state: EncounterState,
-  intent: UseEffectIntent,
-  random: RandomSource,
-): ExecutionResult {
-  const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
-  const { effect, targets } = intent.payload;
-  if (!state.participants[intent.payload.actorParticipantId]) {
-    return {
-      state,
-      log: [
-        entry(
-          context,
-          'refusal',
-          `unknown participant ${intent.payload.actorParticipantId}`,
-          refs(effect),
-          receipt(intent),
-        ),
-      ],
-    };
+  dispatch: ResolutionDispatch,
+  context: LifecycleContext,
+): LogEntry | null {
+  const { binding, resolution, inputs } = dispatch;
+  const targets = inputs.targets;
+  if (!state.participants[inputs.actorParticipantId]) {
+    return entry(
+      context,
+      'refusal',
+      `unknown participant ${inputs.actorParticipantId}`,
+      bindingRefs(binding),
+      dispatchReceipt(dispatch),
+    );
   }
   for (const targetId of targets) {
     if (!state.participants[targetId]) {
-      return {
-        state,
-        log: [
-          entry(
-            context,
-            'refusal',
-            `unknown participant ${targetId}`,
-            refs(effect),
-            receipt(intent),
-          ),
-        ],
-      };
+      return entry(
+        context,
+        'refusal',
+        `unknown participant ${targetId}`,
+        bindingRefs(binding),
+        dispatchReceipt(dispatch),
+      );
     }
   }
-  if (effect.resolution.kind === 'test') {
+  if (resolution.kind === 'test') {
     for (const targetId of targets) {
       if (!state.participants[targetId]?.stats) {
-        return {
-          state,
-          log: [
-            entry(
-              context,
-              'refusal',
-              `${targetId} has no recorded stats to roll a ${effect.resolution.characteristic} test`,
-              refs(effect, [TEST_CANON.test]),
-              receipt(intent),
-            ),
-          ],
-        };
+        return entry(
+          context,
+          'refusal',
+          `${targetId} has no recorded stats to roll a ${resolution.characteristic} test`,
+          bindingRefs(binding, [TEST_CANON.test]),
+          dispatchReceipt(dispatch),
+        );
       }
     }
   }
-  if (effect.resolution.kind === 'next-roll-grant') {
+  if (resolution.kind === 'next-roll-grant') {
     for (const targetId of targets) {
-      const grantId = `${effect.effectArtifactId}#${intent.intentId}-${targetId}`;
+      const grantId = `${binding.artifactId}#${context.intentId}-${targetId}`;
       if (state.participants[targetId]?.grants.some((grant) => grant.grantId === grantId)) {
-        return {
-          state,
-          log: [
-            entry(
-              context,
-              'refusal',
-              `grant ${grantId} already exists on ${targetId}`,
-              refs(effect),
-              receipt(intent),
-            ),
-          ],
-        };
+        return entry(
+          context,
+          'refusal',
+          `grant ${grantId} already exists on ${targetId}`,
+          bindingRefs(binding),
+          dispatchReceipt(dispatch),
+        );
       }
     }
   }
-  if (effect.resolution.kind === 'condition') {
+  if (resolution.kind === 'condition') {
     for (const targetId of targets) {
-      const instanceId = `${effect.resolution.conditionId}#${intent.intentId}-${targetId}`;
+      const instanceId = `${resolution.conditionId}#${context.intentId}-${targetId}`;
       if (
         state.participants[targetId]?.conditions.some(
           (instance) => instance.instanceId === instanceId,
         )
       ) {
-        return {
-          state,
-          log: [
-            entry(
-              context,
-              'refusal',
-              `condition instance ${instanceId} already exists on ${targetId}`,
-              refs(effect),
-              receipt(intent),
-            ),
-          ],
-        };
+        return entry(
+          context,
+          'refusal',
+          `condition instance ${instanceId} already exists on ${targetId}`,
+          bindingRefs(binding),
+          dispatchReceipt(dispatch),
+        );
       }
     }
   }
@@ -243,73 +358,130 @@ export function executeUseEffect(
   // Remaining whole-dispatch refusal conditions, hoisted BEFORE the
   // economy debit so a refusal never follows a mutation
   // (refusal-with-change holds by construction).
-  if (effect.resolution.kind === 'spend-recovery') {
+  if (resolution.kind === 'spend-recovery') {
     for (const targetId of targets) {
-      if (intent.payload.recoverySpends[targetId] === undefined) {
-        return {
-          state,
-          log: [
-            entry(
-              context,
-              'refusal',
-              `no accept/decline recorded for ${targetId} — a Recovery offer needs every bound participant's answer`,
-              refs(effect, [HEALTH_CANON.recoveries]),
-              receipt(intent),
-            ),
-          ],
-        };
+      if (inputs.recoverySpends[targetId] === undefined) {
+        return entry(
+          context,
+          'refusal',
+          `no accept/decline recorded for ${targetId} — a Recovery offer needs every bound participant's answer`,
+          bindingRefs(binding, [HEALTH_CANON.recoveries]),
+          dispatchReceipt(dispatch),
+        );
       }
     }
   }
-  if (effect.resolution.kind === 'terrain-fact') {
-    const factId = `${effect.effectArtifactId}#${effect.effectOrdinal}#${intent.intentId}-terrain`;
+  if (resolution.kind === 'terrain-fact') {
+    const factId = `${binding.artifactId}#${binding.ordinal}#${context.intentId}-terrain`;
     if (state.terrainFacts.some((fact) => fact.factId === factId)) {
-      return {
-        state,
-        log: [
-          entry(
-            context,
-            'refusal',
-            `terrain fact ${factId} already recorded`,
-            refs(effect),
-            receipt(intent),
-          ),
-        ],
-      };
+      return entry(
+        context,
+        'refusal',
+        `terrain fact ${factId} already recorded`,
+        bindingRefs(binding),
+        dispatchReceipt(dispatch),
+      );
     }
   }
-  if (intent.payload.operatorId !== undefined && !state.participants[intent.payload.operatorId]) {
-    return {
-      state,
-      log: [
-        entry(
-          context,
-          'refusal',
-          `unknown participant ${intent.payload.operatorId}`,
-          refs(effect),
-          receipt(intent),
-        ),
-      ],
-    };
+  if (inputs.operatorId !== undefined && !state.participants[inputs.operatorId]) {
+    return entry(
+      context,
+      'refusal',
+      `unknown participant ${inputs.operatorId}`,
+      bindingRefs(binding),
+      dispatchReceipt(dispatch),
+    );
   }
+
+  return null;
+}
+
+/**
+ * `use-effect` — a compiled `**Effect:**` program. A thin builder over the
+ * one resolution dispatch path; the cost comes from the compiled header
+ * cell through `abilityCostOf`, the one home for "compiled cost, else
+ * normalize the raw cell".
+ */
+export function executeUseEffect(
+  state: EncounterState,
+  intent: UseEffectIntent,
+  random: RandomSource,
+): ExecutionResult {
+  const context: LifecycleContext = { intentId: intent.intentId, actor: intent.actor };
+  const { effect } = intent.payload;
+  return executeResolutionDispatch(
+    state,
+    {
+      binding: {
+        artifactId: effect.effectArtifactId,
+        ordinal: effect.effectOrdinal,
+        sourceText: effect.sourceText,
+        sourceSpan: effect.sourceSpan,
+        canonRefs: effect.canonRefs,
+        targetsText: effect.targetsText,
+        distanceText: effect.distanceText,
+        keywords: effect.keywords,
+        provenance: 'effect-program',
+      },
+      resolution: effect.resolution,
+      inputs: {
+        actorParticipantId: intent.payload.actorParticipantId,
+        targets: intent.payload.targets,
+        ...(intent.payload.partOf === undefined ? {} : { partOf: intent.payload.partOf }),
+        ...(intent.payload.operatorId === undefined
+          ? {}
+          : { operatorId: intent.payload.operatorId }),
+        testRolls: intent.payload.testRolls,
+        objectTargets: intent.payload.objectTargets,
+        knockOut: intent.payload.knockOut,
+        recoverySpends: intent.payload.recoverySpends,
+      },
+      economy: {
+        cost: abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType }),
+        actionCostResidue: effect.actionCostResidue,
+        actionType: effect.actionType,
+        operatorPays: effect.operatorPays,
+        usesPerRound: effect.usesPerRound,
+        abilityKey: effect.effectArtifactId,
+        sharesAbilityUse: false,
+        debitSuppressed: false,
+      },
+      emitsNonrollingClaim: true,
+    },
+    context,
+    random,
+  );
+}
+
+export function executeResolutionDispatch(
+  state: EncounterState,
+  dispatch: ResolutionDispatch,
+  context: LifecycleContext,
+  random: RandomSource,
+): ExecutionResult {
+  const { binding, resolution, inputs, economy } = dispatch;
+  const targets = inputs.targets;
+  const refusal = resolutionRefusal(state, dispatch, context);
+  if (refusal !== null) return { state, log: [refusal] };
 
   const log: LogEntry[] = [
     entry(
       context,
       'informational',
-      `${intent.payload.actorParticipantId} resolves ${effect.effectArtifactId} Effect for ${targets.join(', ')}`,
-      refs(effect),
-      receipt(intent),
+      `${inputs.actorParticipantId} resolves ${binding.artifactId} ${binding.provenance === 'prose-feature' ? 'common action' : 'Effect'}${targets.length > 0 ? ` for ${targets.join(', ')}` : ''}`,
+      bindingRefs(binding),
+      dispatchReceipt(dispatch),
     ),
   ];
-  const declaredTargets = targetCountOf(effect.targetsText);
+  if (dispatch.preludeLog !== undefined) log.push(...dispatch.preludeLog);
+  const declaredTargets = targetCountOf(binding.targetsText);
   if (declaredTargets !== null && targets.length > declaredTargets) {
     log.push(
       entry(
         context,
         'warning',
-        `${targets.length} targets named; the effect's targets line reads "${effect.targetsText}"`,
-        refs(effect),
+        `${targets.length} targets named; the effect's targets line reads "${binding.targetsText}"`,
+        bindingRefs(binding),
         { declaredTargets, namedTargets: targets.length },
       ),
     );
@@ -318,36 +490,38 @@ export function executeUseEffect(
   // ── action-economy debit (v6, R-0029/R-0030; combat only) — the same
   // one-home helper use-ability routes through [design §3].
   let economyState = state;
-  const cost = abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType });
+  const cost = economy.cost;
   // R-0029 honest residue: a header cell the closed vocabulary refused
   // carries no debit — never a guessed one. Surface the raw unnormalized
   // value as a table directive instead of skipping silently.
-  if (state.turnState !== null && cost === null && effect.actionCostResidue !== null) {
+  if (state.turnState !== null && cost === null && economy.actionCostResidue !== null) {
     log.push(
       entry(
         context,
         'table-directive',
-        `${effect.effectArtifactId} carries an unresolved action cost (raw header value ${JSON.stringify(effect.actionType)}) — no debit is guessed; the cost is table-adjudicated. Residue: ${effect.actionCostResidue}`,
-        refs(effect, [ECONOMY_CANON.turn]),
+        `${binding.artifactId} carries an unresolved action cost (raw header value ${JSON.stringify(economy.actionType)}) — no debit is guessed; the cost is table-adjudicated. Residue: ${economy.actionCostResidue}`,
+        bindingRefs(binding, [ECONOMY_CANON.turn]),
         {
           actionCostResidue: {
-            effectArtifactId: effect.effectArtifactId,
-            raw: effect.actionType,
-            residue: effect.actionCostResidue,
+            ...bindingIdFields(binding),
+            raw: economy.actionType,
+            residue: economy.actionCostResidue,
           },
         },
       ),
     );
   }
-  if (state.turnState !== null && cost !== null) {
-    if (effect.operatorPays && intent.payload.operatorId === undefined) {
+  if (state.turnState !== null && cost !== null && !economy.debitSuppressed) {
+    if (economy.operatorPays && inputs.operatorId === undefined) {
       log.push(
         entry(
           context,
           'table-directive',
-          `${effect.effectArtifactId} is operator-paid ("${effect.actionType}") but no operatorId was named — the ${cost} debit is table-adjudicated`,
-          refs(effect, [ECONOMY_CANON.turn]),
-          { operatorDebitUnassigned: { effectArtifactId: effect.effectArtifactId, cost } },
+          `${binding.artifactId} is operator-paid ("${economy.actionType}") but no operatorId was named — the ${cost} debit is table-adjudicated`,
+          bindingRefs(binding, [ECONOMY_CANON.turn]),
+          {
+            operatorDebitUnassigned: { ...bindingIdFields(binding), cost },
+          },
         ),
       );
     } else {
@@ -355,13 +529,13 @@ export function executeUseEffect(
         economyState,
         {
           cost,
-          payerId: effect.operatorPays
-            ? (intent.payload.operatorId ?? intent.payload.actorParticipantId)
-            : intent.payload.actorParticipantId,
-          abilityKey: effect.effectArtifactId,
-          usesPerRound: effect.usesPerRound,
-          partOf: intent.payload.partOf ?? null,
-          sharesAbilityUse: false,
+          payerId: economy.operatorPays
+            ? (inputs.operatorId ?? inputs.actorParticipantId)
+            : inputs.actorParticipantId,
+          abilityKey: binding.artifactId,
+          usesPerRound: economy.usesPerRound,
+          partOf: inputs.partOf ?? null,
+          sharesAbilityUse: economy.sharesAbilityUse,
         },
         context,
       );
@@ -370,12 +544,11 @@ export function executeUseEffect(
     }
   }
 
-  if (effect.resolution.kind === 'test') {
-    return executeTest(economyState, intent, effect.resolution, log, context, random);
+  if (resolution.kind === 'test') {
+    return executeTest(economyState, dispatch, resolution, log, context, random);
   }
 
-  if (effect.resolution.kind === 'next-roll-grant') {
-    const resolution = effect.resolution;
+  if (resolution.kind === 'next-roll-grant') {
     let nextState = economyState;
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
@@ -386,13 +559,13 @@ export function executeUseEffect(
           target,
           grant: {
             kind: 'next-roll',
-            grantId: `${effect.effectArtifactId}#${intent.intentId}-${targetId}`,
+            grantId: `${binding.artifactId}#${context.intentId}-${targetId}`,
             polarity: resolution.polarity,
             scope: resolution.scope,
             direction: resolution.direction,
             source: {
-              participantId: intent.payload.actorParticipantId,
-              effectArtifactId: effect.effectArtifactId,
+              participantId: inputs.actorParticipantId,
+              effectArtifactId: binding.artifactId,
             },
             window: resolution.window,
           },
@@ -403,15 +576,14 @@ export function executeUseEffect(
       log.push(
         ...added.log.map((item) => ({
           ...item,
-          canonRefs: refs(effect, item.canonRefs),
+          canonRefs: bindingRefs(binding, item.canonRefs),
         })),
       );
     }
     return { state: nextState, log };
   }
 
-  if (effect.resolution.kind === 'spend-recovery') {
-    const resolution = effect.resolution;
+  if (resolution.kind === 'spend-recovery') {
     // The missing-answer refusal is hoisted above the economy debit.
     if (resolution.singular && targets.length > 1) {
       log.push(
@@ -419,134 +591,136 @@ export function executeUseEffect(
           context,
           'warning',
           `${targets.length} participants bound; the effect's subject reads "${resolution.subjectText}"`,
-          refs(effect, [HEALTH_CANON.recoveries]),
+          bindingRefs(binding, [HEALTH_CANON.recoveries]),
           { subjectText: resolution.subjectText, namedTargets: targets.length },
         ),
       );
     }
-    const recoveryState = applyPerTarget(economyState, targets, effect, log, (target, targetId) => {
-      if (intent.payload.recoverySpends[targetId] !== true) {
-        log.push(
-          entry(
-            context,
-            'informational',
-            `${targetId} declines the offered Recovery`,
-            refs(effect, [HEALTH_CANON.recoveries]),
-            { declined: true, targetId },
-          ),
-        );
-        return null;
-      }
-      // R-0027: a LIVING SQUAD MEMBER accepting a Recovery spend is REFUSED
-      // per-binding — "minions … can't regain Stamina … during a battle";
-      // no individual Stamina exists to receive it. Siblings proceed (the
-      // entry carries the perBinding marker the invariant suite recognizes).
-      // A minion outside any seeded squad routes to the table instead — the
-      // printed rule applies but their Stamina is not pooled. Squad
-      // membership is dispatch-constant on this path, so the outer `state`
-      // is the right lookup base.
-      const minionRouting = minionRegainRouting(state, target);
-      if (minionRouting !== null) {
-        if (minionRouting.kind === 'refusal') {
+    const recoveryState = applyPerTarget(
+      economyState,
+      targets,
+      binding,
+      log,
+      (target, targetId) => {
+        if (inputs.recoverySpends[targetId] !== true) {
           log.push(
             entry(
               context,
-              'refusal',
-              `${targetId} cannot spend a Recovery — ${minionRouting.message}`,
-              refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
-              {
-                perBinding: true,
-                minionRecoverySpendRefused: { targetId, ruling: 'R-0027' },
-              },
+              'informational',
+              `${targetId} declines the offered Recovery`,
+              bindingRefs(binding, [HEALTH_CANON.recoveries]),
+              { declined: true, targetId },
             ),
           );
-        } else {
+          return null;
+        }
+        // R-0027: a LIVING SQUAD MEMBER accepting a Recovery spend is REFUSED
+        // per-binding — "minions … can't regain Stamina … during a battle";
+        // no individual Stamina exists to receive it. Siblings proceed (the
+        // entry carries the perBinding marker the invariant suite recognizes).
+        // A minion outside any seeded squad routes to the table instead — the
+        // printed rule applies but their Stamina is not pooled. Squad
+        // membership is dispatch-constant on this path, so the outer `state`
+        // is the right lookup base.
+        const minionRouting = minionRegainRouting(state, target);
+        if (minionRouting !== null) {
+          if (minionRouting.kind === 'refusal') {
+            log.push(
+              entry(
+                context,
+                'refusal',
+                `${targetId} cannot spend a Recovery — ${minionRouting.message}`,
+                bindingRefs(binding, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
+                {
+                  perBinding: true,
+                  minionRecoverySpendRefused: { targetId, ruling: 'R-0027' },
+                },
+              ),
+            );
+          } else {
+            log.push(
+              entry(
+                context,
+                'table-directive',
+                `${targetId} accepts the offered Recovery — ${minionRouting.message}`,
+                bindingRefs(binding, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
+                { minionRecoverySpendTableRouted: { targetId } },
+              ),
+            );
+          }
+          return null;
+        }
+        const blocker = recoverySpendBlocker(target);
+        if (blocker !== null) {
           log.push(
             entry(
               context,
               'table-directive',
-              `${targetId} accepts the offered Recovery — ${minionRouting.message}`,
-              refs(effect, [MINION_CANON.sharedPool, HEALTH_CANON.recoveries]),
-              { minionRecoverySpendTableRouted: { targetId } },
+              `${targetId} accepts the offered Recovery — ${blocker}`,
+              bindingRefs(binding, [HEALTH_CANON.recoveries]),
+              { unautomatedRecoverySpend: { targetId, blocker } },
+            ),
+          );
+          return null;
+        }
+        // Book-silent case (design §5): an unconscious (knocked-out) target
+        // accepting a spend applies permissively but is flagged for Director
+        // adjudication — the unconscious rules bar action-economy items only,
+        // and an ability-granted spend is not on that list [rule.health/stamina
+        // §Knocking Creatures Out].
+        if (
+          target.conditions.some((instance) => instance.conditionId === UNCONSCIOUS_CONDITION_ID) &&
+          inputs.recoverySpends[targetId] === true
+        ) {
+          log.push(
+            entry(
+              context,
+              'warning',
+              `${targetId} accepts the offered Recovery while unconscious — the book does not address this; Director adjudicates`,
+              bindingRefs(binding, [HEALTH_CANON.recoveries]),
+              { unconsciousSpendTarget: { targetId } },
             ),
           );
         }
-        return null;
-      }
-      const blocker = recoverySpendBlocker(target);
-      if (blocker !== null) {
-        log.push(
-          entry(
-            context,
-            'table-directive',
-            `${targetId} accepts the offered Recovery — ${blocker}`,
-            refs(effect, [HEALTH_CANON.recoveries]),
-            { unautomatedRecoverySpend: { targetId, blocker } },
-          ),
+        // R-0019a: a hero with 0 Recoveries cannot spend — this one binding
+        // does not apply while the rest of the dispatch proceeds, so it is a
+        // per-binding non-application (the whole-dispatch `refusal` kind would
+        // wrongly void sibling spenders; cf. the potency-gate pattern).
+        if (target.kind === 'hero' && target.stamina?.recoveries === 0) {
+          log.push(
+            entry(
+              context,
+              'informational',
+              `${targetId} has no Recoveries left and cannot spend one`,
+              bindingRefs(binding, [HEALTH_CANON.recoveries]),
+              { recoverySpendRefused: { targetId, recoveries: 0, ruling: 'R-0019' } },
+            ),
+          );
+          return null;
+        }
+        return spendRecovery(
+          target,
+          { reason: `offered by ${binding.artifactId} Effect` },
+          context,
         );
-        return null;
-      }
-      // Book-silent case (design §5): an unconscious (knocked-out) target
-      // accepting a spend applies permissively but is flagged for Director
-      // adjudication — the unconscious rules bar action-economy items only,
-      // and an ability-granted spend is not on that list [rule.health/stamina
-      // §Knocking Creatures Out].
-      if (
-        target.conditions.some((instance) => instance.conditionId === UNCONSCIOUS_CONDITION_ID) &&
-        intent.payload.recoverySpends[targetId] === true
-      ) {
-        log.push(
-          entry(
-            context,
-            'warning',
-            `${targetId} accepts the offered Recovery while unconscious — the book does not address this; Director adjudicates`,
-            refs(effect, [HEALTH_CANON.recoveries]),
-            { unconsciousSpendTarget: { targetId } },
-          ),
-        );
-      }
-      // R-0019a: a hero with 0 Recoveries cannot spend — this one binding
-      // does not apply while the rest of the dispatch proceeds, so it is a
-      // per-binding non-application (the whole-dispatch `refusal` kind would
-      // wrongly void sibling spenders; cf. the potency-gate pattern).
-      if (target.kind === 'hero' && target.stamina?.recoveries === 0) {
-        log.push(
-          entry(
-            context,
-            'informational',
-            `${targetId} has no Recoveries left and cannot spend one`,
-            refs(effect, [HEALTH_CANON.recoveries]),
-            { recoverySpendRefused: { targetId, recoveries: 0, ruling: 'R-0019' } },
-          ),
-        );
-        return null;
-      }
-      return spendRecovery(
-        target,
-        { reason: `offered by ${effect.effectArtifactId} Effect` },
-        context,
-      );
-    });
+      },
+    );
     return { state: recoveryState, log };
   }
 
-  if (
-    effect.resolution.kind === 'regain-stamina' ||
-    effect.resolution.kind === 'temporary-stamina'
-  ) {
-    const resolution = effect.resolution;
+  if (resolution.kind === 'regain-stamina' || resolution.kind === 'temporary-stamina') {
     if (resolution.singular && targets.length > 1) {
       log.push(
         entry(
           context,
           'warning',
           `${targets.length} participants bound; the effect's subject reads "${resolution.subjectText}"`,
-          refs(effect),
+          bindingRefs(binding),
           { subjectText: resolution.subjectText, namedTargets: targets.length },
         ),
       );
     }
-    const regainState = applyPerTarget(economyState, targets, effect, log, (target, targetId) => {
+    const regainState = applyPerTarget(economyState, targets, binding, log, (target, targetId) => {
       // R-0027: a LIVING SQUAD MEMBER is refused per-binding — "minions
       // can't regain Stamina, and can't gain temporary Stamina during a
       // battle"; sibling bindings proceed. A minion outside any seeded
@@ -565,7 +739,7 @@ export function executeUseEffect(
               context,
               'refusal',
               `${targetId} cannot ${boundGain} — ${minionRouting.message}`,
-              refs(effect, [MINION_CANON.sharedPool]),
+              bindingRefs(binding, [MINION_CANON.sharedPool]),
               {
                 perBinding: true,
                 minionRegainRefused: { targetId, kind: resolution.kind, ruling: 'R-0027' },
@@ -578,7 +752,7 @@ export function executeUseEffect(
               context,
               'table-directive',
               `${targetId} is bound to ${boundGain} — ${minionRouting.message}`,
-              refs(effect, [MINION_CANON.sharedPool]),
+              bindingRefs(binding, [MINION_CANON.sharedPool]),
               { minionRegainTableRouted: { targetId, kind: resolution.kind } },
             ),
           );
@@ -592,7 +766,7 @@ export function executeUseEffect(
             context,
             'table-directive',
             `${targetId} ${resolution.kind === 'regain-stamina' ? `regains ${resolution.amount} Stamina` : `gains ${resolution.amount} temporary Stamina`} — ${blocker}`,
-            refs(effect),
+            bindingRefs(binding),
             { unautomatedRegain: { targetId, kind: resolution.kind, amount: resolution.amount } },
           ),
         );
@@ -602,53 +776,52 @@ export function executeUseEffect(
         ? regainStamina(
             target,
             resolution.amount,
-            { reason: `from ${effect.effectArtifactId} Effect` },
+            { reason: `from ${binding.artifactId} Effect` },
             context,
           )
         : gainTemporaryStamina(
             target,
             resolution.amount,
-            { reason: `from ${effect.effectArtifactId} Effect` },
+            { reason: `from ${binding.artifactId} Effect` },
             context,
           );
     });
     return { state: regainState, log };
   }
 
-  if (effect.resolution.kind === 'terrain-fact') {
+  if (resolution.kind === 'terrain-fact') {
     // Ordinal in the id: a future batched dispatch of one artifact's two
     // terrain effects must not collide (audit L-4 hardening).
-    const factId = `${effect.effectArtifactId}#${effect.effectOrdinal}#${intent.intentId}-terrain`;
+    const factId = `${binding.artifactId}#${binding.ordinal}#${context.intentId}-terrain`;
     // (The duplicate-factId refusal is hoisted above the economy debit.)
     const fact = {
       factId,
-      terrain: effect.resolution.terrain,
-      effectArtifactId: effect.effectArtifactId,
-      effectOrdinal: effect.effectOrdinal,
-      areaText: effect.distanceText,
-      createdBy: intent.payload.actorParticipantId,
-      intentId: intent.intentId,
+      terrain: resolution.terrain,
+      effectArtifactId: binding.artifactId,
+      effectOrdinal: binding.ordinal,
+      areaText: binding.distanceText,
+      createdBy: inputs.actorParticipantId,
+      intentId: context.intentId,
     };
     log.push(
       entry(
         context,
         'mutation',
-        `the area${effect.distanceText ? ` (${effect.distanceText})` : ''} is difficult terrain — recorded; +1 square to enter stays table-adjudicated [R-0022]`,
-        refs(effect, [TERRAIN_CANON.difficultTerrain]),
+        `the area${binding.distanceText ? ` (${binding.distanceText})` : ''} is difficult terrain — recorded; +1 square to enter stays table-adjudicated [R-0022]`,
+        bindingRefs(binding, [TERRAIN_CANON.difficultTerrain]),
         { terrainFactAdded: fact },
       ),
     );
     return { state: { ...economyState, terrainFacts: [...economyState.terrainFacts, fact] }, log };
   }
 
-  if (effect.resolution.kind === 'table') {
+  if (resolution.kind === 'table') {
     log.push(
-      entry(context, 'table-directive', effect.sourceText, refs(effect), {
-        manualEffect: {
-          effectArtifactId: effect.effectArtifactId,
-          effectOrdinal: effect.effectOrdinal,
-          sourceSpan: effect.sourceSpan,
-          sourceText: effect.sourceText,
+      entry(context, 'table-directive', binding.sourceText, bindingRefs(binding), {
+        [binding.provenance === 'prose-feature' ? 'manualCommonAction' : 'manualEffect']: {
+          ...bindingIdFields(binding),
+          sourceSpan: binding.sourceSpan,
+          sourceText: binding.sourceText,
           targets,
         },
       }),
@@ -657,11 +830,11 @@ export function executeUseEffect(
   }
 
   let nextState = economyState;
-  if (effect.resolution.kind === 'damage') {
+  if (resolution.kind === 'damage') {
     // Same-squad minion targets aggregate into ONE pool application per
     // squad [R-0026]; the effect header's Area keyword is the printed
     // discriminator for the per-minion cap [R-0025].
-    const isArea = effect.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+    const isArea = binding.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
     const squadContributions = new Map<string, PendingSquadContribution[]>();
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
@@ -670,7 +843,7 @@ export function executeUseEffect(
         collectSquadContribution(
           nextState,
           target,
-          { targetId, damage: effect.resolution.amount, type: effect.resolution.damageType },
+          { targetId, damage: resolution.amount, type: resolution.damageType },
           squadContributions,
         )
       ) {
@@ -682,13 +855,13 @@ export function executeUseEffect(
           entry(
             context,
             'table-directive',
-            `${targetId} takes ${effect.resolution.amount}${effect.resolution.damageType ? ` ${effect.resolution.damageType}` : ''} damage — ${blocker}`,
-            refs(effect),
+            `${targetId} takes ${resolution.amount}${resolution.damageType ? ` ${resolution.damageType}` : ''} damage — ${blocker}`,
+            bindingRefs(binding),
             {
               unautomatedDamage: {
                 targetId,
-                amount: effect.resolution.amount,
-                damageType: effect.resolution.damageType,
+                amount: resolution.amount,
+                damageType: resolution.damageType,
               },
             },
           ),
@@ -697,15 +870,15 @@ export function executeUseEffect(
       }
       const outcome = applyDamage(
         target,
-        { amount: effect.resolution.amount, type: effect.resolution.damageType },
+        { amount: resolution.amount, type: resolution.damageType },
         {
-          knockOut: intent.payload.knockOut,
-          reason: `damage from ${effect.effectArtifactId} Effect`,
+          knockOut: inputs.knockOut,
+          reason: `damage from ${binding.artifactId} Effect`,
           // A whole-line Effect instruction deals its damage without a
           // power roll, so it is NOT rolled damage [Heroes p.74].
           provenance: {
             rolled: false,
-            sourceId: intent.payload.actorParticipantId,
+            sourceId: inputs.actorParticipantId,
             resolutionId: null,
           },
         },
@@ -715,7 +888,7 @@ export function executeUseEffect(
       log.push(
         ...outcome.log.map((item) => ({
           ...item,
-          canonRefs: refs(effect, item.canonRefs),
+          canonRefs: bindingRefs(binding, item.canonRefs),
         })),
       );
     }
@@ -725,10 +898,10 @@ export function executeUseEffect(
         squadContributions,
         {
           area: isArea,
-          reason: `from ${effect.effectArtifactId} Effect`,
+          reason: `from ${binding.artifactId} Effect`,
           provenance: {
             rolled: false,
-            sourceId: intent.payload.actorParticipantId,
+            sourceId: inputs.actorParticipantId,
             resolutionId: null,
           },
         },
@@ -736,7 +909,10 @@ export function executeUseEffect(
       );
       nextState = flushed.state;
       log.push(
-        ...flushed.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
+        ...flushed.log.map((item) => ({
+          ...item,
+          canonRefs: bindingRefs(binding, item.canonRefs),
+        })),
       );
     }
     return { state: nextState, log };
@@ -750,15 +926,15 @@ export function executeUseEffect(
       {
         target,
         instance: {
-          instanceId: `${effect.resolution.conditionId}#${intent.intentId}-${targetId}`,
-          conditionId: effect.resolution.conditionId,
-          ending: effect.resolution.ending,
+          instanceId: `${resolution.conditionId}#${context.intentId}-${targetId}`,
+          conditionId: resolution.conditionId,
+          ending: resolution.ending,
           source: {
-            participantId: intent.payload.actorParticipantId,
-            effectArtifactId: effect.effectArtifactId,
+            participantId: inputs.actorParticipantId,
+            effectArtifactId: binding.artifactId,
           },
         },
-        replacesOnNewSource: effect.resolution.replacesOnNewSource,
+        replacesOnNewSource: resolution.replacesOnNewSource,
       },
       context,
     );
@@ -766,7 +942,7 @@ export function executeUseEffect(
     log.push(
       ...applied.log.map((item) => ({
         ...item,
-        canonRefs: refs(effect, item.canonRefs),
+        canonRefs: bindingRefs(binding, item.canonRefs),
       })),
     );
   }
@@ -792,14 +968,15 @@ const CHARACTERISTIC_LABEL: Record<TestResolution['characteristic'], string> = {
  */
 function executeTest(
   state: EncounterState,
-  intent: UseEffectIntent,
+  dispatch: ResolutionDispatch,
   resolution: TestResolution,
   log: LogEntry[],
   context: LifecycleContext,
   random: RandomSource,
 ): ExecutionResult {
-  const { effect, targets, objectTargets, testRolls, knockOut } = intent.payload;
-  const actorId = intent.payload.actorParticipantId;
+  const { binding, inputs } = dispatch;
+  const { targets, objectTargets, testRolls, knockOut } = inputs;
+  const actorId = inputs.actorParticipantId;
   let nextState = state;
 
   for (const targetId of targets) {
@@ -843,7 +1020,7 @@ function executeTest(
           context,
           'mutation',
           `${targetId}'s pending next-roll modifiers apply to this test and are spent (${consumed.map((grant) => grant.polarity).join(', ')})`,
-          refs(effect, [GRANT_CANON.powerRoll]),
+          bindingRefs(binding, [GRANT_CANON.powerRoll]),
           {
             removedGrantIds: consumed.map((grant) => grant.grantId),
             grantsConsumed: consumed.map((grant) => ({
@@ -873,7 +1050,11 @@ function executeTest(
         context,
         'informational',
         `${targetId} makes a ${CHARACTERISTIC_LABEL[resolution.characteristic]} test: ${dice[0]}+${dice[1]}${score >= 0 ? '+' : ''}${score} → total ${rolled.total}, tier ${rolled.tier}`,
-        refs(effect, [TEST_CANON.test, TEST_CANON.reactiveTest, POWER_ROLL_CANON.powerRoll]),
+        bindingRefs(binding, [
+          TEST_CANON.test,
+          TEST_CANON.reactiveTest,
+          POWER_ROLL_CANON.powerRoll,
+        ]),
         {
           testRoll: {
             targetId,
@@ -897,7 +1078,7 @@ function executeTest(
           context,
           'informational',
           `${targetId} scores a critical success on the test (natural ${rolled.natural}) — success with a reward`,
-          refs(effect, [POWER_ROLL_CANON.natural1920, POWER_ROLL_CANON.naturalRoll]),
+          bindingRefs(binding, [POWER_ROLL_CANON.natural1920, POWER_ROLL_CANON.naturalRoll]),
           { testCriticalSuccess: { targetId, natural: rolled.natural } },
         ),
       );
@@ -906,7 +1087,7 @@ function executeTest(
       nextState,
       log,
       context,
-      intent,
+      dispatch,
       resolution.tiers[`tier${rolled.tier}`],
       rolled.tier,
       targetId,
@@ -924,21 +1105,26 @@ function executeTest(
         context,
         'informational',
         `object "${objectLabel}" automatically gets a tier 1 result on the test`,
-        refs(effect, [TEST_CANON.objectTarget]),
+        bindingRefs(binding, [TEST_CANON.objectTarget]),
         { objectTestTier1: { objectLabel } },
       ),
     );
     const tier1 = resolution.tiers.tier1;
     log.push(
-      entry(context, 'table-directive', tier1.sourceText, refs(effect, [TEST_CANON.objectTarget]), {
-        testTierDirective: {
-          objectLabel,
-          tier: 1,
-          sourceText: tier1.sourceText,
-          effectArtifactId: effect.effectArtifactId,
-          effectOrdinal: effect.effectOrdinal,
+      entry(
+        context,
+        'table-directive',
+        tier1.sourceText,
+        bindingRefs(binding, [TEST_CANON.objectTarget]),
+        {
+          testTierDirective: {
+            objectLabel,
+            tier: 1,
+            sourceText: tier1.sourceText,
+            ...bindingIdFields(binding),
+          },
         },
-      }),
+      ),
     );
   }
 
@@ -951,23 +1137,22 @@ function applyTestTier(
   state: EncounterState,
   log: LogEntry[],
   context: LifecycleContext,
-  intent: UseEffectIntent,
+  dispatch: ResolutionDispatch,
   tier: TestTier,
   tierNumber: 1 | 2 | 3,
   targetId: string,
   actorId: string,
   knockOut: boolean,
 ): EncounterState {
-  const effect = intent.payload.effect;
+  const { binding } = dispatch;
   const directive = (): void => {
     log.push(
-      entry(context, 'table-directive', tier.sourceText, refs(effect), {
+      entry(context, 'table-directive', tier.sourceText, bindingRefs(binding), {
         testTierDirective: {
           targetId,
           tier: tierNumber,
           sourceText: tier.sourceText,
-          effectArtifactId: effect.effectArtifactId,
-          effectOrdinal: effect.effectOrdinal,
+          ...bindingIdFields(binding),
         },
       }),
     );
@@ -1004,13 +1189,13 @@ function applyTestTier(
       pendingContributions,
     );
     if (squad) {
-      const isArea = effect.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+      const isArea = binding.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
       const flushed = flushSquadContributions(
         nextState,
         pendingContributions,
         {
           area: isArea,
-          reason: `from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+          reason: `from ${binding.artifactId} test (tier ${tierNumber})`,
           // "A test is any power roll that has failure or consequences as
           // an option" [chapter/tests, R-0006] — so test damage IS rolled
           // damage [Heroes p.74].
@@ -1020,7 +1205,10 @@ function applyTestTier(
       );
       nextState = flushed.state;
       log.push(
-        ...flushed.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
+        ...flushed.log.map((item) => ({
+          ...item,
+          canonRefs: bindingRefs(binding, item.canonRefs),
+        })),
       );
     } else {
       const blocker = damageAutomationBlocker(target);
@@ -1030,7 +1218,7 @@ function applyTestTier(
             context,
             'table-directive',
             `${targetId} takes ${data.damage.amount}${damageType ? ` ${damageType}` : ''} damage — ${blocker}`,
-            refs(effect),
+            bindingRefs(binding),
             {
               unautomatedDamage: { targetId, amount: data.damage.amount, damageType },
             },
@@ -1042,7 +1230,7 @@ function applyTestTier(
           { amount: data.damage.amount, type: damageType },
           {
             knockOut,
-            reason: `${damageType ? `${damageType} ` : ''}damage from ${effect.effectArtifactId} test (tier ${tierNumber})`,
+            reason: `${damageType ? `${damageType} ` : ''}damage from ${binding.artifactId} test (tier ${tierNumber})`,
             // A test is a power roll [R-0006], so this is rolled damage.
             provenance: { rolled: true, sourceId: actorId, resolutionId: null },
           },
@@ -1050,7 +1238,10 @@ function applyTestTier(
         );
         nextState = withParticipant(nextState, outcome.participant);
         log.push(
-          ...outcome.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })),
+          ...outcome.log.map((item) => ({
+            ...item,
+            canonRefs: bindingRefs(binding, item.canonRefs),
+          })),
         );
       }
     }
@@ -1071,7 +1262,7 @@ function applyTestTier(
           context,
           'table-directive',
           `potency ${data.potency.characteristic} < ${data.potency.threshold.kind === 'named' ? data.potency.threshold.name.toUpperCase() : data.potency.threshold.value} on ${targetId} cannot be resolved — ${gate.reason}; effects not applied`,
-          refs(effect, [POTENCY_CANON]),
+          bindingRefs(binding, [POTENCY_CANON]),
           {
             potencyUnresolved: {
               targetId,
@@ -1088,7 +1279,7 @@ function applyTestTier(
         context,
         'informational',
         `potency vs ${targetId}: ${data.potency.characteristic} ${gate.targetScore} < ${gate.adjustedValue} → ${gate.applies ? 'affected' : 'resisted'}`,
-        refs(effect, [POTENCY_CANON]),
+        bindingRefs(binding, [POTENCY_CANON]),
         { potency: { targetId, ...gate, conditionIds: data.conditionIds } },
       ),
     );
@@ -1102,17 +1293,19 @@ function applyTestTier(
       {
         target: liveTarget,
         instance: {
-          instanceId: `${conditionId}#${intent.intentId}-${targetId}`,
+          instanceId: `${conditionId}#${context.intentId}-${targetId}`,
           conditionId,
           ending: data.ending === 'save-ends' ? { kind: 'save-ends' } : { kind: 'external' },
-          source: { participantId: actorId, effectArtifactId: effect.effectArtifactId },
+          source: { participantId: actorId, effectArtifactId: binding.artifactId },
         },
         replacesOnNewSource: false,
       },
       context,
     );
     nextState = applied.state;
-    log.push(...applied.log.map((item) => ({ ...item, canonRefs: refs(effect, item.canonRefs) })));
+    log.push(
+      ...applied.log.map((item) => ({ ...item, canonRefs: bindingRefs(binding, item.canonRefs) })),
+    );
   }
   return nextState;
 }

@@ -29,7 +29,40 @@
 
 
 
-**Status:** design, not authorized. **Inputs:** the 17 specs under
+> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–4 are SHIPPED** —
+> S2 + S3 (prose-feature program source + dispatch-supplied cost),
+> S1 (`use-common-action` over one factored resolution dispatch path),
+> S4 + S5 + S14 (eligibility-gate registry, asserted-fact reader, offer
+> surface), and the four wave-4 arms (Advance, Ride, Catch Breath, Free
+> Strike). ROAD-0005 seam #3 (the per-actor allow/exclude slot) landed with
+> S14. Waves 5–13 are unbuilt.
+>
+> Four things this document says that implementation corrected or decided:
+>
+> 1. **S17's premise is FALSE.** `ability-used` does NOT require a non-null
+>    `resolutionId` — the schema field is nullable and the nonrolling
+>    application claim already derives the occurrence that way. The real
+>    question is a vocabulary one (should a common action fire the printed
+>    trigger word "ability"?), and the answer shipped as **no**: the arm
+>    emits no nonrolling claim, so no `ability-used` fires for Advance. The
+>    dedicated arm + the W0-c mapping ruling still stand as W10 work.
+> 2. **§4 item 4 (Ride vs Disengage double-debit) is decided: route (a).**
+>    The mount's free triggered Disengage is debited *inside* the arm, and
+>    it is compiled DATA, not a per-action branch — the alternative carries
+>    a `targetAction {artifactId, actionCost}` read from its own printed
+>    sentence and proved against those bytes. A host must not also dispatch
+>    `use-triggered-action` for the mount.
+> 3. **The shared pre-combat posture is the permissive one** (Advance §9):
+>    `turnState === null` skips the debit, emits the directive, and refuses
+>    nothing. Picked once, for all 17.
+> 4. **The debit contract covers four actions, not one.** Free Strike is
+>    joined by Grab, Escape Grab and Knockback, whose prose hands off
+>    verbatim ("using the following ability") to a companion carrying the
+>    printed cell — and those three are *exactly* the three of the 17 whose
+>    prose never prints its own group's cost words. The compiler enforces
+>    that correspondence.
+
+**Status:** waves 1–4 shipped; waves 5–13 designed, not authorized. **Inputs:** the 17 specs under
 `.artifacts/canon/common-actions-spec/specs/`, `SUBSTRATE-BRIEF.md`, and three
 cross-cutting analyses (shared substrate, duplication audit, asserted-fact
 vocabulary). **Repo:** `../engarde`. **Related:** DEC-0011 (spatial belongs to

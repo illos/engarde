@@ -381,6 +381,25 @@ export const ParticipantTraitsSchema = z.object({
   triggeredActionLimit: z.number().int().min(0).default(1),
   /** Declared sub-actor: acts within this owner's turn slot. */
   subActorOf: ParticipantIdSchema.nullable().default(null),
+  /**
+   * Per-actor access to the 17 printed common actions — the offer
+   * surface's allow/exclude slot [ROAD-0005 seam #3]. Printed access is
+   * ASYMMETRIC where it is printed at all: a stat block may bar specific
+   * common actions from a creature, and another may re-include one that
+   * was barred. `include` therefore overrides `exclude`.
+   *
+   * This is a substrate SLOT, not a rule: the core corpus prints no
+   * exclusions, so it ships empty everywhere and nothing derives it. It
+   * exists now because the alternative is retrofitting the offer surface
+   * after it has callers, and because access is not derivable from any
+   * other field. Entries are `feature.common.*` artifact ids.
+   */
+  commonActionAccess: z
+    .object({
+      exclude: z.array(z.string().min(1)).default([]),
+      include: z.array(z.string().min(1)).default([]),
+    })
+    .default({ exclude: [], include: [] }),
 });
 export type ParticipantTraits = z.infer<typeof ParticipantTraitsSchema>;
 
@@ -445,6 +464,7 @@ const participantShape = {
     noConsecutiveTurns: false,
     triggeredActionLimit: 1,
     subActorOf: null,
+    commonActionAccess: { exclude: [], include: [] },
   }),
   /** Per-turn action budget, keyed by the actionCost enum (a Record, not a
    * closed struct — a future cost category is an enum member, not a schema
@@ -1156,6 +1176,7 @@ export const SpatialFactSchema = z.object({
   b: ParticipantIdSchema,
   holds: z.boolean(),
 });
+export type SpatialFact = z.infer<typeof SpatialFactSchema>;
 
 /**
  * The five named reaction interception points [R-0031]. The books define
@@ -1543,6 +1564,210 @@ const intentBase = {
 const dieRoll = z.number().int().min(1).max(10);
 
 /**
+ * The 17 printed common actions, grouped by the book's own directory
+ * headings [feature.common.main-actions / .maneuvers / .move-actions].
+ * The grouping is the ONE source of a common action's default cost — the
+ * artifacts are headerless prose, so there is no `| … | **Maneuver** |`
+ * cell for `normalizeActionCostValue` to read.
+ */
+export const COMMON_ACTION_GROUPS = ['main-actions', 'maneuvers', 'move-actions'] as const;
+export const CommonActionGroupSchema = z.enum(COMMON_ACTION_GROUPS);
+export type CommonActionGroup = z.infer<typeof CommonActionGroupSchema>;
+
+/**
+ * One printed once-per-round cap, WITH ITS SUBJECT. Ride prints two cap
+ * sentences with different subjects — "A creature can use the Ride move
+ * action only once per round" (the actor) and "A mounted creature can only
+ * have this move action applied to them once per round" (the target) — so a
+ * boolean would lose the mount-side counter's provenance and key both
+ * limits to one counter.
+ */
+export const CommonActionPerRoundCapSchema = z.object({
+  subject: z.enum(['actor', 'target']),
+  uses: z.number().int().positive(),
+  /** The printed sentence, verbatim (scc links stripped). */
+  sourceText: z.string().min(1),
+});
+export type CommonActionPerRoundCap = z.infer<typeof CommonActionPerRoundCapSchema>;
+
+/** A printed alternative branch ("Alternatively, a creature can use the
+ * Ride move action to have their mount use the Disengage move action…").
+ * The dispatch names one by key; the compiled text stays verbatim. */
+export const CommonActionAlternativeSchema = z.object({
+  key: z.string().min(1),
+  sourceText: z.string().min(1),
+  /**
+   * A printed alternative that has a NAMED TARGET take a named action at a
+   * named cost — "Alternatively, a creature can use the Ride move action to
+   * have their mount use the Disengage move action as a free triggered
+   * action." The printed phrase OVERRIDES the named action's own header
+   * cost for this use, and the cost is the target's, not the actor's.
+   *
+   * Data, not an arm: without it the branch is a per-action `switch` on the
+   * feature id inside the shared executor, and the second alternative of
+   * this shape grows a second one. Null when the alternative does not name
+   * an action for its target (Stand Up's ally case: one maneuver, the
+   * actor's, and nothing is charged to the ally).
+   */
+  targetAction: z
+    .object({ artifactId: z.string().min(1), actionCost: ActionCostSchema })
+    .nullable()
+    .default(null),
+});
+export type CommonActionAlternative = z.infer<typeof CommonActionAlternativeSchema>;
+
+/**
+ * A compiled common-action program — the dispatchable envelope for one of
+ * the 17 headerless `feature.common.*` prose artifacts.
+ *
+ * `provenance` is a REQUIRED discriminator, not decoration: these artifacts
+ * carry no `**Effect:**` line, and a receipt that labelled one as an Effect
+ * program would misattribute the printed text. `debitContract` is likewise
+ * required on the envelope rather than a per-arm convention — Free Strike's
+ * companion ability prints the same `Main action` the prose does, so an arm
+ * that assumed "self" would charge the striker twice.
+ */
+export const CommonActionProgramDataSchema = z
+  .object({
+    featureArtifactId: z.string().min(1),
+    provenance: z.literal('prose-feature'),
+    group: CommonActionGroupSchema,
+    /** Byte span of the compiled text within the artifact (the whole
+     * artifact: a prose feature has no sub-line to point at). */
+    sourceSpan: z
+      .object({ byteStart: z.number().int().nonnegative(), byteEnd: z.number().int().positive() })
+      .refine((span) => span.byteEnd > span.byteStart, {
+        message: 'source span must be non-empty',
+      }),
+    /** The artifact text, verbatim and untrimmed. */
+    sourceText: z.string().min(1),
+    /** Every explicit scc.v1 reference in source order, de-duplicated. */
+    canonRefs: z.array(z.string().min(1)),
+    /** The group directory's cost. A dispatch may override it (the printed
+     * exceptions: two class features print Disengage at a free triggered
+     * action, one prints Hide at a free maneuver, Make or Assist prints
+     * three costs) — the override rides the intent, never this default. */
+    defaultActionCost: ActionCostSchema,
+    perRoundCaps: z.array(CommonActionPerRoundCapSchema).default([]),
+    alternatives: z.array(CommonActionAlternativeSchema).default([]),
+    /** `self` = this action's own dispatch pays the printed cost.
+     * `companion` = the printed cost is carried by the compiled companion
+     * ability this action buys, so the prose arm must NOT debit. */
+    debitContract: z.enum(['self', 'companion']),
+    companionArtifactIds: z.array(z.string().min(1)).default([]),
+    /** The printed action moves the actor ("they move a number of squares
+     * up to their speed") — recorded terrain facts are named in the
+     * directive so the Director sees them at adjudication. The engine
+     * never evaluates whether a path crossed one [DEC-0011, R-0022]. */
+    movesActor: z.boolean().default(false),
+    /** Executable behaviour, when the printed text has some. `table` (the
+     * default) is the verbatim-directive disposition. */
+    resolution: EffectResolutionSchema.default({ kind: 'table' }),
+  })
+  .refine(
+    (program) => program.debitContract === 'self' || program.companionArtifactIds.length > 0,
+    { message: 'a companion-paid common action must name the companion that carries its cost' },
+  );
+
+export type CommonActionProgramData = z.infer<typeof CommonActionProgramDataSchema>;
+/** What callers construct (defaults optional); the reducer parses to the
+ * full output shape. */
+export type CommonActionProgramDataInput = z.input<typeof CommonActionProgramDataSchema>;
+
+/**
+ * Payload inputs a compiled `EffectResolution` consumes, shared by the two
+ * dispatch surfaces that carry one — `use-effect` (a compiled `**Effect:**`
+ * program) and `use-common-action` (a compiled prose feature). ONE home:
+ * the two surfaces execute through the same resolution applicator, so their
+ * inputs and their well-formedness rules must not drift apart.
+ */
+const resolutionInputShape = {
+  /** Per-creature-target roll inputs for a test resolution. Asserted
+   * dice win; absent → two draws per target from the injected source.
+   * Sourced edges/banes and rule-specified numeric modifiers are the
+   * ONLY modifier inputs — skills cannot modify creature/DTO reactive
+   * tests, so no skill field exists [R-0009]; Assist is likewise
+   * unavailable [R-0010]. */
+  testRolls: z
+    .record(
+      ParticipantIdSchema,
+      z.object({
+        dice: z.tuple([dieRoll, dieRoll]).optional(),
+        edges: z.number().int().min(0).default(0),
+        banes: z.number().int().min(0).default(0),
+        bonuses: z.array(attributedValue).default([]),
+        penalties: z.array(attributedValue).default([]),
+      }),
+    )
+    .default({}),
+  /** Non-participant object targets of a test: they do not roll and
+   * automatically obtain a tier 1 result [R-0007, rule.combat/target].
+   * Labels are Director-asserted names, not participant ids. */
+  objectTargets: z.array(z.string().min(1)).default([]),
+  /** rule.health/stamina §Knocking Creatures Out. */
+  knockOut: z.boolean().default(false),
+  /** Per-offered-participant accept/decline for a spend-recovery
+   * resolution [R-0018]: true = spends, false = declines. Every bound
+   * target must answer; the receipt records who did what. */
+  recoverySpends: z.record(ParticipantIdSchema, z.boolean()).default({}),
+};
+
+/** The shape both resolution-carrying payloads satisfy, for the shared
+ * well-formedness predicates below. */
+interface ResolutionInputPayload {
+  targets: string[];
+  objectTargets: string[];
+  testRolls: Record<string, unknown>;
+  recoverySpends: Record<string, boolean>;
+}
+
+/** Shared payload predicates + their messages — one home for both dispatch
+ * surfaces (a second copy is how the two drift). */
+export const RESOLUTION_INPUT_RULES = {
+  distinctTargets: {
+    holds: (payload: { targets: string[] }): boolean =>
+      new Set(payload.targets).size === payload.targets.length,
+    message: 'targets must be distinct',
+  },
+  distinctObjectTargets: {
+    holds: (payload: { objectTargets: string[] }): boolean =>
+      new Set(payload.objectTargets).size === payload.objectTargets.length,
+    message: 'object targets must be distinct',
+  },
+  recoverySpendsScoped: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'spend-recovery'
+        ? Object.keys(payload.recoverySpends).every((id) => payload.targets.includes(id))
+        : Object.keys(payload.recoverySpends).length === 0,
+    message: 'recoverySpends applies only to spend-recovery resolutions, over declared targets',
+  },
+  testHasSubject: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind !== 'test' || payload.targets.length + payload.objectTargets.length > 0,
+    message: 'a test requires at least one creature or object target',
+  },
+  testRollsScoped: {
+    holds: (payload: ResolutionInputPayload): boolean =>
+      Object.keys(payload.testRolls).every((id) => payload.targets.includes(id)),
+    message: 'testRolls may only name declared targets',
+  },
+  testInputsScoped: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'test' ||
+      (Object.keys(payload.testRolls).length === 0 && payload.objectTargets.length === 0),
+    message: 'testRolls/objectTargets apply only to test resolutions',
+  },
+  automaticNeedsTarget: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'table' ||
+      resolutionKind === 'test' ||
+      resolutionKind === 'terrain-fact' ||
+      payload.targets.length > 0,
+    message: 'automatic programs require at least one target',
+  },
+} as const;
+
+/**
  * The use-ability payload, named so `commit-resolution` and `end-turn`
  * force-commit can RE-SUPPLY it (R-0032, red-team B1: the pure reducer
  * dereferences nothing — the payload travels again and the stored hash
@@ -1843,74 +2068,124 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         /** Manual area/world instructions may have no participant target;
          * automatic damage/condition programs require at least one. */
         targets: z.array(ParticipantIdSchema),
-        /** Per-creature-target roll inputs for a test resolution. Asserted
-         * dice win; absent → two draws per target from the injected source.
-         * Sourced edges/banes and rule-specified numeric modifiers are the
-         * ONLY modifier inputs — skills cannot modify creature/DTO reactive
-         * tests, so no skill field exists [R-0009]; Assist is likewise
-         * unavailable [R-0010]. */
-        testRolls: z
-          .record(
-            ParticipantIdSchema,
-            z.object({
-              dice: z.tuple([dieRoll, dieRoll]).optional(),
-              edges: z.number().int().min(0).default(0),
-              banes: z.number().int().min(0).default(0),
-              bonuses: z.array(attributedValue).default([]),
-              penalties: z.array(attributedValue).default([]),
-            }),
-          )
-          .default({}),
-        /** Non-participant object targets of a test: they do not roll and
-         * automatically obtain a tier 1 result [R-0007, rule.combat/target].
-         * Labels are Director-asserted names, not participant ids. */
-        objectTargets: z.array(z.string().min(1)).default([]),
-        /** rule.health/stamina §Knocking Creatures Out. */
-        knockOut: z.boolean().default(false),
-        /** Per-offered-participant accept/decline for a spend-recovery
-         * resolution [R-0018]: true = spends, false = declines. Every bound
-         * target must answer; the receipt records who did what. */
-        recoverySpends: z.record(ParticipantIdSchema, z.boolean()).default({}),
+        ...resolutionInputShape,
       })
-      .refine((payload) => new Set(payload.targets).size === payload.targets.length, {
-        message: 'targets must be distinct',
+      .refine(RESOLUTION_INPUT_RULES.distinctTargets.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctTargets.message,
       })
-      .refine((payload) => new Set(payload.objectTargets).size === payload.objectTargets.length, {
-        message: 'object targets must be distinct',
+      .refine(RESOLUTION_INPUT_RULES.distinctObjectTargets.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctObjectTargets.message,
       })
       .refine(
         (payload) =>
-          payload.effect.resolution.kind === 'spend-recovery'
-            ? Object.keys(payload.recoverySpends).every((id) => payload.targets.includes(id))
-            : Object.keys(payload.recoverySpends).length === 0,
-        {
-          message:
-            'recoverySpends applies only to spend-recovery resolutions, over declared targets',
-        },
+          RESOLUTION_INPUT_RULES.recoverySpendsScoped.holds(
+            payload,
+            payload.effect.resolution.kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.recoverySpendsScoped.message },
       )
       .refine(
         (payload) =>
-          payload.effect.resolution.kind !== 'test' ||
-          payload.targets.length + payload.objectTargets.length > 0,
-        { message: 'a test requires at least one creature or object target' },
+          RESOLUTION_INPUT_RULES.testHasSubject.holds(payload, payload.effect.resolution.kind),
+        { message: RESOLUTION_INPUT_RULES.testHasSubject.message },
       )
+      .refine(RESOLUTION_INPUT_RULES.testRollsScoped.holds, {
+        message: RESOLUTION_INPUT_RULES.testRollsScoped.message,
+      })
       .refine(
-        (payload) => Object.keys(payload.testRolls).every((id) => payload.targets.includes(id)),
-        { message: 'testRolls may only name declared targets' },
+        (payload) =>
+          RESOLUTION_INPUT_RULES.testInputsScoped.holds(payload, payload.effect.resolution.kind),
+        { message: RESOLUTION_INPUT_RULES.testInputsScoped.message },
       )
       .refine(
         (payload) =>
-          payload.effect.resolution.kind === 'test' ||
-          (Object.keys(payload.testRolls).length === 0 && payload.objectTargets.length === 0),
-        { message: 'testRolls/objectTargets apply only to test resolutions' },
-      )
-      .refine(
-        (payload) =>
-          payload.effect.resolution.kind === 'table' ||
-          payload.effect.resolution.kind === 'test' ||
-          payload.effect.resolution.kind === 'terrain-fact' ||
-          payload.targets.length > 0,
+          RESOLUTION_INPUT_RULES.automaticNeedsTarget.holds(
+            payload,
+            payload.effect.resolution.kind,
+          ),
         { message: 'automatic Effect programs require at least one target' },
+      ),
+  }),
+  /**
+   * One dispatch path for all 17 printed common actions [common-actions
+   * design §2 S1]. Deliberately NOT `use-effect` with a synthesized program
+   * (a prose feature has no `**Effect:**` line to synthesize) and NOT
+   * `use-ability` (no power roll, no tiers — synthesizing them would be
+   * fabricated rule data).
+   */
+  z.object({
+    ...intentBase,
+    kind: z.literal('use-common-action'),
+    payload: z
+      .object({
+        actorParticipantId: ParticipantIdSchema,
+        feature: CommonActionProgramDataSchema,
+        /** S3: the dispatch-supplied cost. Null = the compiled group
+         * directory's default. The printed exceptions are real — two class
+         * features print Disengage at a free triggered action, one prints
+         * Hide at a free maneuver, Make or Assist prints three costs and
+         * hands the choice to the Director — so defaulting silently would
+         * be wrong on every one of them. */
+        actionCost: ActionCostSchema.nullable().default(null),
+        /** Composition reference: the parent dispatch's intent id. Within
+         * this arm it is the printed break-up ("They can break up this
+         * movement with their maneuver and main action however they wish")
+         * — a later segment of the SAME action, so it consumes the
+         * parent's debit and shares its use counter. */
+        partOf: z.string().min(1).optional(),
+        /** Operator-paid dispatch [R-0029], for parity with the Effect
+         * surface; no common action prints an operator cell today. */
+        operatorId: ParticipantIdSchema.optional(),
+        /** The action's named participants — Ride's mount, Aid Attack's
+         * ally, Catch Breath's self. Actions that name none dispatch [].*/
+        targets: z.array(ParticipantIdSchema).default([]),
+        /** The printed alternative selected ("Alternatively, …"), by key.
+         * Null = the action's primary branch. */
+        alternative: z.string().min(1).nullable().default(null),
+        ...resolutionInputShape,
+      })
+      .refine(RESOLUTION_INPUT_RULES.distinctTargets.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctTargets.message,
+      })
+      .refine(RESOLUTION_INPUT_RULES.distinctObjectTargets.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctObjectTargets.message,
+      })
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.recoverySpendsScoped.holds(
+            payload,
+            payload.feature.resolution.kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.recoverySpendsScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.testHasSubject.holds(payload, payload.feature.resolution.kind),
+        { message: RESOLUTION_INPUT_RULES.testHasSubject.message },
+      )
+      .refine(RESOLUTION_INPUT_RULES.testRollsScoped.holds, {
+        message: RESOLUTION_INPUT_RULES.testRollsScoped.message,
+      })
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.testInputsScoped.holds(payload, payload.feature.resolution.kind),
+        { message: RESOLUTION_INPUT_RULES.testInputsScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.automaticNeedsTarget.holds(
+            payload,
+            payload.feature.resolution.kind,
+          ),
+        { message: 'automatic common-action programs require at least one target' },
+      )
+      .refine(
+        (payload) =>
+          payload.alternative === null ||
+          payload.feature.alternatives.some(
+            (alternative) => alternative.key === payload.alternative,
+          ),
+        { message: 'alternative must name one of the compiled printed alternatives' },
       ),
   }),
   z.object({

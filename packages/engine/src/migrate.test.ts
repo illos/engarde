@@ -8,6 +8,9 @@ const V9_PARTICIPANT_DEFAULTS = {
     noConsecutiveTurns: false,
     triggeredActionLimit: 1,
     subActorOf: null,
+    /** The common-action access slot: empty everywhere in the core corpus,
+     * so a stored body that predates it lifts losslessly on the default. */
+    commonActionAccess: { exclude: [], include: [] },
   },
   actionBudget: {},
   triggeredThisRound: 0,
