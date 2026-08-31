@@ -651,6 +651,104 @@ describe('the declared phase [R-0041]', () => {
     expect(committed.state.participants.warrior?.stamina?.current).toBeLessThan(15);
   });
 
+  it('a rolled strike retargets between the roll and its application — damage lands on the substituted target [R-0031 retarget extension, Brawny Buffe shape]', () => {
+    // Brawny Buffe (hulking-brain, verbatim): "Trigger: An ally voiceless
+    // talker within 5 squares takes damage from an enemy ability. Effect:
+    // The hulking brain shifts adjacent to the ally and becomes the new
+    // target of the ability." — the retarget template classifies a damage
+    // trigger to PRE-APPLICATION [R-0031 extension]: the reaction cuts in
+    // after the roll is reserved on the stack and before commit applies
+    // it, and the recorded retarget substitutes the in-flight target in
+    // the commit fold. The triggering strike is the committed goblin
+    // warrior Spear Charge fixture.
+    let state = initialEncounterState([
+      { id: 'attacker', kind: 'hero', stats: GOBLIN_WARRIOR },
+      { id: 'ally', kind: 'director-creature', stats: GOBLIN_WARRIOR },
+      { id: 'brain', kind: 'director-creature', stats: GOBLIN_WARRIOR },
+    ]);
+    state = dispatch(state, director('begin-combat', { firstSide: 'heroes', roll: 7 })).state;
+    state = dispatch(state, director('start-turn', { turnId: 'attacker' })).state;
+    const payload = {
+      actorParticipantId: 'attacker',
+      ability: SPEAR_CHARGE,
+      targets: ['ally'],
+      dice: [5, 5] as [number, number],
+    };
+    const rolled = dispatch(state, {
+      intentId: 'strike-at-ally',
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: 'attacker' },
+      payload,
+    } as Intent);
+    const open = rolled.state.resolutionStack[0];
+    if (open?.phase !== 'rolled') throw new Error('expected a rolled entry');
+    // 5+5+2 = 12 → tier 2 → "4 damage". Reserved on the stack, not applied:
+    // nobody has taken damage yet.
+    expect(rolled.state.occurrences.map((row) => row.kind)).not.toContain('damage-taken');
+
+    // The reaction's economy dispatch (free triggered action) and the
+    // retarget it resolves to. The trigger is table-asserted with the
+    // printed trigger line: at the pre-application point the damage is
+    // computed but not yet applied, so no damage-taken occurrence exists
+    // to reference.
+    const reacted = dispatch(
+      rolled.state,
+      director('use-triggered-action', {
+        participantId: 'brain',
+        abilityArtifactId:
+          'mcdm.monsters.v1/monster.voiceless-talker.statblock/hulking-brain#brawny-buffe',
+        free: true,
+        trigger: {
+          kind: 'asserted',
+          text: 'An ally voiceless talker within 5 squares takes damage from an enemy ability.',
+        },
+      }),
+    );
+    const swapped = dispatch(
+      reacted.state,
+      director('modify-resolution', {
+        resolutionId: 'strike-at-ally',
+        modification: {
+          kind: 'retarget',
+          from: 'ally',
+          to: 'brain',
+          reason:
+            'The hulking brain shifts adjacent to the ally and becomes the new target of the ability.',
+        },
+      }),
+    );
+    // Still open, still un-applied: recording the modification is not the
+    // commit.
+    expect(swapped.state.participants.ally?.stamina?.current).toBe(15);
+    expect(swapped.state.participants.brain?.stamina?.current).toBe(15);
+
+    const committed = dispatch(
+      swapped.state,
+      director('commit-resolution', { resolutionId: 'strike-at-ally', payload }),
+    );
+    // The fold substituted the in-flight target: the tier-2 damage lands on
+    // the brain, the ally takes nothing.
+    expect(committed.state.participants.brain?.stamina?.current).toBe(11);
+    expect(committed.state.participants.ally?.stamina?.current).toBe(15);
+    const commitReceipt = committed.log.find((row) => row.data.resolutionCommitted !== undefined);
+    expect(commitReceipt?.data.resolutionCommitted).toMatchObject({
+      resolutionId: 'strike-at-ally',
+      effectiveTargets: ['brain'],
+    });
+    const damage = committed.state.occurrences.find((row) => row.kind === 'damage-taken');
+    expect(damage).toMatchObject({ participantId: 'brain', sourceId: 'attacker', rolled: true });
+    expect(
+      committed.state.occurrences.some(
+        (row) => row.kind === 'damage-taken' && row.participantId === 'ally',
+      ),
+    ).toBe(false);
+    // Nothing here violated the economy: a free triggered action off-turn
+    // is printed play.
+    expect(
+      [...reacted.log, ...swapped.log, ...committed.log].filter((row) => row.kind === 'warning'),
+    ).toEqual([]);
+  });
+
   it('a declaration that never rolls cancels at end of turn — nothing is lost', () => {
     const declared = declare(inCombat());
     const ended = dispatch(

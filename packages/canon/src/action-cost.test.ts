@@ -75,6 +75,50 @@ describe('classifyReactionInterception (R-0031 closed templates)', () => {
     expect(classified).toEqual({ point: 'rolled', classified: true, sourceText: null });
   });
 
+  it('classifies the retarget template on a targeted trigger to targeting [R-0031 extension, vampire Reactive Charm]', () => {
+    // Verbatim (links stripped): monster/undead/3rd-echelon/statblock/vampire.md.
+    const classified = classifyReactionInterception(
+      '**Trigger:** A creature makes a strike against the vampire.\n\n**Effect:** The target becomes the new target of the strike.',
+    );
+    expect(classified).toEqual({ point: 'targeting', classified: true, sourceText: null });
+  });
+
+  it('classifies the retarget template on a damage trigger to pre-application [R-0031 extension, hulking-brain Brawny Buffe]', () => {
+    // Verbatim (links stripped): monster/voiceless-talker/statblock/hulking-brain.md.
+    // A damage-carrying trigger has already left the targeting step; the
+    // shift clause and the 2-Malice rider stay table per R-0044.
+    const classified = classifyReactionInterception(
+      '**Trigger:** An ally voiceless talker within 5 squares takes damage from an enemy ability.\n\n**Effect:** The hulking brain shifts adjacent to the ally and becomes the new target of the ability.\n\n**2 Malice:** The enemy is knocked prone.',
+    );
+    expect(classified).toEqual({ point: 'pre-application', classified: true, sourceText: null });
+  });
+
+  it('classifies the mischievite Malice-rider retarget to targeting via the null-trigger fallback [R-0031 extension]', () => {
+    // Verbatim (links stripped): monster/war-dog/2nd-echelon/statblock/
+    // war-dog-mischievite.md — Misdirection's Malice rider. No Trigger line
+    // exists (the rider converts a Maneuver), so the documented fallback
+    // classifies to targeting. The maneuver-to-triggered-action conversion
+    // itself remains the malice family's named deferral — this proves only
+    // that the ONE classification home covers the fifth printed occurrence.
+    const classified = classifyReactionInterception(
+      '**2 Malice:** The mischievite can use this ability as a triggered action when they are targeted by an ability. If they do, the swapped target becomes the new target of the triggering ability.',
+    );
+    expect(classified).toEqual({ point: 'targeting', classified: true, sourceText: null });
+  });
+
+  it('does NOT match the lich\'s potency-gated "swap places … to become" shape — honest residue [R-0031 extension scope]', () => {
+    // Verbatim (links stripped): monster/lich/statblock/lich.md. The ruling
+    // scopes the template to the printed third-person "becomes" form; the
+    // lich's conditional swap is a different shape and stays applied-default
+    // residue with its text on the receipt.
+    const text =
+      '**Trigger:** The lich is targeted using an ability by a creature other than the target.\n\n**Effect:** If the target has P < 4, they swap places with the lich to become the new target of the triggering ability.';
+    const classified = classifyReactionInterception(text);
+    expect(classified.point).toBe('applied');
+    expect(classified.classified).toBe(false);
+    expect(classified.sourceText).toBe(text);
+  });
+
   it('defaults an unclassified reaction to applied with the verbatim text carried', () => {
     // Verbatim: fury Lines of Force Effect head (feature/ability/fury/level-1/lines-of-force.md
     // shape) — no closed template covers forced-movement redirection yet.
@@ -323,6 +367,111 @@ describe.skipIf(!existsSync(BUNDLE_ROOT))('byte-defect repair against the pinned
       'mcdm.summoner.v1/monster.champion.summoner.fey.statblock/celestial-attendant#3: unrecognized action-cost value "1 Eidos"',
       'mcdm.summoner.v1/monster.champion.summoner.undead.statblock/avatar-of-death#3: unrecognized action-cost value "1 Eidos"',
     ]);
+  });
+
+  it('classifies the five real retarget carriers onto their ruled points [R-0031 extension]', () => {
+    // The four compiled triggered/free-triggered carriers, from the real
+    // pinned records: point per the extension's per-trigger fallback.
+    const cases: Array<{ bundle: string; artifactId: string; slug: string; point: string }> = [
+      {
+        bundle: 'books/monsters/md/monster/undead/3rd-echelon/statblock/vampire.bundle.json',
+        artifactId: 'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire',
+        slug: 'reactive-charm',
+        point: 'targeting',
+      },
+      {
+        bundle: 'books/monsters/md/monster/undead/3rd-echelon/statblock/vampire-lord.bundle.json',
+        artifactId: 'mcdm.monsters.v1/monster.undead.3rd-echelon.statblock/vampire-lord',
+        slug: 'redirected-charm',
+        point: 'targeting',
+      },
+      {
+        bundle: 'books/monsters/md/monster/voiceless-talker/statblock/hulking-brain.bundle.json',
+        artifactId: 'mcdm.monsters.v1/monster.voiceless-talker.statblock/hulking-brain',
+        slug: 'brawny-buffe',
+        point: 'pre-application',
+      },
+      {
+        bundle:
+          'books/monsters/md/monster/war-dog/4th-echelon/statblock/castellan-hoplon.bundle.json',
+        artifactId: 'mcdm.monsters.v1/monster.war-dog.4th-echelon.statblock/castellan-hoplon',
+        slug: 'timely-intervention',
+        point: 'targeting',
+      },
+    ];
+    for (const testCase of cases) {
+      const parse = parseEffectText(artifactText(testCase.bundle, testCase.artifactId));
+      const annotation = [...annotateHeaderCosts(parse, testCase.artifactId).values()].find(
+        (candidate) => candidate.abilitySlug === testCase.slug,
+      );
+      expect(annotation, `${testCase.artifactId}#${testCase.slug}`).toBeDefined();
+      expect(annotation?.reactionInterception, `${testCase.artifactId}#${testCase.slug}`).toEqual({
+        point: testCase.point,
+        classified: true,
+        sourceText: null,
+      });
+    }
+
+    // The fifth printed occurrence: mischievite Misdirection compiles as a
+    // Maneuver, so its compiled annotation carries NO interception point —
+    // the Malice rider's triggered-action conversion is the malice family's
+    // named deferral. The classification home covering its text is proven
+    // by the inline unit test above.
+    const mischieviteParse = parseEffectText(
+      artifactText(
+        'books/monsters/md/monster/war-dog/2nd-echelon/statblock/war-dog-mischievite.bundle.json',
+        'mcdm.monsters.v1/monster.war-dog.2nd-echelon.statblock/war-dog-mischievite',
+      ),
+    );
+    const misdirection = [
+      ...annotateHeaderCosts(
+        mischieviteParse,
+        'mcdm.monsters.v1/monster.war-dog.2nd-echelon.statblock/war-dog-mischievite',
+      ).values(),
+    ].find((candidate) => candidate.abilitySlug === 'misdirection');
+    expect(misdirection).toBeDefined();
+    expect(misdirection?.actionCost).toBe('maneuver');
+    expect(misdirection?.reactionInterception).toBeNull();
+  });
+
+  it('freezes the interception-point census across the whole accepted pin [R-0031]', () => {
+    // The honest baseline after the 2026-08-31 retarget-template extension:
+    // 266 compiled triggered/free-triggered sections; classified moved
+    // 42 → 46 and applied 227 → 223 (the four retarget carriers left the
+    // unclassified-applied default for their ruled points; Misdirection is
+    // a Maneuver and not in the census). A pin bump or template change that
+    // moves ANY of these numbers must explain its delta here.
+    const manifestPath = resolve(
+      import.meta.dirname,
+      '../../../.artifacts/canon/campaign/accepted/final-campaign-manifest.json',
+    );
+    const manifest = CampaignAuditManifestSchema.parse(
+      JSON.parse(readFileSync(manifestPath, 'utf8')),
+    );
+    let classified = 0;
+    let unclassified = 0;
+    const byPoint: Record<string, number> = {};
+    for (const entry of manifest.bundles) {
+      const bundle = ExtractionBundleSchema.parse(
+        JSON.parse(readFileSync(resolve(entry.bundlePath), 'utf8')),
+      );
+      for (const record of bundle.records) {
+        if (record.recordKind !== 'artifact') continue;
+        const parse = parseEffectText(record.text);
+        for (const annotation of annotateHeaderCosts(parse, record.id).values()) {
+          const interception = annotation.reactionInterception;
+          if (interception === null) continue;
+          byPoint[interception.point] = (byPoint[interception.point] ?? 0) + 1;
+          if (interception.classified) classified += 1;
+          else unclassified += 1;
+        }
+      }
+    }
+    expect({ classified, unclassified, byPoint }).toEqual({
+      classified: 46,
+      unclassified: 220,
+      byPoint: { applied: 223, 'pre-application': 33, rolled: 1, targeting: 9 },
+    });
   });
 
   it('classifies the real Tongue Slap onto the rolled point', () => {

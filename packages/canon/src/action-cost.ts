@@ -112,12 +112,20 @@ export function classifyReactionInterception(sectionText: string): ReactionInter
   ) {
     return { point: 'pre-application', classified: true, sourceText: null };
   }
-  // "is the target … instead" / "chooses a new target" → targeting or
+  // "is the target … instead" / "chooses a new target" / "becomes the new
+  // target of the strike / the [triggering] ability" → targeting or
   // pre-application per trigger (a damage-carrying trigger has already left
-  // the targeting step).
+  // the targeting step). The third form is the R-0031 retarget-template
+  // EXTENSION (Gate 3, 2026-08-31): its five printed occurrences at the pin
+  // are vampire + vampire-lord ("…of the strike"), hulking-brain +
+  // castellan-hoplon ("…of the ability"), and war-dog-mischievite's Malice
+  // rider ("…of the triggering ability"). Scoped to the printed
+  // third-person form — the lich's potency-gated "swap places … to become
+  // the new target" is a different shape and stays honest residue.
   if (
     /\bis the target of the triggering [^.]*\binstead\b/i.test(text) ||
-    /\bchooses? a new target\b/i.test(text)
+    /\bchooses? a new target\b/i.test(text) ||
+    /\bbecomes the new target of the (?:triggering )?(?:strike|ability)\b/i.test(text)
   ) {
     const damageTrigger = triggerLine !== null && /damage/i.test(triggerLine);
     return {
