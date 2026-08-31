@@ -334,3 +334,42 @@ export const KNOCKBACK_COMPOSES = {
   abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/knockback',
   keywords: ['Melee', 'Weapon'],
 };
+
+/**
+ * The compiled KNOCKBACK companion (`feature.ability.common/knockback`) —
+ * the roll-bearing half Knockback's prose hands off to. Push 1/2/3 with no
+ * damage, no condition and no potency: its entire printed outcome is
+ * forced movement, which under DEC-0011 is a receipt rather than a state
+ * change. No Strike keyword, so strike-scoped grants are not consumed.
+ */
+export const KNOCKBACK_ABILITY = {
+  abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/knockback',
+  actionType: 'Maneuver',
+  actionCost: 'maneuver' as const,
+  keywords: ['Melee', 'Weapon'],
+  targetsText: 'One creature',
+  powerRollBonus: { kind: 'characteristic' as const, options: ['M' as const] },
+  tiers: {
+    tier1: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 1 },
+    },
+    tier2: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 2 },
+    },
+    tier3: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 3 },
+    },
+  },
+};

@@ -256,12 +256,15 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
       'mcdm.heroes.v1/feature.common.maneuvers/grab',
       'mcdm.heroes.v1/feature.common.maneuvers/knockback',
     ]);
-    // Fifteen of the 17 print no precondition the engine can read at all;
-    // the two that do are the two registered gates.
+    // Every action whose availability is not plainly true has a registered
+    // gate behind it. Disengage's does not appear: its `slowed` gate reads
+    // TRUE on a creature who is not slowed, which is the point of a
+    // tri-state — an engine-known precondition that holds is silent.
     expect(
       menu.filter((offer) => offer.available !== true).map((offer) => offer.featureArtifactId),
     ).toEqual([
       'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+      'mcdm.heroes.v1/feature.common.maneuvers/knockback',
       'mcdm.heroes.v1/feature.common.move-actions/ride',
     ]);
   });

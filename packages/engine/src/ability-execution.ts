@@ -10,6 +10,7 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { forcedMovementDirective } from './forced-movement.js';
 import {
   GRANT_CANON,
   grantConsumedByRoll,
@@ -350,13 +351,12 @@ export function applyAbilityOutcome(
     const tierData = ability.tiers[`tier${tierFor(targetId)}` as 'tier1' | 'tier2' | 'tier3'];
     if (tierData.forcedMovement) {
       log.push(
-        entry(
-          context,
-          'table-directive',
-          `${actor.id} pushes ${targetId} ${tierData.forcedMovement.distance} square(s) — movement geometry is table-resolved`,
-          [ability.abilityArtifactId],
-          { forcedMovement: { targetId, ...tierData.forcedMovement } },
-        ),
+        forcedMovementDirective(context, {
+          moverId: actor.id,
+          targetId,
+          movement: tierData.forcedMovement,
+          abilityArtifactId: ability.abilityArtifactId,
+        }),
       );
     }
     if (tierData.conditionIds.length === 0) continue;

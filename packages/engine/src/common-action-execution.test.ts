@@ -14,6 +14,8 @@ import {
   CHARGE,
   DISENGAGE,
   FREE_STRIKE,
+  KNOCKBACK,
+  KNOCKBACK_ABILITY,
   KNOCKBACK_COMPOSES,
   MELEE_WEAPON_FREE_STRIKE,
   RIDE,
@@ -22,6 +24,7 @@ import {
 } from './common-action.fixtures.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
+import { forcedMovementDirective } from './forced-movement.js';
 import { checkInvariants } from './invariants.js';
 import { deriveOccurrences } from './occurrences.js';
 import type {
@@ -385,8 +388,15 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
         'mcdm.heroes.v1/feature.common.move-actions/ride',
         'mcdm.heroes.v1/feature.common.move-actions/ride',
       ],
-      // The registration that cites a rule which never names the action.
+      // The two registrations that cite an artifact other than the
+      // action's own prose: slowed prints its bar on shifting and never
+      // names Disengage; Knockback's targeting rule is printed on the
+      // companion ability's Effect line.
       ['mcdm.heroes.v1/feature.common.move-actions/disengage', 'mcdm.heroes.v1/condition/slowed'],
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/knockback',
+        'mcdm.heroes.v1/feature.ability.common/knockback',
+      ],
     ]);
   });
 
@@ -846,5 +856,90 @@ describe('wave 5 — Disengage and Charge', () => {
     // The printed sentence still rides verbatim in the action's directive.
     const directive = result.log.find((entry) => entry.data.manualCommonAction !== undefined);
     expect(directive?.message).toContain('Charge keyword');
+  });
+});
+
+describe('wave 5 — Knockback and the one forced-movement receipt', () => {
+  it('the prose arm surfaces the printed targeting rule and takes no debit', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', KNOCKBACK, { targets: ['warrior'] }),
+    );
+    // Companion-paid: the maneuver is on the companion's header cell.
+    expect(result.state.participants.hero?.actionBudget.maneuver).toBeUndefined();
+    const directive = result.log.find((entry) => entry.data.commonActionEligibility !== undefined);
+    expect(directive?.kind).toBe('table-directive');
+    // Quoted from the COMPANION ability, which is where the rule is printed.
+    expect(directive?.message).toContain(
+      'You can usually target only creatures of your size or smaller',
+    );
+    expect(directive?.canonRefs).toContain('mcdm.heroes.v1/rule.character/size');
+  });
+
+  it('the companion pays the one maneuver and its outcome is a corrected receipt', () => {
+    let state = onHeroTurn();
+    const prose = dispatchChecked(
+      state,
+      useCommonAction('hero', KNOCKBACK, { targets: ['warrior'] }),
+    );
+    state = prose.state;
+
+    const payload = {
+      actorParticipantId: 'hero',
+      ability: KNOCKBACK_ABILITY,
+      targets: ['warrior'],
+      dice: [5, 5] as [number, number],
+    };
+    const rolled = dispatchChecked(state, {
+      intentId: nextId('knockback'),
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload,
+    } as Intent);
+    expect(rolled.state.participants.hero?.actionBudget.maneuver).toEqual({
+      used: 1,
+      granted: 0,
+    });
+
+    // dice [5,5] + Might -2 = 8 → tier 1 → Push 1 [verbatim Knockback].
+    const commit = dispatchChecked(rolled.state, {
+      intentId: nextId('commit'),
+      kind: 'commit-resolution',
+      actor: { kind: 'director' },
+      payload: { resolutionId: rolled.state.resolutionStack[0]?.resolutionId, payload },
+    } as Intent);
+    const push = commit.log.find((entry) => entry.data.forcedMovement !== undefined);
+    expect(push?.kind).toBe('table-directive');
+    expect(push?.data.forcedMovement).toEqual({
+      targetId: 'warrior',
+      kind: 'push',
+      distance: 1,
+      printedDistance: 1,
+      unappliedModifiers: ['stability', 'big-versus-little', 'ability-specific'],
+    });
+    // The number is never presented as final.
+    expect(push?.message).toContain('is the printed tier distance, unmodified');
+    expect(push?.canonRefs).toContain('mcdm.heroes.v1/rule.character/stability');
+    // Nothing moved: forced movement is a receipt, not a position.
+    expect(commit.state.participants.warrior?.stamina?.current).toBe(15);
+  });
+
+  it('the squad path emits the identical receipt from the same builder', () => {
+    const context = { intentId: 'i-1', actor: { kind: 'director' as const } };
+    const fromAbilityPath = forcedMovementDirective(context, {
+      moverId: 'hero',
+      targetId: 'warrior',
+      movement: { kind: 'push', distance: 2 },
+      abilityArtifactId: KNOCKBACK_ABILITY.abilityArtifactId,
+    });
+    // One builder, so the two call sites cannot drift on the very sentence
+    // added to stop a bare number reading as authoritative.
+    expect(fromAbilityPath.message).toContain('2 is the printed tier distance, unmodified');
+    expect(fromAbilityPath.canonRefs).toEqual([
+      KNOCKBACK_ABILITY.abilityArtifactId,
+      'mcdm.heroes.v1/movement/forced-movement',
+      'mcdm.heroes.v1/rule.character/stability',
+      'mcdm.heroes.v1/rule.character/size',
+    ]);
   });
 });

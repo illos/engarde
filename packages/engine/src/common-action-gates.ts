@@ -127,6 +127,8 @@ const CATCH_BREATH = 'mcdm.heroes.v1/feature.common.maneuvers/catch-breath';
 const RIDE = 'mcdm.heroes.v1/feature.common.move-actions/ride';
 const DISENGAGE = 'mcdm.heroes.v1/feature.common.move-actions/disengage';
 const SLOWED = 'mcdm.heroes.v1/condition/slowed';
+const KNOCKBACK = 'mcdm.heroes.v1/feature.common.maneuvers/knockback';
+const KNOCKBACK_ABILITY = 'mcdm.heroes.v1/feature.ability.common/knockback';
 
 /**
  * The registered printed preconditions. Each is one printed sentence; the
@@ -181,6 +183,25 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
       // `conditions.some(...)` is written here.
       return !hasCondition(actor, SLOWED);
     },
+  },
+  {
+    // Knockback's targeting rule is printed on the COMPANION ability's
+    // Effect line, not on the prose feature — the second registration that
+    // cites an artifact other than the action's own. Surfaced at the
+    // moment the action is taken, which is when the Director chooses the
+    // target.
+    featureArtifactId: KNOCKBACK,
+    sourceArtifactId: KNOCKBACK_ABILITY,
+    verbatim:
+      'You can usually target only creatures of your size or smaller. If your Might score is 2 or higher, you can target any creature with a size equal to or less than your Might score.',
+    canonRefs: [KNOCKBACK_ABILITY, 'mcdm.heroes.v1/rule.character/size'],
+    // Unevaluable, and not because half the inputs are missing: the engine
+    // has `might` but no `size` on any participant, so neither printed
+    // clause can be decided. It rides the asserted surface as a directive
+    // until size becomes a stored stat. Note the printed hedge "usually",
+    // and that two corpus items displace this gate outright — even fully
+    // stored it would warn, never refuse.
+    holds: () => 'unknown',
   },
 ];
 

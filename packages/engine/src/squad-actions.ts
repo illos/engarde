@@ -15,6 +15,7 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { forcedMovementDirective } from './forced-movement.js';
 import { isAreaKeyworded } from './keywords.js';
 import { hashDeclaration, hashPayload } from './payload-hash.js';
 import { gatePotencyWithReceipt } from './potency.js';
@@ -844,13 +845,12 @@ export function applySquadBreakdown(
     const tierData = row.packet.data;
     if (tierData.forcedMovement) {
       log.push(
-        entry(
-          context,
-          'table-directive',
-          `${row.instanceOwner} pushes ${row.targetId} ${tierData.forcedMovement.distance} square(s) — movement geometry is table-resolved`,
-          [payload.ability.abilityArtifactId],
-          { forcedMovement: { targetId: row.targetId, ...tierData.forcedMovement } },
-        ),
+        forcedMovementDirective(context, {
+          moverId: row.instanceOwner,
+          targetId: row.targetId,
+          movement: tierData.forcedMovement,
+          abilityArtifactId: payload.ability.abilityArtifactId,
+        }),
       );
     }
     const owner = nextState.participants[row.instanceOwner];
