@@ -2,7 +2,9 @@
 
 > Rulebot research 2026-08-31, dispatched on the user's Q4 direction.
 > Gates 1 (markdown source) + 2 (PDF page confirmation) run and ✅.
-> **Gate 3 (user sign-off) PENDING** — surfaced on the approvals page.
+> **Gate 3: the user reviewed the findings and ruled the boundary model
+> below (2026-08-31)** — the architecture question Q4 asked is settled;
+> the quoted rules stand as cited evidence.
 > All quotes verbatim, attributed per the Draw Steel Creator License.
 
 ## Ruled boundary (user, 2026-08-31 — DEC-0019)
