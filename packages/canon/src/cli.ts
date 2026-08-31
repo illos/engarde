@@ -653,7 +653,9 @@ async function main(): Promise<void> {
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((artifact) => {
         // Deterministic participant stats from the checksummed paired JSON
-        // (DEC-0008) — present only for stat blocks with full stats.
+        // (DEC-0008) — present for every stat block; a cell the parser
+        // cannot fold rides along as frozen verbatim residue (partial
+        // parse), never dropped, never guessed.
         const stats = statblockStats(artifact.structuredData);
         return JSON.stringify({
           artifactId: artifact.id,
