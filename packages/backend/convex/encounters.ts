@@ -968,23 +968,33 @@ export const start = mutation({
         // (DEC-0008; seeded by `corpus export-records`). Records without
         // stats play in table mode — every touch becomes a receipt.
         const parsed = JSON.parse(record.statsJson) as StatblockStats;
-        stats = ParticipantStatsSchema.parse({
-          staminaMax: parsed.staminaMax,
-          characteristics: parsed.characteristics,
-          immunities: parsed.immunities,
-          weaknesses: parsed.weaknesses,
-          potencies: parsed.potencies,
-          organization: parsed.organization,
-          freeStrike: parsed.freeStrike ?? null,
-          // Verbatim "With Captain" entry [R-0028]; `?? null` lifts rows
-          // whose statsJson predates the field.
-          withCaptain: parsed.withCaptain ?? null,
-          withCaptainBenefit: parsed.withCaptainBenefit ?? null,
-        });
         for (const row of parsed.unparsedRows) {
           statsReceipts.push(
             `${participant.id}: unreadable stat-block row "${row}" — apply at the table`,
           );
+        }
+        // Partial-parse record (canon statblockStats): an unreadable
+        // Stamina cell (frozen verbatim in unparsedRows above) or
+        // characteristic keeps the participant in table mode — the engine
+        // cannot track stamina without one printed number, and folding a
+        // frozen cell needs a ruling, never a guess. Pre-partial-parse
+        // statsJson always carries both, so old rows stay automated.
+        if (parsed.staminaMax === null || parsed.characteristics === null) {
+          statsReceipts.push(`${participant.id}: no stat automation for this record — table mode`);
+        } else {
+          stats = ParticipantStatsSchema.parse({
+            staminaMax: parsed.staminaMax,
+            characteristics: parsed.characteristics,
+            immunities: parsed.immunities,
+            weaknesses: parsed.weaknesses,
+            potencies: parsed.potencies,
+            organization: parsed.organization,
+            freeStrike: parsed.freeStrike ?? null,
+            // Verbatim "With Captain" entry [R-0028]; `?? null` lifts rows
+            // whose statsJson predates the field.
+            withCaptain: parsed.withCaptain ?? null,
+            withCaptainBenefit: parsed.withCaptainBenefit ?? null,
+          });
         }
       } else {
         statsReceipts.push(

@@ -100,6 +100,14 @@ async function main(): Promise<void> {
     for (const row of stats.unparsedRows) {
       stdout.write(`${actor.id}: unreadable stat-block row "${row}" — apply at the table\n`);
     }
+    // Partial-parse record: an unreadable Stamina cell (frozen verbatim
+    // above) or characteristic keeps the participant in table mode — the
+    // engine cannot track stamina without one printed number, and folding a
+    // frozen cell needs a ruling, never a guess.
+    if (stats.staminaMax === null || stats.characteristics === null) {
+      stdout.write(`${actor.id}: no stat automation for this record — table mode\n`);
+      return actor;
+    }
     return { ...actor, stats: ParticipantStatsSchema.parse(stats) };
   });
   const session = createPlaySession({
