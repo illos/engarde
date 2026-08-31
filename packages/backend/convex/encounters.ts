@@ -8,6 +8,13 @@ import {
   tierOutcomeToIntents,
 } from '@engarde/canon/effect-conformance';
 import { auditGrammarConservation, parseEffectText } from '@engarde/canon/effect-grammar';
+import { compileHero } from '@engarde/canon/hero-compile';
+import {
+  HeroBuildSchema,
+  HeroRuntimeSchema,
+  emptyHeroBuild,
+  emptyHeroRuntime,
+} from '@engarde/canon/hero-document';
 import type { StatblockStats } from '@engarde/canon/statblock-stats';
 import {
   type ActionGrant,
@@ -561,7 +568,46 @@ async function runIntents(
     logCount,
     updatedAt: Date.now(),
   });
+  if (!invariantFailed) await syncHeroVitals(ctx, encounter, state);
   return { violations: allViolations };
+}
+
+/**
+ * DEC-0019 write-through (docs/character-builder/03-cross-encounter-state.md):
+ * the character sheet OWNS current Stamina and Recoveries; the encounter is
+ * a modification layer. Every dispatch that changes a bound hero's vitals
+ * writes the character's `runtime.vitals` in the SAME transaction — damage
+ * and Catch Breath reach the sheet as they happen, and there is no
+ * encounter-end write-back step. Temporary Stamina stays encounter-scoped
+ * (❝Unless otherwise indicated, temporary Stamina disappears at the end of
+ * an encounter❞) and is never synced.
+ */
+async function syncHeroVitals(
+  ctx: MutationCtx,
+  encounter: Doc<'encounters'>,
+  state: EncounterState,
+): Promise<void> {
+  const bindings = (encounter.heroBindings ?? {}) as Record<string, Id<'characters'>>;
+  for (const [participantId, characterId] of Object.entries(bindings)) {
+    const participant = state.participants[participantId];
+    if (!participant || participant.stamina === null) continue;
+    const character = await ctx.db.get(characterId);
+    if (!character) continue;
+    const runtime =
+      character.runtime === undefined
+        ? emptyHeroRuntime()
+        : HeroRuntimeSchema.parse(character.runtime);
+    const vitals = {
+      staminaCurrent: participant.stamina.current,
+      recoveriesCurrent: participant.stamina.recoveries,
+    };
+    if (
+      runtime.vitals.staminaCurrent === vitals.staminaCurrent &&
+      runtime.vitals.recoveriesCurrent === vitals.recoveriesCurrent
+    )
+      continue;
+    await ctx.db.patch(characterId, { runtime: { ...runtime, vitals }, updatedAt: Date.now() });
+  }
 }
 
 /** Drop pending-commit payloads whose resolution is no longer OPEN — after
@@ -870,6 +916,12 @@ export const start = mutation({
       v.object({
         id: v.string(),
         recordId: v.optional(v.string()),
+        /** Compile seam (Fury vertical): seed a hero FROM their character
+         * document — decision log → compileHero → stats, with sheet-owned
+         * vitals read at seed time and written through during play
+         * (DEC-0019). Mutually exclusive with recordId and asserted
+         * stats. */
+        characterId: v.optional(v.id('characters')),
         kind: v.optional(v.union(v.literal('hero'), v.literal('director-creature'))),
         /** Side/kind decoupling seam (v9): which side the participant
          * fights on, independent of kind. Omitted = the kind default
@@ -922,7 +974,79 @@ export const start = mutation({
       throw new ConvexError(`Choose 1–${MAX_PARTICIPANTS} participants`);
     const statsReceipts: string[] = [];
     const seeded: DriverParticipant[] = [];
+    const heroBindings: Record<string, Id<'characters'>> = {};
+    const heroVitalSeeds: Record<
+      string,
+      { staminaCurrent: number | null; recoveriesCurrent: number | null }
+    > = {};
+    const heroInfoRows: LogRowInput[] = [];
     for (const participant of args.participants) {
+      if (participant.characterId !== undefined) {
+        // ── compile seam: hero from character document ─────────────────
+        if (participant.recordId !== undefined || participant.stats !== undefined)
+          throw new ConvexError(
+            `Participant "${participant.id}": characterId replaces recordId/stats — the hero compiles from their character document`,
+          );
+        if (participant.kind === 'director-creature')
+          throw new ConvexError(
+            `Participant "${participant.id}": a character-seeded participant is a hero`,
+          );
+        if (!PARTICIPANT_ID.test(participant.id))
+          throw new ConvexError(`Participant handle "${participant.id}" must be short kebab-case`);
+        const character = await ctx.db.get(participant.characterId);
+        if (!character) throw new ConvexError(`Unknown character for "${participant.id}"`);
+        const binding = await ctx.db
+          .query('characterCampaignBindings')
+          .withIndex('by_characterId', (q) => q.eq('characterId', character._id))
+          .unique();
+        if (!binding || binding.campaignId !== args.campaignId || binding.status !== 'active')
+          throw new ConvexError(
+            `Participant "${participant.id}": character is not active in this campaign`,
+          );
+        let stats: ParticipantStats | undefined;
+        if (character.classScc === undefined) {
+          statsReceipts.push(`${participant.id}: no class recorded on the character — table mode`);
+        } else {
+          const build =
+            character.build === undefined
+              ? emptyHeroBuild()
+              : HeroBuildSchema.parse(character.build);
+          const compiled = compileHero({
+            classScc: character.classScc,
+            level: character.level,
+            characteristics: character.characteristics ?? null,
+            build,
+          });
+          stats = compiled.stats ?? undefined;
+          for (const receipt of compiled.receipts) {
+            statsReceipts.push(`${participant.id}: ${receipt.reason}`);
+          }
+          if (compiled.abilityArtifactIds.length > 0) {
+            heroInfoRows.push({
+              kind: 'informational',
+              message: `${participant.id} compiled from "${character.name}" — abilities: ${compiled.abilityArtifactIds
+                .map((artifactId) => slugOf(artifactId))
+                .join(', ')}`,
+              canonRefs: compiled.abilityArtifactIds,
+            });
+          }
+        }
+        // Sheet-owned vitals (DEC-0019): read at seed time; null = never
+        // initialized (the post-seed sync below initializes them).
+        const runtime =
+          character.runtime === undefined
+            ? emptyHeroRuntime()
+            : HeroRuntimeSchema.parse(character.runtime);
+        heroBindings[participant.id] = character._id;
+        heroVitalSeeds[participant.id] = runtime.vitals;
+        seeded.push({
+          id: participant.id,
+          kind: 'hero',
+          ...(participant.side !== undefined ? { side: participant.side } : {}),
+          stats,
+        });
+        continue;
+      }
       const kind = participant.kind ?? 'director-creature';
       if (!PARTICIPANT_ID.test(participant.id))
         throw new ConvexError(`Participant handle "${participant.id}" must be short kebab-case`);
@@ -1028,6 +1152,30 @@ export const start = mutation({
         `Encounter seed rejected: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+    // DEC-0019: the sheet owns current Stamina/Recoveries. The engine
+    // seeds full ("hosts asserting mid-day attrition adjust post-seed" —
+    // driver.ts); lift the sheet-owned values onto the seeded state, capped
+    // at the compiled maxima. Null vitals = first encounter — the seeded
+    // maxima initialize the sheet via the sync below.
+    for (const [participantId, vitals] of Object.entries(heroVitalSeeds)) {
+      const participant = state.participants[participantId];
+      if (!participant || participant.stamina === null || participant.stats === null) continue;
+      const stamina = { ...participant.stamina };
+      if (vitals.staminaCurrent !== null)
+        stamina.current = Math.min(vitals.staminaCurrent, participant.stats.staminaMax);
+      if (vitals.recoveriesCurrent !== null && stamina.recoveries !== null)
+        stamina.recoveries = Math.min(
+          vitals.recoveriesCurrent,
+          participant.stats.recoveriesMax ?? vitals.recoveriesCurrent,
+        );
+      state = {
+        ...state,
+        participants: {
+          ...state.participants,
+          [participantId]: { ...participant, stamina },
+        },
+      };
+    }
     // The printed "up to eight creatures" bound warns-and-applies
     // (permissive engine, R-0023) — surfaced via the log like every warning.
     const seedWarnings = squadSeedWarnings(squadSeeds);
@@ -1037,6 +1185,7 @@ export const start = mutation({
       sessionId: session._id,
       status: 'active',
       state,
+      ...(Object.keys(heroBindings).length > 0 ? { heroBindings } : {}),
       rngSeed: Math.floor(Math.random() * 2 ** 31),
       dispatchCount: 0,
       logCount: 0,
@@ -1056,6 +1205,7 @@ export const start = mutation({
             message: `Encounter started with ${args.participants.map((entry) => entry.id).join(', ')}`,
             canonRefs: [],
           },
+          ...heroInfoRows,
           ...state.squads.map(
             (squad): LogRowInput => ({
               kind: 'informational',
@@ -1072,6 +1222,10 @@ export const start = mutation({
         ],
       );
       await ctx.db.patch(encounterId, { logCount });
+      // DEC-0019 initialization: write the seeded vitals back to the sheet
+      // (first-encounter heroes get their maxima recorded as the sheet's
+      // owned current values; carried-attrition heroes are a no-op).
+      await syncHeroVitals(ctx, encounter, state);
     }
     return encounterId;
   },

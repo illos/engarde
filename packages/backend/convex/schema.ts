@@ -155,9 +155,64 @@ export default defineSchema({
         presence: v.number(),
       }),
     ),
+    // ── Hero document (02-normative-schema.md §3.3, DEC-0015) ──────────
+    // `level`, `classScc` and `characteristics` are henceforth STORED
+    // PROJECTIONS of build.decisions (§2.3): same read shape, one write
+    // path (heroBuild.append/revert maintains them atomically with the
+    // log).
+    //
+    // Pillar pointers — same shape discipline as classScc (scc string or
+    // join-minted option key, shape-validated in the mutation; rule
+    // legality is builder-track derivation, never substrate validation).
+    ancestryScc: v.optional(v.string()),
+    careerScc: v.optional(v.string()),
+    complicationScc: v.optional(v.string()),
+    subclassSccs: v.optional(v.array(v.string())),
+    incitingIncident: v.optional(v.string()),
+    cultureScc: v.optional(v.string()),
+    cultureName: v.optional(v.string()),
+    cultureEnvironmentScc: v.optional(v.string()),
+    cultureOrganizationScc: v.optional(v.string()),
+    cultureUpbringingScc: v.optional(v.string()),
+    // The two blobs — validated by the canon package's one Zod home
+    // (HeroBuildSchema / HeroRuntimeSchema in
+    // packages/canon/src/hero-document.ts), deliberately not mirrored as
+    // Convex validators (the encounters.state precedent — one schema
+    // home, no drift). `build` is the append-only decision log + its
+    // stored selections projection; `runtime` is the sheet-owned tracker
+    // region (DEC-0019: current Stamina / Recoveries / counters live on
+    // the character as the single source of truth — the encounter is a
+    // modification layer, never an owner).
+    build: v.optional(v.any()),
+    runtime: v.optional(v.any()),
+    // Lossless import residue (§6b) — verbatim unmappable fields from an
+    // external import (e.g. a Forge Steel .hero file), never projected.
+    importResidue: v.optional(v.any()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_ownerUserId', ['ownerUserId']),
+  // Layered stores (§2.5): reference the character, never referenced by
+  // the core. Rewinding the core log never deletes layered rows — a row
+  // whose grantDecisionSeq vanished becomes orphaned-but-present, resolved
+  // by human decision (§2.5 revert reconciliation).
+  heroItems: defineTable({
+    characterId: v.id('characters'),
+    itemScc: v.string(),
+    origin: v.union(v.literal('grant'), v.literal('inventory')),
+    grantDecisionSeq: v.optional(v.number()), // → build.decisions[seq]
+    nameOverride: v.optional(v.string()),
+    count: v.number(),
+    overrides: v.optional(v.any()), // EntityOverrideSchema[], one Zod home
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_characterId', ['characterId']),
+  heroTitles: defineTable({
+    characterId: v.id('characters'),
+    titleScc: v.string(),
+    selectedFeature: v.optional(v.string()), // title-relative discriminator
+    awardedAt: v.number(),
+    awardedByUserId: v.id('users'),
+  }).index('by_characterId', ['characterId']),
   characterCampaignBindings: defineTable({
     characterId: v.id('characters'),
     campaignId: v.id('campaigns'),
@@ -332,6 +387,12 @@ export default defineSchema({
     // so this store is a convenience, never a trust surface. Entries are
     // pruned as resolutions leave the open phase.
     openPayloads: v.optional(v.any()),
+    // Hero write-through bindings (DEC-0019): participantId → characterId
+    // for participants seeded from a character document. The sheet owns
+    // persistent vitals; every dispatch that changes a bound hero's
+    // Stamina/Recoveries writes the character's runtime.vitals in the
+    // same transaction — there is no encounter-end write-back step.
+    heroBindings: v.optional(v.any()),
     rngSeed: v.number(),
     dispatchCount: v.number(),
     logCount: v.number(),
