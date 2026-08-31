@@ -871,6 +871,13 @@ export const start = mutation({
         id: v.string(),
         recordId: v.optional(v.string()),
         kind: v.optional(v.union(v.literal('hero'), v.literal('director-creature'))),
+        /** Side/kind decoupling seam (v9): which side the participant
+         * fights on, independent of kind. Omitted = the kind default
+         * (hero → 'heroes', director-creature → 'director') in the
+         * engine's one sideOfParticipant home. Explicit `side: 'heroes'`
+         * on a director-creature seeds a hero-side statblock creature
+         * (the retainer / Summoner-minion shape). */
+        side: v.optional(v.union(v.literal('heroes'), v.literal('director'))),
         stats: v.optional(
           v.object({
             // Free-form Director assertions — bounds come from the engine's
@@ -990,6 +997,7 @@ export const start = mutation({
         id: participant.id,
         ...(participant.recordId !== undefined ? { sourceRecordId: participant.recordId } : {}),
         kind,
+        ...(participant.side !== undefined ? { side: participant.side } : {}),
         stats,
       });
     }

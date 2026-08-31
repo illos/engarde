@@ -9,6 +9,7 @@ import {
   EncounterStateV5Schema,
   EncounterStateV6Schema,
   EncounterStateV7Schema,
+  EncounterStateV8Schema,
 } from './schemas.js';
 
 /**
@@ -47,8 +48,17 @@ import {
  * version.
  */
 export function upgradeEncounterState(stored: unknown): EncounterState {
-  const v8 = EncounterStateSchema.safeParse(stored);
-  if (v8.success) return v8.data;
+  const v9 = EncounterStateSchema.safeParse(stored);
+  if (v9.success) return v9.data;
+  // v8 → v9 (side/kind decoupling, ROAD-0005 seam 4): participants gain the
+  // explicit `side` slot. Every stored participant's side was kind-derived,
+  // and the schema's null default IS that derivation (sideOfParticipant), so
+  // the lossless upgrade is `side: null` — supplied by the default; the
+  // migration re-stamps the version.
+  const v8 = EncounterStateV8Schema.safeParse(stored);
+  if (v8.success) {
+    return EncounterStateSchema.parse({ ...v8.data, schemaVersion: 9 });
+  }
   // v7 → v8 (R-0041): old rolled entries did not retain the executable
   // ability or an ordinary target list, so an exact declaration hash cannot
   // be reconstructed. Preserve that fact as null; fabricating an empty-
@@ -57,7 +67,7 @@ export function upgradeEncounterState(stored: unknown): EncounterState {
   if (v7.success) {
     return EncounterStateSchema.parse({
       ...v7.data,
-      schemaVersion: 8,
+      schemaVersion: 9,
       resolutionStack: v7.data.resolutionStack.map((entry) => ({
         ...entry,
         declarationHash: typeof entry.declarationHash === 'string' ? entry.declarationHash : null,
@@ -90,7 +100,7 @@ export function upgradeEncounterState(stored: unknown): EncounterState {
   }
   const v1: EncounterStateV1 = EncounterStateV1Schema.parse(stored);
   return EncounterStateSchema.parse({
-    schemaVersion: 8,
+    schemaVersion: 9,
     participants: Object.fromEntries(
       Object.entries(v1.participants).map(([id, participant]) => [
         id,

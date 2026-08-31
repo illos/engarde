@@ -157,8 +157,30 @@ export const ACTION_COST_DEBITS: Readonly<Record<ActionCost, ActionCostDebit>> =
  * [rule.combat/turn]. Capacity beyond this is `granted` counters only. */
 export const BASE_TURN_BUDGET = 1 as const;
 
-export function sideOfParticipant(participant: ParticipantState): Side {
-  return participant.kind === 'hero' ? 'heroes' : 'director';
+/** The ONE derivation home for a participant's combat side
+ * [rule.combat/combat-round]: the explicit seeded `side` when present, else
+ * the kind default — hero → 'heroes', director-creature → 'director'.
+ * Nothing else may re-derive side from kind: core content includes
+ * hero-side statblock creatures (retainers; Summoner minions), so the two
+ * fields are independent (v9, ROAD-0005 seam 4). Accepts the structural
+ * subset so seed-time callers (driver participants) share the home. */
+export function sideOfParticipant(participant: {
+  kind: ParticipantState['kind'];
+  side?: Side | null;
+}): Side {
+  return participant.side ?? (participant.kind === 'hero' ? 'heroes' : 'director');
+}
+
+/** A squad occupies one turn slot [R-0033]; its side is its members' side,
+ * through the one sideOfParticipant home (seeding refuses a mixed-side
+ * squad, so any member answers). Fallback when no member resolves:
+ * 'director' — the pre-v9 squad-turn default. */
+export function sideOfSquad(state: EncounterState, squad: { memberIds: readonly string[] }): Side {
+  for (const memberId of squad.memberIds) {
+    const member = state.participants[memberId];
+    if (member) return sideOfParticipant(member);
+  }
+  return 'director';
 }
 
 /** Is `payerId` acting within the active turn slot? True for the active

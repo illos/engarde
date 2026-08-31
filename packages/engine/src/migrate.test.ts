@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { upgradeEncounterState } from './migrate.js';
 
-/** The lossless v6 participant additions every lift supplies by default. */
-const V8_PARTICIPANT_DEFAULTS = {
+/** The lossless v6+ participant additions every lift supplies by default. */
+const V9_PARTICIPANT_DEFAULTS = {
   traits: {
     turnAllowance: 1,
     noConsecutiveTurns: false,
@@ -12,10 +12,12 @@ const V8_PARTICIPANT_DEFAULTS = {
   actionBudget: {},
   triggeredThisRound: 0,
   abilityUses: {},
+  /** v9 (side/kind decoupling): null = kind-derived, the pre-v9 behavior. */
+  side: null,
 };
 
 /** The lossless v6 encounter-level additions. */
-const V8_ENCOUNTER_DEFAULTS = {
+const V9_ENCOUNTER_DEFAULTS = {
   turnState: null,
   villainActions: { usedThisRound: false, usedByAbility: [] },
   resolutionStack: [],
@@ -74,7 +76,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
       },
     };
     const lifted = upgradeEncounterState(v1);
-    expect(lifted.schemaVersion).toBe(8);
+    expect(lifted.schemaVersion).toBe(9);
     const fury = lifted.participants.fury;
     if (!fury) throw new Error('fury missing after upgrade');
     expect(fury.kind).toBe('director-creature');
@@ -83,7 +85,7 @@ describe('upgradeEncounterState (design SE-2)', () => {
     expect(fury.grants).toEqual([]);
     expect(fury.conditions).toEqual(v1.participants.fury.conditions);
     expect(fury.sourceRecordId).toBe('mcdm.heroes.v1/class/fury');
-    expect(fury.traits).toEqual(V8_PARTICIPANT_DEFAULTS.traits);
+    expect(fury.traits).toEqual(V9_PARTICIPANT_DEFAULTS.traits);
     expect(lifted.turnState).toBeNull();
   });
 
@@ -103,12 +105,12 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v2);
     expect(lifted).toEqual({
-      schemaVersion: 8,
+      schemaVersion: 9,
       terrainFacts: [],
       squads: [],
-      ...V8_ENCOUNTER_DEFAULTS,
+      ...V9_ENCOUNTER_DEFAULTS,
       participants: {
-        goblin: { ...v2.participants.goblin, grants: [], ...V8_PARTICIPANT_DEFAULTS },
+        goblin: { ...v2.participants.goblin, grants: [], ...V9_PARTICIPANT_DEFAULTS },
       },
     });
   });
@@ -142,15 +144,15 @@ describe('upgradeEncounterState (design SE-2)', () => {
     const lifted = upgradeEncounterState(v5);
     expect(lifted).toEqual({
       ...v5,
-      schemaVersion: 8,
-      ...V8_ENCOUNTER_DEFAULTS,
+      schemaVersion: 9,
+      ...V9_ENCOUNTER_DEFAULTS,
       participants: {
         goblin: {
           ...v5.participants.goblin,
           // Migration wraps every stored grant as the next-roll kind
           // (design §3) — no field is dropped.
           grants: [{ kind: 'next-roll', ...(v5.participants.goblin.grants[0] ?? {}) }],
-          ...V8_PARTICIPANT_DEFAULTS,
+          ...V9_PARTICIPANT_DEFAULTS,
         },
       },
     });
@@ -195,12 +197,12 @@ describe('upgradeEncounterState (design SE-2)', () => {
     };
     const lifted = upgradeEncounterState(v4);
     expect(lifted).toEqual({
-      schemaVersion: 8,
+      schemaVersion: 9,
       terrainFacts: [],
       squads: [],
-      ...V8_ENCOUNTER_DEFAULTS,
+      ...V9_ENCOUNTER_DEFAULTS,
       participants: {
-        goblin: { ...v4.participants.goblin, ...V8_PARTICIPANT_DEFAULTS },
+        goblin: { ...v4.participants.goblin, ...V9_PARTICIPANT_DEFAULTS },
       },
     });
   });
@@ -222,14 +224,14 @@ describe('upgradeEncounterState (design SE-2)', () => {
           stats: null,
           stamina: null,
           grants: [],
-          ...V8_PARTICIPANT_DEFAULTS,
+          ...V9_PARTICIPANT_DEFAULTS,
         },
       },
     };
     const lifted = upgradeEncounterState(v6);
     expect(lifted).toEqual({
       ...v6,
-      schemaVersion: 8,
+      schemaVersion: 9,
       occurrences: [],
       resolutionStack: [
         {
@@ -272,17 +274,57 @@ describe('upgradeEncounterState (design SE-2)', () => {
           stats: null,
           stamina: null,
           grants: [],
-          ...V8_PARTICIPANT_DEFAULTS,
+          ...V9_PARTICIPANT_DEFAULTS,
         },
       },
     };
     const lifted = upgradeEncounterState(v7);
-    expect(lifted.schemaVersion).toBe(8);
+    expect(lifted.schemaVersion).toBe(9);
     const entry = lifted.resolutionStack[0];
     expect(entry?.phase).toBe('rolled');
     expect(entry?.declarationHash).toBeNull();
     expect(entry?.phase === 'rolled' ? entry.rollTargets : null).toEqual([]);
     // Re-upgrading is a no-op: the explicit legacy sentinel is stable.
+    expect(upgradeEncounterState(lifted)).toEqual(lifted);
+  });
+
+  it('lifts a v8 state with the kind-derived side sentinel (side/kind decoupling)', () => {
+    const v8 = {
+      schemaVersion: 8,
+      terrainFacts: [],
+      squads: [],
+      turnState: null,
+      villainActions: { usedThisRound: false, usedByAbility: [] },
+      resolutionStack: [],
+      occurrences: [],
+      participants: {
+        goblin: {
+          id: 'goblin',
+          conditions: [],
+          sourceRecordId: null,
+          kind: 'director-creature',
+          stats: null,
+          stamina: null,
+          grants: [],
+          traits: V9_PARTICIPANT_DEFAULTS.traits,
+          actionBudget: {},
+          triggeredThisRound: 0,
+          abilityUses: {},
+        },
+      },
+    };
+    const lifted = upgradeEncounterState(v8);
+    expect(lifted).toEqual({
+      ...v8,
+      schemaVersion: 9,
+      participants: {
+        // side: null = derive from kind in the one sideOfParticipant home —
+        // exactly what every pre-v9 participant did. No stored side is
+        // invented.
+        goblin: { ...v8.participants.goblin, side: null },
+      },
+    });
+    // Re-upgrading is a no-op.
     expect(upgradeEncounterState(lifted)).toEqual(lifted);
   });
 

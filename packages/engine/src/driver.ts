@@ -1,3 +1,4 @@
+import { sideOfParticipant } from './action-economy.js';
 import { type ApplyResult, type EngineContext, applyIntent } from './apply-intent.js';
 import { isMinion } from './damage.js';
 import { type InvariantViolation, checkInvariants } from './invariants.js';
@@ -50,8 +51,15 @@ export interface DriverParticipant {
    * are corpus records, never invented stat blocks). */
   sourceRecordId?: string;
   /** Heroes vs Director-controlled creatures split on death rules — explicit
-   * at seed time, no default (design SE-6). */
+   * at seed time, no default (design SE-6). What the participant IS, never
+   * which side it fights on — that is `side`. */
   kind: 'hero' | 'director-creature';
+  /** Which side the participant fights on — independent of kind (v9,
+   * ROAD-0005 seam 4). Omitted = the kind default (hero → 'heroes',
+   * director-creature → 'director') via the one sideOfParticipant home.
+   * Set explicitly to seed a hero-side statblock creature (the retainer /
+   * Summoner-minion shape). */
+  side?: 'heroes' | 'director';
   /** Stat-block-sourced or Director-asserted stats; omitted = table-mode
    * actor (no stat automation, receipts only). */
   stats?: ParticipantStats;
@@ -103,6 +111,7 @@ function validateSquadSeeds(
     if (squad.memberIds.length === 0) throw new Error(`squad ${squad.squadId} has no members`);
     const records = new Set<string | null>();
     const staminas = new Set<number>();
+    const sides = new Set<'heroes' | 'director'>();
     for (const memberId of squad.memberIds) {
       const owner = memberOwner.get(memberId);
       if (owner !== undefined) {
@@ -125,6 +134,15 @@ function validateSquadSeeds(
       }
       records.add(member.sourceRecordId ?? null);
       staminas.add(member.stats.staminaMax);
+      sides.add(sideOfParticipant(member));
+    }
+    // A squad occupies ONE turn slot [R-0033]; a mixed-side squad cannot be
+    // represented coherently by side alternation — substrate-invariant
+    // refusal (the zipper class), not a warn.
+    if (sides.size > 1) {
+      throw new Error(
+        `squad ${squad.squadId} mixes sides — a squad acts together on one turn slot [R-0033], so its members must share one side`,
+      );
     }
     // "Minions with the same name … can be organized into squads"
     // [rule.monster/squad]: a mixed-statblock squad is REFUSED — the printed
@@ -193,7 +211,7 @@ export function initialEncounterState(
   // default (turnState null until begin-combat, empty budgets/counters,
   // empty occurrence ledger).
   return EncounterStateSchema.parse({
-    schemaVersion: 8,
+    schemaVersion: 9,
     participants: Object.fromEntries(
       participants.map((participant) => [
         participant.id,
@@ -202,6 +220,10 @@ export function initialEncounterState(
           conditions: [],
           sourceRecordId: participant.sourceRecordId ?? null,
           kind: participant.kind,
+          // Explicit side seeds through; omitted stays null = kind-derived
+          // in the one sideOfParticipant home (v9 seam — not a behavior
+          // change for pre-v9 callers).
+          side: participant.side ?? null,
           stats: participant.stats ?? null,
           stamina:
             participant.stats && !squadMemberIds.has(participant.id)

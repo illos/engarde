@@ -24,6 +24,23 @@ describe('driver harness', () => {
     expect(harness.state().participants.censor?.conditions).toEqual([]);
   });
 
+  it('seeds side independently of kind; omitted stays the kind-derived sentinel (v9 seam)', () => {
+    const harness = createDriver(
+      [
+        { id: 'fury', sourceRecordId: FURY, kind: 'hero' as const },
+        // A hero-side statblock creature (the retainer / Summoner-minion
+        // shape): kind stays what it IS, side says who it fights for.
+        { id: 'ally', kind: 'director-creature' as const, side: 'heroes' },
+      ],
+      { random: createSeededRandomSource(1) },
+    );
+    expect(harness.state().participants.ally?.kind).toBe('director-creature');
+    expect(harness.state().participants.ally?.side).toBe('heroes');
+    // No explicit side = null: derivation stays in the one
+    // sideOfParticipant home, not copied into state.
+    expect(harness.state().participants.fury?.side).toBeNull();
+  });
+
   it('dispatches, accumulates the log, and runs invariants per step', () => {
     const harness = driver();
     const result = harness.dispatch({

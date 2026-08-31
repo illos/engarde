@@ -41,6 +41,11 @@ import { z } from 'zod';
  * no roll receipt and the union makes that unrepresentable; it carries
  * `declaredTargets` and a `declarationHash` (what was declared) alongside
  * the rolled arms' `payloadHash` (what was rolled).
+ * schemaVersion 9 (side/kind decoupling, ROAD-0005 generalizing seam 4):
+ * participants gain an explicit `side` slot, independent of `kind`. null =
+ * kind-derived (hero → 'heroes', director-creature → 'director' — exactly
+ * the pre-v9 behavior), supplied by the schema default; the one derivation
+ * home is `sideOfParticipant` (action-economy.ts).
  */
 
 export const ParticipantIdSchema = z.string().min(1);
@@ -399,14 +404,34 @@ export const AbilityUseCountersSchema = z.object({
 });
 export type AbilityUseCounters = z.infer<typeof AbilityUseCountersSchema>;
 
+/**
+ * Combat sides [rule.combat/combat-round §Determine Who Goes First: "the
+ * heroes' side or the other side"]. Side is INDEPENDENT of participant
+ * `kind` (v9): kind says what a participant IS (the death-rules split),
+ * side says who it fights FOR. Core content includes hero-side statblock
+ * creatures (retainers; Summoner minions), so nothing may re-derive side
+ * from kind — `sideOfParticipant` (action-economy.ts) is the one
+ * derivation home.
+ */
+export const SIDES = ['heroes', 'director'] as const;
+export const SideSchema = z.enum(SIDES);
+export type Side = z.infer<typeof SideSchema>;
+
 const participantShape = {
   id: ParticipantIdSchema,
   conditions: z.array(ConditionInstanceSchema),
   /** The real corpus record this actor embodies (actors are never invented). */
   sourceRecordId: z.string().min(1).nullable().optional(),
   /** Heroes and Director-controlled creatures split on death rules
-   * [rule.health/stamina, rule.health/dying]. Explicit at seed time. */
+   * [rule.health/stamina, rule.health/dying]. Explicit at seed time.
+   * What the participant IS, never which side it fights on — see `side`. */
   kind: z.enum(['hero', 'director-creature']),
+  /** Which side this participant fights on (v9) — explicit and independent
+   * of `kind`. null = derive from kind through `sideOfParticipant` (hero →
+   * 'heroes', director-creature → 'director'), the default every pre-v9
+   * caller relies on. Seed it explicitly for a hero-side statblock
+   * creature (the retainer / Summoner-minion shape). */
+  side: SideSchema.nullable().default(null),
   /** null = table-mode actor: no stat automation, receipts only. */
   stats: ParticipantStatsSchema.nullable(),
   stamina: StaminaStateSchema.nullable(),
@@ -522,15 +547,6 @@ export const SquadStateSchema = z
   });
 
 export type SquadState = z.infer<typeof SquadStateSchema>;
-
-/**
- * Combat sides [rule.combat/combat-round §Determine Who Goes First: "the
- * heroes' side or the other side"]. Participants map by kind: hero →
- * 'heroes', director-creature → 'director'.
- */
-export const SIDES = ['heroes', 'director'] as const;
-export const SideSchema = z.enum(SIDES);
-export type Side = z.infer<typeof SideSchema>;
 
 /**
  * Encounter-level turn structure (v6, design §3). `turnsTaken` is a COUNT
@@ -987,7 +1003,7 @@ export const OccurrenceSchema = z.discriminatedUnion('kind', [
 export type Occurrence = z.infer<typeof OccurrenceSchema>;
 
 export const EncounterStateSchema = z.object({
-  schemaVersion: z.literal(8),
+  schemaVersion: z.literal(9),
   participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
   /** Attributed terrain alterations (v4, R-0022). Default keeps v3-shaped
    * literals valid while migration stamps the version. */
@@ -1012,6 +1028,23 @@ export const EncounterStateSchema = z.object({
 });
 
 export type EncounterState = z.infer<typeof EncounterStateSchema>;
+
+/** The declaration-hash stored shape, retained for migration (migrate.ts).
+ * Participant bodies parse through the current schema — the v9 `side` slot
+ * defaults to null (kind-derived, the pre-v9 behavior) — so only the
+ * version literal distinguishes the wrapper. */
+export const EncounterStateV8Schema = z.object({
+  schemaVersion: z.literal(8),
+  participants: z.record(ParticipantIdSchema, ParticipantStateSchema),
+  terrainFacts: z.array(TerrainFactSchema).default([]),
+  squads: z.array(SquadStateSchema).default([]),
+  turnState: TurnStateSchema.nullable().default(null),
+  villainActions: VillainActionStateSchema.default({ usedThisRound: false, usedByAbility: [] }),
+  resolutionStack: z.array(ResolutionEntrySchema).default([]),
+  occurrences: z.array(OccurrenceSchema).default([]),
+});
+
+export type EncounterStateV8 = z.infer<typeof EncounterStateV8Schema>;
 
 /** The occurrence-ledger stored shape, retained for migration (migrate.ts).
  * Its resolution entries are all `rolled`/`committed` — the v8 `declared`
