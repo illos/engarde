@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { type ApplyResult, applyIntent } from './apply-intent.js';
 import { targetCapAbilityKey } from './common-action-execution.js';
+import {
+  COMMON_ACTION_ELIGIBILITY_GATES,
+  foldAssertedFacts,
+  readAssertedFact,
+  readEligibility,
+} from './common-action-gates.js';
+import { commonActionMenu, hasCommonActionAccess } from './common-action-menu.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
 import { deriveOccurrences } from './occurrences.js';
 import type {
-  CommonActionProgramDataInput,
+  CommonActionProgramData,
   EncounterState,
   Intent,
   ParticipantStats,
@@ -41,7 +48,7 @@ const GOBLIN_WARRIOR_STATS: ParticipantStats = {
   withCaptainBenefit: null,
 };
 
-const ADVANCE: CommonActionProgramDataInput = {
+const ADVANCE: CommonActionProgramData = {
   featureArtifactId: 'mcdm.heroes.v1/feature.common.move-actions/advance',
   provenance: 'prose-feature',
   group: 'move-actions',
@@ -66,7 +73,7 @@ const ADVANCE: CommonActionProgramDataInput = {
   },
 };
 
-const RIDE: CommonActionProgramDataInput = {
+const RIDE: CommonActionProgramData = {
   featureArtifactId: 'mcdm.heroes.v1/feature.common.move-actions/ride',
   provenance: 'prose-feature',
   group: 'move-actions',
@@ -112,7 +119,7 @@ const RIDE: CommonActionProgramDataInput = {
   },
 };
 
-const FREE_STRIKE: CommonActionProgramDataInput = {
+const FREE_STRIKE: CommonActionProgramData = {
   featureArtifactId: 'mcdm.heroes.v1/feature.common.main-actions/free-strike',
   provenance: 'prose-feature',
   group: 'main-actions',
@@ -144,7 +151,7 @@ const FREE_STRIKE: CommonActionProgramDataInput = {
   },
 };
 
-const CATCH_BREATH: CommonActionProgramDataInput = {
+const CATCH_BREATH: CommonActionProgramData = {
   featureArtifactId: 'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
   provenance: 'prose-feature',
   group: 'maneuvers',
@@ -174,7 +181,7 @@ const CATCH_BREATH: CommonActionProgramDataInput = {
   },
 };
 
-const STAND_UP: CommonActionProgramDataInput = {
+const STAND_UP: CommonActionProgramData = {
   featureArtifactId: 'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
   provenance: 'prose-feature',
   group: 'maneuvers',
@@ -249,7 +256,7 @@ function onHeroTurn(): EncounterState {
 
 function useCommonAction(
   actorId: string,
-  feature: CommonActionProgramDataInput,
+  feature: CommonActionProgramData,
   overrides: Record<string, unknown> = {},
 ): Intent {
   return {
@@ -480,5 +487,247 @@ describe('use-common-action — the shared dispatch path', () => {
     const result = dispatchChecked(state, useCommonAction('warrior', ADVANCE));
     expect(result.state.participants.warrior?.actionBudget['move-action']?.used).toBe(1);
     expect(result.log.some((entry) => entry.kind === 'warning')).toBe(true);
+  });
+});
+
+describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () => {
+  it('reads an asserted fact three ways: asserted true, asserted false, absent', () => {
+    const facts = [
+      { fact: 'adjacent' as const, a: 'hero', b: 'warrior', holds: true },
+      { fact: 'line-of-effect' as const, a: 'hero', b: 'ally', holds: false },
+    ];
+    expect(readAssertedFact(facts, { fact: 'adjacent', a: 'hero', b: 'warrior' })).toBe(true);
+    expect(readAssertedFact(facts, { fact: 'line-of-effect', a: 'hero', b: 'ally' })).toBe(false);
+    // Absent is UNKNOWN, never false: the table has not spoken.
+    expect(readAssertedFact(facts, { fact: 'adjacent', a: 'hero', b: 'ally' })).toBe('unknown');
+    // The pair is directed — `a is adjacent to b` is not stored symmetric.
+    expect(readAssertedFact(facts, { fact: 'adjacent', a: 'warrior', b: 'hero' })).toBe('unknown');
+  });
+
+  it('folds declared facts across every named target', () => {
+    const state = onHeroTurn();
+    const input = {
+      state,
+      actorId: 'hero',
+      targets: ['warrior', 'ally'],
+      spatialFacts: [{ fact: 'adjacent' as const, a: 'hero', b: 'warrior', holds: true }],
+    };
+    expect(
+      foldAssertedFacts([{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }], input),
+    ).toEqual([true, 'unknown']);
+    expect(
+      foldAssertedFacts([{ fact: 'adjacent', a: 'actor', b: 'target', holds: false }], input),
+    ).toEqual([false, 'unknown']);
+    // No targets, no readings — the gate's engine-known half stands alone.
+    expect(
+      foldAssertedFacts([{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }], {
+        ...input,
+        targets: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it('registers exactly the printed preconditions of waves 1-4', () => {
+    expect(COMMON_ACTION_ELIGIBILITY_GATES.map((gate) => gate.featureArtifactId)).toEqual([
+      'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+      'mcdm.heroes.v1/feature.common.move-actions/ride',
+    ]);
+  });
+
+  it("Catch Breath's dying gate reads the engine's one dying home, tri-state", () => {
+    const state = onHeroTurn();
+    const read = (actorId: string, from = state) =>
+      readEligibility('mcdm.heroes.v1/feature.common.maneuvers/catch-breath', {
+        state: from,
+        actorId,
+        targets: [actorId],
+        spatialFacts: [],
+      })[0]?.verdict;
+    expect(read('hero')).toBe(true);
+
+    const dying = dispatchChecked(state, {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        amount: 15,
+        reason: 'seeded damage to reach the dying band',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+    expect(read('hero', dying)).toBe(false);
+
+    // Untracked Stamina is not "not dying" — it is unknown.
+    const untracked = {
+      ...state,
+      participants: {
+        ...state.participants,
+        hero: { ...state.participants.hero, stamina: null },
+      },
+    } as EncounterState;
+    expect(read('hero', untracked)).toBe('unknown');
+  });
+
+  it("Ride's mount precondition is unknown, not false, when a mount is named", () => {
+    const state = onHeroTurn();
+    const read = (targets: string[]) =>
+      readEligibility('mcdm.heroes.v1/feature.common.move-actions/ride', {
+        state,
+        actorId: 'hero',
+        targets,
+        spatialFacts: [],
+      })[0]?.verdict;
+    // The engine models no mount relation, so it knows exactly one thing:
+    // whether a mount was named at all.
+    expect(read([])).toBe(false);
+    expect(read(['warrior'])).toBe('unknown');
+  });
+
+  it('warns and applies a Catch Breath the printed text bars, quoting the sentence', () => {
+    let state = onHeroTurn();
+    state = dispatchChecked(state, {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        amount: 15,
+        reason: 'seeded damage to reach the dying band',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', CATCH_BREATH, {
+        targets: ['hero'],
+        recoverySpends: { hero: true },
+      }),
+    );
+    const warning = result.log.find(
+      (entry) => entry.kind === 'warning' && entry.data.commonActionEligibility !== undefined,
+    );
+    expect(warning?.message).toContain(
+      "A creature who is dying (see Dying and Death in Stamina below) can't use the Catch Breath maneuver",
+    );
+    // Permissive engine: the precondition warns, the Recovery is still
+    // spent, and the Director adjudicates.
+    expect(result.state.participants.hero?.stamina?.recoveries).toBe(7);
+    expect(result.state.participants.hero?.stamina?.current).toBeGreaterThan(0);
+  });
+
+  it('surfaces an unevaluable precondition as a table directive, not a violation', () => {
+    const state = onHeroTurn();
+    const result = dispatchChecked(state, useCommonAction('hero', RIDE, { targets: ['warrior'] }));
+    const directive = result.log.find((entry) => entry.data.commonActionEligibility !== undefined);
+    expect(directive?.kind).toBe('table-directive');
+    expect(directive?.message).toContain('only while mounted on another creature');
+  });
+});
+
+describe('the common-action offer surface (S14)', () => {
+  const ALL = [ADVANCE, RIDE, FREE_STRIKE, CATCH_BREATH, STAND_UP];
+
+  it('offers every action with its group cost, marking printed availability', () => {
+    const state = onHeroTurn();
+    const menu = commonActionMenu(state, 'hero', ALL);
+    expect(
+      menu.map((offer) => [offer.featureArtifactId, offer.actionCost, offer.available]),
+    ).toEqual([
+      ['mcdm.heroes.v1/feature.common.move-actions/advance', 'move-action', true],
+      // No mount named on a bare menu read: the printed precondition
+      // cannot be met by an unnamed mount.
+      ['mcdm.heroes.v1/feature.common.move-actions/ride', 'move-action', false],
+      ['mcdm.heroes.v1/feature.common.main-actions/free-strike', 'main-action', true],
+      ['mcdm.heroes.v1/feature.common.maneuvers/catch-breath', 'maneuver', true],
+      ['mcdm.heroes.v1/feature.common.maneuvers/stand-up', 'maneuver', true],
+    ]);
+    const ride = menu.find((offer) => offer.featureArtifactId.endsWith('/ride'));
+    expect(ride?.reasons[0]?.verbatim).toBe(
+      'A creature can take the Ride move action only while mounted on another creature (see Mounted Combat below).',
+    );
+    // Naming the mount moves it to unknown — the table decides.
+    expect(
+      commonActionMenu(state, 'hero', ALL, { targets: ['warrior'] }).find((offer) =>
+        offer.featureArtifactId.endsWith('/ride'),
+      )?.available,
+    ).toBe('unknown');
+  });
+
+  it('offers the compiled companion for a companion-paid action', () => {
+    const state = onHeroTurn();
+    const freeStrike = commonActionMenu(state, 'hero', ALL).find((offer) =>
+      offer.featureArtifactId.endsWith('/free-strike'),
+    );
+    expect(freeStrike?.offersCompanion).toBe(true);
+    expect(freeStrike?.companionArtifactIds).toEqual([
+      'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike',
+      'mcdm.heroes.v1/feature.ability.common/ranged-weapon-free-strike',
+    ]);
+    // Every other entry dispatches the prose action itself.
+    for (const offer of commonActionMenu(state, 'hero', [ADVANCE, RIDE, CATCH_BREATH])) {
+      expect(offer.offersCompanion, offer.featureArtifactId).toBe(false);
+    }
+  });
+
+  it('honours the printed access slot, with include overriding exclude', () => {
+    // ROAD-0005 seam #3. The CORE corpus prints no exclusions, so the slot
+    // is empty on every core participant; this exercises the substrate.
+    const base = onHeroTurn();
+    const advanceId = 'mcdm.heroes.v1/feature.common.move-actions/advance';
+    expect(hasCommonActionAccess(base, 'hero', advanceId)).toBe(true);
+
+    const withAccess = (access: { exclude: string[]; include: string[] }): EncounterState =>
+      ({
+        ...base,
+        participants: {
+          ...base.participants,
+          hero: {
+            ...base.participants.hero,
+            traits: { ...base.participants.hero?.traits, commonActionAccess: access },
+          },
+        },
+      }) as EncounterState;
+
+    const excluded = withAccess({ exclude: [advanceId], include: [] });
+    expect(hasCommonActionAccess(excluded, 'hero', advanceId)).toBe(false);
+    expect(
+      commonActionMenu(excluded, 'hero', ALL).some(
+        (offer) => offer.featureArtifactId === advanceId,
+      ),
+    ).toBe(false);
+    expect(
+      commonActionMenu(excluded, 'hero', ALL, { includeExcluded: true }).find(
+        (offer) => offer.featureArtifactId === advanceId,
+      )?.accessExcluded,
+    ).toBe(true);
+
+    const reincluded = withAccess({ exclude: [advanceId], include: [advanceId] });
+    expect(hasCommonActionAccess(reincluded, 'hero', advanceId)).toBe(true);
+  });
+
+  it('offers an action whose printed precondition fails — it reports, it never gates', () => {
+    let state = onHeroTurn();
+    state = dispatchChecked(state, {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'hero',
+        amount: 15,
+        reason: 'seeded damage to reach the dying band',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+    const catchBreath = commonActionMenu(state, 'hero', ALL, { targets: ['hero'] }).find((offer) =>
+      offer.featureArtifactId.endsWith('/catch-breath'),
+    );
+    expect(catchBreath).toBeDefined();
+    expect(catchBreath?.available).toBe(false);
+    expect(catchBreath?.reasons[0]?.verdict).toBe(false);
   });
 });

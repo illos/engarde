@@ -381,6 +381,25 @@ export const ParticipantTraitsSchema = z.object({
   triggeredActionLimit: z.number().int().min(0).default(1),
   /** Declared sub-actor: acts within this owner's turn slot. */
   subActorOf: ParticipantIdSchema.nullable().default(null),
+  /**
+   * Per-actor access to the 17 printed common actions — the offer
+   * surface's allow/exclude slot [ROAD-0005 seam #3]. Printed access is
+   * ASYMMETRIC where it is printed at all: a stat block may bar specific
+   * common actions from a creature, and another may re-include one that
+   * was barred. `include` therefore overrides `exclude`.
+   *
+   * This is a substrate SLOT, not a rule: the core corpus prints no
+   * exclusions, so it ships empty everywhere and nothing derives it. It
+   * exists now because the alternative is retrofitting the offer surface
+   * after it has callers, and because access is not derivable from any
+   * other field. Entries are `feature.common.*` artifact ids.
+   */
+  commonActionAccess: z
+    .object({
+      exclude: z.array(z.string().min(1)).default([]),
+      include: z.array(z.string().min(1)).default([]),
+    })
+    .default({ exclude: [], include: [] }),
 });
 export type ParticipantTraits = z.infer<typeof ParticipantTraitsSchema>;
 
@@ -445,6 +464,7 @@ const participantShape = {
     noConsecutiveTurns: false,
     triggeredActionLimit: 1,
     subActorOf: null,
+    commonActionAccess: { exclude: [], include: [] },
   }),
   /** Per-turn action budget, keyed by the actionCost enum (a Record, not a
    * closed struct — a future cost category is an enum member, not a schema
@@ -1156,6 +1176,7 @@ export const SpatialFactSchema = z.object({
   b: ParticipantIdSchema,
   holds: z.boolean(),
 });
+export type SpatialFact = z.infer<typeof SpatialFactSchema>;
 
 /**
  * The five named reaction interception points [R-0031]. The books define

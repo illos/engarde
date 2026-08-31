@@ -1,4 +1,10 @@
-import { actorPerRoundCap, targetPerRoundCap } from '@engarde/engine';
+import {
+  COMMON_ACTION_ELIGIBILITY_GATES,
+  actorPerRoundCap,
+  commonActionMenu,
+  initialEncounterState,
+  targetPerRoundCap,
+} from '@engarde/engine';
 import { describe, expect, it } from 'vitest';
 import {
   COMMON_ACTION_DIRECTORY,
@@ -192,6 +198,47 @@ describe('common-action program source', () => {
       'One two.',
       'Three four.',
       'Five.',
+    ]);
+  });
+});
+
+describe('the printed gates and the offer surface read the pinned bytes', () => {
+  it('every registered eligibility gate quotes its artifact verbatim', () => {
+    // The gate registry lives in the engine (it reads engine state), so its
+    // quotes cannot be proved there. They are proved HERE, against the same
+    // pinned bytes the compiler reads — a pin bump that rewords a printed
+    // precondition breaks loudly instead of leaving a stale quote in a
+    // warning the Director is meant to trust.
+    expect(COMMON_ACTION_ELIGIBILITY_GATES.length).toBeGreaterThan(0);
+    for (const gate of COMMON_ACTION_ELIGIBILITY_GATES) {
+      const program = byId.get(gate.featureArtifactId);
+      expect(program, gate.featureArtifactId).toBeDefined();
+      expect(
+        stripSccLinks(program?.sourceText ?? '').includes(gate.verbatim),
+        `${gate.featureArtifactId}: ${gate.verbatim}`,
+      ).toBe(true);
+    }
+  });
+
+  it('offers all 17 to a participant with no printed access restriction', () => {
+    const state = initialEncounterState([{ id: 'hero', kind: 'hero' }]);
+    const menu = commonActionMenu(state, 'hero', programs);
+    expect(menu).toHaveLength(17);
+    expect(
+      menu.filter((offer) => offer.offersCompanion).map((offer) => offer.featureArtifactId),
+    ).toEqual([
+      'mcdm.heroes.v1/feature.common.main-actions/free-strike',
+      'mcdm.heroes.v1/feature.common.maneuvers/escape-grab',
+      'mcdm.heroes.v1/feature.common.maneuvers/grab',
+      'mcdm.heroes.v1/feature.common.maneuvers/knockback',
+    ]);
+    // Fifteen of the 17 print no precondition the engine can read at all;
+    // the two that do are the two registered gates.
+    expect(
+      menu.filter((offer) => offer.available !== true).map((offer) => offer.featureArtifactId),
+    ).toEqual([
+      'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+      'mcdm.heroes.v1/feature.common.move-actions/ride',
     ]);
   });
 });

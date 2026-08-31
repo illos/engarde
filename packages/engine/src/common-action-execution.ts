@@ -1,4 +1,5 @@
 import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
+import { readEligibility } from './common-action-gates.js';
 import type { LifecycleContext } from './condition-lifecycle.js';
 import type { RandomSource } from './determinism.js';
 import {
@@ -14,6 +15,7 @@ import type {
   EncounterState,
   LogEntry,
   ParsedIntent,
+  SpatialFact,
 } from './schemas.js';
 
 /**
@@ -210,6 +212,40 @@ function preludeEntries(
   const { feature } = intent.payload;
   const log: LogEntry[] = [];
   const refs = [...new Set([feature.featureArtifactId, ...feature.canonRefs])];
+
+  // S4 — printed eligibility, read BEFORE the debit and quoted in the
+  // book's own words. It never short-circuits: a violated precondition is
+  // a warning and the action still happens [R-0030]. A precondition the
+  // engine cannot evaluate is a table directive, not a false reading —
+  // there is no mount relation, no cover and no observation in engine
+  // state, and reporting "not met" for "cannot tell" would be a fabricated
+  // reading of the table.
+  const spatialFacts: readonly SpatialFact[] = intent.spatialFacts ?? [];
+  for (const { gate, verdict } of readEligibility(feature.featureArtifactId, {
+    state,
+    actorId: intent.payload.actorParticipantId,
+    targets: intent.payload.targets,
+    spatialFacts,
+  })) {
+    if (verdict === true) continue;
+    log.push(
+      entry(
+        context,
+        verdict === false ? 'warning' : 'table-directive',
+        verdict === false
+          ? `${intent.payload.actorParticipantId} does not meet a printed precondition of ${feature.featureArtifactId}: "${gate.verbatim}" — applied anyway; the Director adjudicates`
+          : `${feature.featureArtifactId} prints a precondition the engine cannot evaluate: "${gate.verbatim}" — table-asserted`,
+        [...refs, ...gate.canonRefs],
+        {
+          commonActionEligibility: {
+            featureArtifactId: feature.featureArtifactId,
+            verdict,
+            verbatim: gate.verbatim,
+          },
+        },
+      ),
+    );
+  }
 
   if (feature.debitContract === 'companion') {
     // Free Strike, Grab, Escape Grab and Knockback: the printed cost is on
