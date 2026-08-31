@@ -109,7 +109,7 @@ function SessionPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
 
   if (session === null) {
     return (
-      <section className="border border-line bg-ink-1 p-4">
+      <section className="border border-line bg-ink-4 p-4">
         <h2 className="text-xl">No active session</h2>
         {isDirector ? (
           <>
@@ -160,7 +160,7 @@ function SessionPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
   }
 
   return (
-    <section className="border border-line bg-ink-1 p-4">
+    <section className="border border-line bg-ink-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl">Session {session.number}</h2>
@@ -211,7 +211,7 @@ function SessionPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-line-soft pt-3">
                   <select
                     aria-label={`Control recipient for ${entry.name}`}
-                    className="h-9 min-w-0 flex-1 border border-line bg-ink-1 px-2 text-sm"
+                    className="h-9 min-w-0 flex-1 border border-line bg-ink-4 px-2 text-base"
                     value={recipient[entry.characterId] ?? ''}
                     onChange={(event) =>
                       setRecipient((current) => ({
@@ -229,7 +229,7 @@ function SessionPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
                   </select>
                   <select
                     aria-label="Control scope"
-                    className="h-9 border border-line bg-ink-1 px-2 text-sm"
+                    className="h-9 border border-line bg-ink-4 px-2 text-base"
                     value={scope}
                     onChange={(event) => setScope(event.target.value as 'session' | 'persistent')}
                   >
@@ -355,7 +355,7 @@ function SessionHistoryPanel({ campaignId }: { campaignId: Id<'campaigns'> }) {
       {history.length === 0 ? (
         <p className="mt-3 text-sm text-text-dim">No completed sessions yet.</p>
       ) : (
-        <ol className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+        <ol className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-4">
           {history.map((session) => (
             <li
               key={session.sessionId}
@@ -386,7 +386,7 @@ function PlayersPanel({ players }: { players: Players }) {
   return (
     <section className="sm:w-64 sm:shrink-0">
       <h2 className="type-label text-xs text-text-mute">At the Table</h2>
-      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-4">
         {players.map((player) => (
           <li key={player.userId} className="flex items-center gap-3 p-3">
             <div className="min-w-0 flex-1">
@@ -437,7 +437,7 @@ function ChatPanel({ campaignId, messages }: { campaignId: Id<'campaigns'>; mess
       <h2 className="type-label text-xs text-text-mute">Table talk</h2>
       <div
         ref={scrollRef}
-        className="mt-3 flex h-96 flex-col gap-3 overflow-y-auto border border-line bg-ink-1 p-4"
+        className="mt-3 flex h-96 flex-col gap-3 overflow-y-auto border border-line bg-ink-4 p-4"
       >
         {messages.length === 0 ? (
           <p className="m-auto text-sm text-text-dim">No messages yet — say hello.</p>
@@ -460,7 +460,7 @@ function ChatPanel({ campaignId, messages }: { campaignId: Id<'campaigns'>; mess
           maxLength={1000}
           placeholder="Say something…"
           aria-label="Message"
-          className="h-11 min-w-0 flex-1 border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
+          className="h-11 min-w-0 flex-1 border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-rule"
         />
         <Button type="submit" variant="primary">
           Send

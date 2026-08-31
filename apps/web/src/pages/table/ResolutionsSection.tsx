@@ -64,7 +64,10 @@ export function ResolutionsSection({
         {resolutions.map((entry) => {
           const downgradePick = downgradePicks[entry.resolutionId] ?? '2';
           return (
-            <li key={entry.resolutionId} className="border border-accent bg-ink-2 p-3">
+            <li
+              key={entry.resolutionId}
+              className="border border-accent-tint-line bg-accent-tint p-3"
+            >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="min-w-0 flex-1 truncate font-display">{entry.abilitySlug}</span>
                 <span className="font-mono text-xs text-text-mute">{entry.actorId}</span>
@@ -102,7 +105,7 @@ export function ResolutionsSection({
                   <>
                     <select
                       aria-label={`Downgrade tier for ${entry.resolutionId}`}
-                      className="h-11 border border-line bg-ink-1 px-2 text-sm"
+                      className="h-11 border border-line bg-ink-4 px-2 text-base"
                       value={downgradePick}
                       onChange={(event) =>
                         setDowngradePicks((current) => ({

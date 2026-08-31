@@ -13,11 +13,11 @@ export function HomePage({
   if (backendConfigured) return <AuthSurface />;
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-8 px-6">
-      <h1 className="text-6xl">En Garde</h1>
+      <h1 className="text-6xl italic">En Garde</h1>
       <p className="text-center text-text-dim">
         A table for Draw Steel. Greenfield substrate — surfaces arrive as their backing lands.
       </p>
-      <section className="w-full border border-line bg-ink-1 p-6">
+      <section className="w-full border border-line bg-ink-4 p-6">
         <h2 className="mb-4 type-label text-xs text-text-mute">Substrate status</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           <dt className="text-text-dim">Frontend</dt>
@@ -36,7 +36,7 @@ function AuthSurface() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-8 px-6 py-12">
       <header>
-        <h1 className="text-6xl">En Garde</h1>
+        <h1 className="text-6xl italic">En Garde</h1>
         <p className="mt-3 text-text-dim">Gather your company around the table.</p>
       </header>
       <AuthLoading>
@@ -108,7 +108,7 @@ function PasswordForm() {
   const needsPassword = flow === 'signIn' || flow === 'signUp';
   const needsCode = flow === 'verify' || flow === 'reset';
   return (
-    <section className="border border-line bg-ink-1 p-6">
+    <section className="border border-line bg-ink-4 p-6">
       <h2 className="text-2xl">
         {flow === 'signUp'
           ? 'Create your account'
@@ -122,7 +122,7 @@ function PasswordForm() {
         <label className="grid gap-2 text-sm text-text-dim">
           Email
           <input
-            className="border border-line bg-ink-0 px-3 py-2 text-base"
+            className="border border-line bg-ink-4 px-3 py-2 text-base"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -134,7 +134,7 @@ function PasswordForm() {
           <label className="grid gap-2 text-sm text-text-dim">
             Password
             <input
-              className="border border-line bg-ink-0 px-3 py-2 text-base"
+              className="border border-line bg-ink-4 px-3 py-2 text-base"
               name="password"
               type="password"
               required
@@ -150,7 +150,7 @@ function PasswordForm() {
           <label className="grid gap-2 text-sm text-text-dim">
             Code
             <input
-              className="border border-line bg-ink-0 px-3 py-2 font-mono text-base"
+              className="border border-line bg-ink-4 px-3 py-2 font-mono text-base"
               name="code"
               required
               autoComplete="one-time-code"
@@ -161,7 +161,7 @@ function PasswordForm() {
           <label className="grid gap-2 text-sm text-text-dim">
             New password
             <input
-              className="border border-line bg-ink-0 px-3 py-2 text-base"
+              className="border border-line bg-ink-4 px-3 py-2 text-base"
               name="newPassword"
               type="password"
               required
@@ -171,7 +171,7 @@ function PasswordForm() {
           </label>
         )}
         <button
-          className="h-11 bg-accent px-4 font-semibold text-ink-0 hover:bg-accent-strong disabled:opacity-50"
+          className="type-label h-11 bg-accent px-4 text-xs font-semibold text-on-accent hover:bg-accent-strong disabled:opacity-50"
           disabled={busy}
           type="submit"
         >
@@ -230,7 +230,7 @@ function Account() {
     <>
       <nav className="grid gap-3 sm:grid-cols-2">
         <Link to="/campaigns" className="group block">
-          <div className="h-full border border-line bg-ink-1 p-5 transition-colors group-hover:border-accent">
+          <div className="h-full border border-line bg-ink-4 p-5 transition-colors group-hover:border-accent">
             <h2 className="text-2xl">Your campaigns</h2>
             <p className="mt-1 text-sm text-text-dim">
               Open a table you're part of, create one, or join with a code.
@@ -238,7 +238,7 @@ function Account() {
           </div>
         </Link>
         <Link to="/directory" className="group block">
-          <div className="h-full border border-line bg-ink-1 p-5 transition-colors group-hover:border-accent">
+          <div className="h-full border border-line bg-ink-4 p-5 transition-colors group-hover:border-accent">
             <h2 className="text-2xl">Campaign directory</h2>
             <p className="mt-1 text-sm text-text-dim">
               Browse public campaigns looking for players.
@@ -277,7 +277,7 @@ function ProfileForm({
     }
   }
   return (
-    <section className="border border-line bg-ink-1 p-6">
+    <section className="border border-line bg-ink-4 p-6">
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-2xl">
           {mode === 'onboarding' ? 'Choose your table name' : 'Your account'}
@@ -294,7 +294,7 @@ function ProfileForm({
         <label className="grid gap-2 text-sm text-text-dim">
           Display name
           <input
-            className="border border-line bg-ink-0 px-3 py-2 text-base"
+            className="border border-line bg-ink-4 px-3 py-2 text-base"
             name="displayName"
             defaultValue={profile?.displayName}
             maxLength={60}
@@ -304,7 +304,7 @@ function ProfileForm({
         <label className="grid gap-2 text-sm text-text-dim">
           Handle
           <input
-            className="border border-line bg-ink-0 px-3 py-2 text-base"
+            className="border border-line bg-ink-4 px-3 py-2 text-base"
             name="handle"
             defaultValue={profile?.handle}
             minLength={3}
@@ -317,7 +317,7 @@ function ProfileForm({
           </span>
         </label>
         <button
-          className="h-11 bg-accent px-4 font-semibold text-ink-0 hover:bg-accent-strong"
+          className="type-label h-11 bg-accent px-4 text-xs font-semibold text-on-accent hover:bg-accent-strong"
           type="submit"
         >
           {mode === 'onboarding' ? 'Enter En Garde' : 'Save profile'}

@@ -1,17 +1,19 @@
 /* Self-hosted type-role faces (@fontsource — bundled at build time, served
- * from our origin; the predecessor loaded these same faces + weights from the
- * Google Fonts CDN). Weights mirror that load:
- *   display → Cormorant Garamond 500/600/700
- *   body    → EB Garamond 400 (+italic)/500/600
+ * from our origin; no font CDN, ever — design-guide.md "Fonts are self-hosted").
+ * The Ledger load (design-system.md §3):
+ *   display → Playfair Display 500/600/700 + italics (italic = the editorial aside)
+ *   body    → Barlow Semi Condensed 400/500/600
  *   label   → Geist Mono 400/500/600
  */
-@import "@fontsource/cormorant-garamond/500.css";
-@import "@fontsource/cormorant-garamond/600.css";
-@import "@fontsource/cormorant-garamond/700.css";
-@import "@fontsource/eb-garamond/400.css";
-@import "@fontsource/eb-garamond/400-italic.css";
-@import "@fontsource/eb-garamond/500.css";
-@import "@fontsource/eb-garamond/600.css";
+@import "@fontsource/playfair-display/500.css";
+@import "@fontsource/playfair-display/600.css";
+@import "@fontsource/playfair-display/700.css";
+@import "@fontsource/playfair-display/500-italic.css";
+@import "@fontsource/playfair-display/600-italic.css";
+@import "@fontsource/playfair-display/700-italic.css";
+@import "@fontsource/barlow-semi-condensed/400.css";
+@import "@fontsource/barlow-semi-condensed/500.css";
+@import "@fontsource/barlow-semi-condensed/600.css";
 @import "@fontsource/geist-mono/400.css";
 @import "@fontsource/geist-mono/500.css";
 @import "@fontsource/geist-mono/600.css";

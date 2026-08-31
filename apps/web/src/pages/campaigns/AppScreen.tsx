@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router';
 import { AuthLoading, Authenticated, Unauthenticated } from 'convex/react';
 import type { ReactNode } from 'react';
 import { convexUrl } from '../../backend';
+import { Surface } from '../../primitives';
 
 // Frame for every signed-in surface: header nav + the three auth states.
 // Unauthenticated visitors are pointed at the home page's sign-in flow
@@ -17,35 +18,37 @@ export function AppScreen({ children }: { children: ReactNode }) {
     );
   }
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-page flex-col px-4 sm:px-6">
-      <header className="flex h-14 items-center justify-between border-b border-line-soft">
-        <Link
-          to="/"
-          className="inline-flex h-11 items-center font-display text-xl uppercase tracking-wide"
-        >
-          En Garde
-        </Link>
-        <nav className="flex items-center gap-6">
-          <Link
-            to="/campaigns"
-            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
-          >
-            Campaigns
+    <div className="flex min-h-screen flex-col">
+      {/* The chrome band — the black instrument frame (design-system.md §5.1).
+          Brand renders in the display italic; nav is the engraved label voice.
+          The band's bottom edge IS the press rule between chrome and field. */}
+      <Surface kind="chrome" as="header" className="bg-ink-0">
+        <div className="mx-auto flex h-14 w-full max-w-page items-center justify-between px-4 sm:px-6">
+          <Link to="/" className="inline-flex h-11 items-center font-display text-xl italic">
+            En Garde
           </Link>
-          <Link
-            to="/characters"
-            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
-          >
-            Characters
-          </Link>
-          <Link
-            to="/directory"
-            className="type-label inline-flex h-11 items-center text-xs text-text-dim transition-colors hover:text-text [&.active]:text-accent"
-          >
-            Directory
-          </Link>
-        </nav>
-      </header>
+          <nav className="flex items-center gap-6">
+            <Link
+              to="/campaigns"
+              className="type-label inline-flex h-11 items-center border-b-2 border-transparent text-xs text-text-dim transition-colors hover:text-text [&.active]:border-accent-strong [&.active]:text-text"
+            >
+              Campaigns
+            </Link>
+            <Link
+              to="/characters"
+              className="type-label inline-flex h-11 items-center border-b-2 border-transparent text-xs text-text-dim transition-colors hover:text-text [&.active]:border-accent-strong [&.active]:text-text"
+            >
+              Characters
+            </Link>
+            <Link
+              to="/directory"
+              className="type-label inline-flex h-11 items-center border-b-2 border-transparent text-xs text-text-dim transition-colors hover:text-text [&.active]:border-accent-strong [&.active]:text-text"
+            >
+              Directory
+            </Link>
+          </nav>
+        </div>
+      </Surface>
       <AuthLoading>
         <main className="flex flex-1 items-center justify-center">
           <p className="text-text-dim">Restoring your session…</p>
@@ -63,7 +66,7 @@ export function AppScreen({ children }: { children: ReactNode }) {
         </main>
       </Unauthenticated>
       <Authenticated>
-        <main className="flex-1 py-8">{children}</main>
+        <main className="mx-auto w-full max-w-page flex-1 px-4 py-8 sm:px-6">{children}</main>
       </Authenticated>
     </div>
   );

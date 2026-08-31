@@ -3,7 +3,7 @@ import type { Id } from '@engarde/backend/convex/_generated/dataModel';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from 'convex/react';
 import { useEffect, useRef, useState } from 'react';
-import { Button, QueryBoundary, Surface } from '../../primitives';
+import { Button, QueryBoundary } from '../../primitives';
 import { errorMessage } from './AppScreen';
 
 type JoinTarget =
@@ -11,8 +11,8 @@ type JoinTarget =
   | { campaignId: Id<'campaigns'>; code?: never };
 
 // The join screen: all three routes (directory listing, typed code, share
-// link) land here. The campaign presents itself as a paper card (presentation
-// surface); the action row underneath tracks the viewer's standing.
+// link) land here. The campaign presents itself as an ivory card raised off
+// the field; the action row underneath tracks the viewer's standing.
 export function JoinScreen(target: JoinTarget) {
   return (
     <QueryBoundary
@@ -100,11 +100,7 @@ function JoinCodeCard({ code }: { code: string }) {
 function ResolvedJoinCard({ target, preview }: { target: JoinTarget; preview: Preview }) {
   return (
     <div className="mx-auto max-w-md">
-      <Surface
-        kind="presentation"
-        as="article"
-        className="border border-line bg-ink-1 p-6 shadow-card"
-      >
+      <article className="border border-line bg-ink-4 p-6">
         <p className="type-label text-xs text-text-mute">Campaign</p>
         <h1 className="mt-1 font-display text-3xl">{preview.name}</h1>
         {preview.description ? <p className="mt-3 text-text-dim">{preview.description}</p> : null}
@@ -114,7 +110,7 @@ function ResolvedJoinCard({ target, preview }: { target: JoinTarget; preview: Pr
           <dt className="type-label text-xs text-text-mute">Members</dt>
           <dd className="tabular">{preview.memberCount}</dd>
         </dl>
-      </Surface>
+      </article>
       <JoinActions
         target={target}
         viewerStatus={preview.viewerStatus}

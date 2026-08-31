@@ -41,7 +41,7 @@ export function RecordSearch({
         onChange={(event) => setTerm(event.target.value)}
         placeholder="Search the books… (e.g. blood-for-blood)"
         aria-label={searchLabel}
-        className="h-11 w-full border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-glow"
+        className="h-11 w-full border border-line bg-ink-2 px-3 text-sm text-text placeholder:text-text-mute focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-rule"
       />
       {hits && hits.length > 0 ? (
         <ul className="mt-2 flex flex-col divide-y divide-line-soft border border-line bg-ink-2">

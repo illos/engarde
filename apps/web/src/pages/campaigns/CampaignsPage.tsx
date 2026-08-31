@@ -42,7 +42,7 @@ type Card = NonNullable<ReturnType<typeof useQuery<typeof api.campaigns.listMine
 function CampaignCard({ card }: { card: Card }) {
   const cancelRequest = useMutation(api.campaigns.cancelJoinRequest);
   const body = (
-    <div className="flex items-center justify-between gap-4 border border-line bg-ink-1 p-4 transition-colors group-hover:border-accent">
+    <div className="flex items-center justify-between gap-4 border border-line bg-ink-4 p-4 transition-colors group-hover:border-accent">
       <div className="min-w-0">
         <h2 className="truncate font-display text-xl">{card.name}</h2>
         {card.description ? (
@@ -127,7 +127,7 @@ function JoinByCode() {
           onChange={(event) => setCode(event.target.value)}
           placeholder="Campaign code"
           aria-label="Campaign code"
-          className="h-11 min-w-0 flex-1 border border-line bg-ink-1 px-3 font-mono text-base uppercase tracking-widest placeholder:normal-case placeholder:font-body placeholder:tracking-normal placeholder:text-text-mute focus:border-accent focus:outline-none"
+          className="h-11 min-w-0 flex-1 border border-line bg-ink-1 px-3 font-mono text-base uppercase tracking-widest placeholder:normal-case placeholder:font-body placeholder:tracking-normal placeholder:text-text-mute focus:border-rule focus:outline-none"
         />
         <Button type="submit" disabled={!code.trim()}>
           Look up
@@ -167,7 +167,7 @@ function CreateCampaign() {
           onChange={(event) => setName(event.target.value)}
           placeholder="Campaign name"
           aria-label="Campaign name"
-          className="h-11 border border-line bg-ink-1 px-3 text-base placeholder:text-text-mute focus:border-accent focus:outline-none"
+          className="h-11 border border-line bg-ink-1 px-3 text-base placeholder:text-text-mute focus:border-rule focus:outline-none"
         />
         <textarea
           value={description}
@@ -175,7 +175,7 @@ function CreateCampaign() {
           placeholder="Short description for the join screen (optional)"
           aria-label="Campaign description"
           rows={2}
-          className="border border-line bg-ink-1 px-3 py-2 text-base placeholder:text-text-mute focus:border-accent focus:outline-none"
+          className="border border-line bg-ink-1 px-3 py-2 text-base placeholder:text-text-mute focus:border-rule focus:outline-none"
         />
         <Button
           type="submit"

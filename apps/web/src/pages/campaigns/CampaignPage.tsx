@@ -100,7 +100,7 @@ function MembersSection({
   return (
     <section>
       <h1 className="text-3xl">Members</h1>
-      <ul className="mt-4 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+      <ul className="mt-4 flex flex-col divide-y divide-line-soft border border-line bg-ink-4">
         {roster.members.map((member) => (
           <li key={member.userId} className="p-4">
             <div className="flex flex-wrap items-center gap-3">
@@ -308,7 +308,7 @@ function PendingSection({
   return (
     <section>
       <h2 className="text-xl">Join requests</h2>
-      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-4">
         {pending.map((request) => (
           <li key={request.userId} className="flex flex-wrap items-center gap-3 p-4">
             <div className="min-w-0 flex-1">
@@ -359,7 +359,7 @@ function BlockedSection({
   return (
     <section>
       <h2 className="text-xl">Blocked</h2>
-      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-1">
+      <ul className="mt-3 flex flex-col divide-y divide-line-soft border border-line bg-ink-4">
         {blocked.map((entry) => (
           <li key={entry.userId} className="flex flex-wrap items-center gap-3 p-4">
             <div className="min-w-0 flex-1">
@@ -392,7 +392,7 @@ function SettingsSection({ campaignId }: { campaignId: Id<'campaigns'> }) {
   const isPublic = settings.visibility === 'public';
   const isOpen = settings.joinability === 'open';
   return (
-    <section className="border border-line bg-ink-1 p-4">
+    <section className="border border-line bg-ink-4 p-4">
       <h2 className="text-xl">Campaign settings</h2>
       <dl className="mt-4 grid grid-cols-[auto_1fr] items-center gap-x-6 gap-y-3 text-sm">
         <dt className="type-label text-xs text-text-mute">Visibility</dt>
