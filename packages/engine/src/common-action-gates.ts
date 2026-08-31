@@ -35,6 +35,27 @@ export interface GateInput {
   actorId: string;
   targets: readonly string[];
   spatialFacts: readonly SpatialFact[];
+  /**
+   * The printed alternative the dispatch declared, by key (null = the
+   * action's primary branch).
+   *
+   * Stand Up is why this is here and not inferred: it prints two branches
+   * whose preconditions bind to DIFFERENT roles — "to stand up if they are
+   * prone" is about the actor, "to make a willing adjacent prone creature
+   * stand up" is about someone else — so a gate that cannot see which
+   * branch was declared must either fabricate a reading for the branch that
+   * was not taken or stay silent about both.
+   */
+  alternative: string | null;
+  /**
+   * Consent asserted by each SUBJECT's controller [design §5]: `true` =
+   * willing, `false` = refused, absent = not asserted. The three printed
+   * "willing" clauses (Stand Up's ally branch, Use Consumable's administer
+   * branch, Ride's mount) share this ONE field, or they diverge on whether
+   * a missing entry means not-asserted or asserted-false. A record keeps
+   * the two distinct by construction.
+   */
+  willing: Readonly<Record<string, boolean>>;
 }
 
 /** true = the printed precondition holds; false = it is violated;
@@ -59,6 +80,20 @@ export interface EligibilityGate {
   /** Facts the table must assert for this precondition, if any. Absent or
    * contradicted facts fold into the verdict through the ONE reader. */
   assertedFacts?: readonly RequiredFact[];
+  /**
+   * The printed branch this precondition belongs to. Omitted = it binds
+   * every dispatch of the action (the restrained bar on USING Stand Up
+   * holds whichever branch is taken). `null` = the primary branch only; a
+   * key = that printed alternative only.
+   */
+  whenAlternative?: string | null;
+  /**
+   * The printed word "willing": every named target's controller must have
+   * asserted consent. Read through the one consent reader, tri-state like
+   * every other precondition — an unasserted consent is `'unknown'`, not
+   * a refusal.
+   */
+  requiresConsent?: boolean;
   /** Engine-known half of the precondition. */
   holds(input: GateInput): GateVerdict;
 }
@@ -80,6 +115,27 @@ export function readAssertedFact(
       candidate.fact === query.fact && candidate.a === query.a && candidate.b === query.b,
   );
   return match === undefined ? 'unknown' : match.holds;
+}
+
+/**
+ * The consent half of the S5 reader family — the ONE place the shared
+ * `willing` field is read. Absent is `'unknown'` and asserted-false is
+ * `false`, exactly as an absent spatial fact and a contradicted one differ.
+ */
+export function readConsent(
+  willing: Readonly<Record<string, boolean>>,
+  subjectId: string,
+): GateVerdict {
+  const asserted = willing[subjectId];
+  return asserted === undefined ? 'unknown' : asserted;
+}
+
+/** Resolve a gate's consent requirement against every named target. A
+ * dispatch with no targets yields no readings, so the engine-known half
+ * stands alone. */
+export function foldConsent(gate: EligibilityGate, input: GateInput): GateVerdict[] {
+  if (gate.requiresConsent !== true) return [];
+  return input.targets.map((targetId) => readConsent(input.willing, targetId));
 }
 
 /** Three-valued conjunction: any false wins, then any unknown. */
@@ -120,7 +176,16 @@ export function foldAssertedFacts(
 /** Evaluate one gate: its engine-known half, conjoined with its declared
  * asserted facts. */
 export function evaluateGate(gate: EligibilityGate, input: GateInput): GateVerdict {
-  return andVerdicts([gate.holds(input), ...foldAssertedFacts(gate.assertedFacts ?? [], input)]);
+  return andVerdicts([
+    gate.holds(input),
+    ...foldAssertedFacts(gate.assertedFacts ?? [], input),
+    ...foldConsent(gate, input),
+  ]);
+}
+
+/** Whether a gate's printed branch is the one this dispatch declared. */
+export function gateBindsBranch(gate: EligibilityGate, alternative: string | null): boolean {
+  return gate.whenAlternative === undefined || gate.whenAlternative === alternative;
 }
 
 const CATCH_BREATH = 'mcdm.heroes.v1/feature.common.maneuvers/catch-breath';
@@ -129,6 +194,22 @@ const DISENGAGE = 'mcdm.heroes.v1/feature.common.move-actions/disengage';
 const SLOWED = 'mcdm.heroes.v1/condition/slowed';
 const KNOCKBACK = 'mcdm.heroes.v1/feature.common.maneuvers/knockback';
 const KNOCKBACK_ABILITY = 'mcdm.heroes.v1/feature.ability.common/knockback';
+const STAND_UP = 'mcdm.heroes.v1/feature.common.maneuvers/stand-up';
+const PRONE = 'mcdm.heroes.v1/condition/prone';
+const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
+const ADJACENT = 'mcdm.heroes.v1/rule.combat/adjacent';
+
+/** Every named target carries the condition the action's precondition
+ * names. `hasCondition` is the one membership home. */
+function everyTargetHas(input: GateInput, conditionId: string): GateVerdict {
+  if (input.targets.length === 0) return 'unknown';
+  for (const targetId of input.targets) {
+    const target = input.state.participants[targetId];
+    if (target === undefined) return 'unknown';
+    if (!hasCondition(target, conditionId)) return false;
+  }
+  return true;
+}
 
 /**
  * The registered printed preconditions. Each is one printed sentence; the
@@ -203,6 +284,54 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
     // stored it would warn, never refuse.
     holds: () => 'unknown',
   },
+  {
+    // The role proof S4 promised. `restrained` bars the restrained creature
+    // from USING Stand Up and says nothing whatever about being the TARGET
+    // of an ally's — and the books scope that distinction explicitly when
+    // they mean to. So this reads the ACTOR, on both printed branches, and
+    // a restrained standee is deliberately NOT read here. Whether the bar
+    // reaches the target role is an open ruling; answering it by quietly
+    // widening the gate would be the engine inventing the rule.
+    featureArtifactId: STAND_UP,
+    sourceArtifactId: RESTRAINED,
+    verbatim:
+      "A creature who is restrained has speed 0, can't use the Stand Up maneuver, and can't be force moved.",
+    canonRefs: [RESTRAINED],
+    holds: ({ state, actorId }) => {
+      const actor = state.participants[actorId];
+      if (actor === undefined) return 'unknown';
+      return !hasCondition(actor, RESTRAINED);
+    },
+  },
+  {
+    // Primary branch: the actor stands themself up, and the standee is the
+    // dispatch's target — so the prone precondition is read on the target
+    // in BOTH branches and the two registrations differ only in the
+    // sentence they quote and what else they require.
+    featureArtifactId: STAND_UP,
+    sourceArtifactId: STAND_UP,
+    whenAlternative: null,
+    verbatim:
+      'A creature can use the Stand Up maneuver to stand up if they are prone, ending that condition.',
+    canonRefs: [PRONE],
+    holds: (input) => everyTargetHas(input, PRONE),
+  },
+  {
+    // The printed alternative. Three preconditions in one sentence, each
+    // read by the layer that can actually know it: prone from engine
+    // state, adjacency from the asserted-fact surface (the engine models
+    // no geometry [DEC-0011]), and "willing" from the consent field the
+    // subject's own controller asserts.
+    featureArtifactId: STAND_UP,
+    sourceArtifactId: STAND_UP,
+    whenAlternative: 'ally-stands-up',
+    verbatim:
+      'Alternatively, they can use this maneuver to make a willing adjacent prone creature stand up.',
+    canonRefs: [PRONE, ADJACENT],
+    assertedFacts: [{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }],
+    requiresConsent: true,
+    holds: (input) => everyTargetHas(input, PRONE),
+  },
 ];
 
 const GATES_BY_FEATURE = new Map<string, EligibilityGate[]>();
@@ -223,5 +352,7 @@ export interface GateReading {
 
 /** Every registered gate for a feature, read against a dispatch. */
 export function readEligibility(featureArtifactId: string, input: GateInput): GateReading[] {
-  return gatesFor(featureArtifactId).map((gate) => ({ gate, verdict: evaluateGate(gate, input) }));
+  return gatesFor(featureArtifactId)
+    .filter((gate) => gateBindsBranch(gate, input.alternative))
+    .map((gate) => ({ gate, verdict: evaluateGate(gate, input) }));
 }

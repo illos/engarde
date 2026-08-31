@@ -23,6 +23,7 @@ import {
   type DamageType,
   type DriverParticipant,
   type DriverSquadSeed,
+  EFFECT_RESOLUTION_KINDS,
   type EncounterState,
   type Intent,
   type InvariantViolation,
@@ -847,16 +848,15 @@ export const searchRecords = query({
         v.object({
           effectOrdinal: v.number(),
           sourceText: v.string(),
+          // Built FROM the engine's one list, never re-typed here: a new
+          // resolution member must not ship invisible to the panel that
+          // exists to show what the grammar can do.
           resolutionKind: v.union(
-            v.literal('damage'),
-            v.literal('condition'),
-            v.literal('test'),
-            v.literal('next-roll-grant'),
-            v.literal('spend-recovery'),
-            v.literal('regain-stamina'),
-            v.literal('temporary-stamina'),
-            v.literal('terrain-fact'),
-            v.literal('table'),
+            ...(EFFECT_RESOLUTION_KINDS.map((kind) => v.literal(kind)) as [
+              ReturnType<typeof v.literal<string>>,
+              ReturnType<typeof v.literal<string>>,
+              ...Array<ReturnType<typeof v.literal<string>>>,
+            ]),
           ),
         }),
       ),

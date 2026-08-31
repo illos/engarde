@@ -66,6 +66,13 @@ export interface CommonActionMenuOptions {
   /** Include entries a printed access exclusion removed, marked rather
    * than dropped (a Director surface may want to see them). */
   includeExcluded?: boolean;
+  /** The printed branch the surface is offering, by key. Omitted = the
+   * primary branch, which is what a menu with no target selected is
+   * showing. */
+  alternative?: string | null;
+  /** Consent asserted by each named subject's controller, for the printed
+   * "willing" clauses. */
+  willing?: Readonly<Record<string, boolean>>;
 }
 
 /**
@@ -104,6 +111,8 @@ export function commonActionMenu(
     actorId,
     targets: options.targets ?? [],
     spatialFacts: options.spatialFacts ?? [],
+    alternative: options.alternative ?? null,
+    willing: options.willing ?? {},
   };
   const offers: CommonActionOffer[] = [];
   for (const program of programs) {

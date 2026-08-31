@@ -1449,6 +1449,23 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
      * the source changes; grabbed does not). */
     replacesOnNewSource: z.boolean(),
   }),
+  /**
+   * A printed clause that ENDS a condition rather than imposing one [S12] —
+   * Stand Up's "ending that condition", and the corpus family of "you are
+   * no longer X" clauses behind it.
+   *
+   * `conditionId` is the condition the printed clause NAMES. It is not the
+   * selection: the printed phrase names a condition, while the engine's
+   * unit of removal is an INSTANCE, and which instance(s) end when a
+   * creature carries more than one is an open ruling. So selection stays
+   * DISPATCH-SUPPLIED (`endedInstances`) and the engine never chooses —
+   * it only checks the dispatch's choice against the printed name and says
+   * so on the record.
+   */
+  z.object({
+    kind: z.literal('end-condition'),
+    conditionId: z.string().min(1),
+  }),
   /** "(The|Each) target makes a[n] X test." — each creature target rolls
    * independently with their own named characteristic through the power-roll
    * core; objects auto-obtain tier 1 [R-0006, R-0007]. Skills cannot modify
@@ -1516,6 +1533,16 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type EffectResolution = z.infer<typeof EffectResolutionSchema>;
+
+/**
+ * Every resolution kind the vocabulary speaks, derived from the schema
+ * rather than re-listed. Boundary validators (the Convex play-panel query)
+ * build their own unions FROM this — a second hand-written list is how a
+ * new member ships invisible to a surface that was meant to show it.
+ */
+export const EFFECT_RESOLUTION_KINDS = EffectResolutionSchema.options.map(
+  (option) => option.shape.kind.value,
+) as readonly EffectResolution['kind'][];
 
 export const EffectProgramDataSchema = z.object({
   effectArtifactId: z.string().min(1),
@@ -1740,6 +1767,14 @@ const resolutionInputShape = {
    * resolution [R-0018]: true = spends, false = declines. Every bound
    * target must answer; the receipt records who did what. */
   recoverySpends: z.record(ParticipantIdSchema, z.boolean()).default({}),
+  /** Per-target instance selection for an `end-condition` resolution [S12]:
+   * the instance ids that end on each named target. Dispatch-supplied
+   * because the printed clause names a CONDITION and the engine's unit of
+   * removal is an INSTANCE — which instance(s) a "no longer X" clause ends
+   * when a creature carries several is an open ruling, and picking one
+   * here would be the engine answering it. Every bound target must be
+   * answered; the receipt records what was chosen. */
+  endedInstances: z.record(ParticipantIdSchema, z.array(z.string().min(1))).default({}),
 };
 
 /** The shape both resolution-carrying payloads satisfy, for the shared
@@ -1749,6 +1784,7 @@ interface ResolutionInputPayload {
   objectTargets: string[];
   testRolls: Record<string, unknown>;
   recoverySpends: Record<string, boolean>;
+  endedInstances: Record<string, string[]>;
 }
 
 /** Shared payload predicates + their messages — one home for both dispatch
@@ -1770,6 +1806,20 @@ export const RESOLUTION_INPUT_RULES = {
         ? Object.keys(payload.recoverySpends).every((id) => payload.targets.includes(id))
         : Object.keys(payload.recoverySpends).length === 0,
     message: 'recoverySpends applies only to spend-recovery resolutions, over declared targets',
+  },
+  endedInstancesScoped: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'end-condition'
+        ? Object.keys(payload.endedInstances).every((id) => payload.targets.includes(id))
+        : Object.keys(payload.endedInstances).length === 0,
+    message: 'endedInstances applies only to end-condition resolutions, over declared targets',
+  },
+  distinctEndedInstances: {
+    holds: (payload: ResolutionInputPayload): boolean =>
+      Object.values(payload.endedInstances).every(
+        (instanceIds) => instanceIds.length > 0 && new Set(instanceIds).size === instanceIds.length,
+      ),
+    message: 'each named target must end at least one instance, and each instance at most once',
   },
   testHasSubject: {
     holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
@@ -2128,6 +2178,17 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       )
       .refine(
         (payload) =>
+          RESOLUTION_INPUT_RULES.endedInstancesScoped.holds(
+            payload,
+            payload.effect.resolution.kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.endedInstancesScoped.message },
+      )
+      .refine(RESOLUTION_INPUT_RULES.distinctEndedInstances.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctEndedInstances.message,
+      })
+      .refine(
+        (payload) =>
           RESOLUTION_INPUT_RULES.testHasSubject.holds(payload, payload.effect.resolution.kind),
         { message: RESOLUTION_INPUT_RULES.testHasSubject.message },
       )
@@ -2199,6 +2260,17 @@ export const IntentSchema = z.discriminatedUnion('kind', [
           })
           .nullable()
           .default(null),
+        /** The printed word "willing", asserted per SUBJECT [design §5].
+         *
+         * Deliberately NOT a `SpatialFactSchema` member: consent is not a
+         * spatial predicate, and the assertor is the SUBJECT's controller,
+         * not the acting player — a boolean the actor ticks on their own
+         * payload misrepresents who consented. One field shared by Stand
+         * Up's ally branch, Use Consumable's administer branch and Ride's
+         * mount, or those three diverge on whether a missing entry means
+         * not-asserted or asserted-false. Absent = not asserted, which
+         * reads `'unknown'`, never `false`. */
+        willing: z.record(ParticipantIdSchema, z.boolean()).default({}),
         ...resolutionInputShape,
       })
       .refine(RESOLUTION_INPUT_RULES.distinctTargets.holds, {
@@ -2215,6 +2287,17 @@ export const IntentSchema = z.discriminatedUnion('kind', [
           ),
         { message: RESOLUTION_INPUT_RULES.recoverySpendsScoped.message },
       )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.endedInstancesScoped.holds(
+            payload,
+            payload.feature.resolution.kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.endedInstancesScoped.message },
+      )
+      .refine(RESOLUTION_INPUT_RULES.distinctEndedInstances.holds, {
+        message: RESOLUTION_INPUT_RULES.distinctEndedInstances.message,
+      })
       .refine(
         (payload) =>
           RESOLUTION_INPUT_RULES.testHasSubject.holds(payload, payload.feature.resolution.kind),

@@ -253,7 +253,8 @@ export const STAND_UP: CommonActionProgramData = {
   movesActor: false,
   composition: null,
   resolution: {
-    kind: 'table',
+    kind: 'end-condition',
+    conditionId: 'mcdm.heroes.v1/condition/prone',
   },
 };
 

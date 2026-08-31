@@ -178,16 +178,35 @@ describe('common-action program source', () => {
     for (const id of silent) expect(byId.get(id)?.debitContract, id).toBe('companion');
   });
 
-  it('compiles the one executable resolution in the 17 and leaves the rest verbatim', () => {
+  it('compiles the two executable resolutions in the 17 and leaves the rest verbatim', () => {
     expect(byId.get(CATCH_BREATH.artifactId)?.resolution).toEqual({
       kind: 'spend-recovery',
       subjectText: 'A creature who uses the Catch Breath maneuver',
       singular: true,
     });
+    // "…to stand up if they are prone, ENDING THAT CONDITION." The printed
+    // clause names the condition; which instance ends is dispatch-supplied
+    // [S12], so nothing about selection is compiled here.
+    expect(byId.get(STAND_UP.artifactId)?.resolution).toEqual({
+      kind: 'end-condition',
+      conditionId: 'mcdm.heroes.v1/condition/prone',
+    });
     const executable = programs.filter((program) => program.resolution.kind !== 'table');
-    expect(executable.map((program) => program.featureArtifactId)).toEqual([
-      CATCH_BREATH.artifactId,
-    ]);
+    expect(executable.map((program) => program.featureArtifactId).sort()).toEqual(
+      [CATCH_BREATH.artifactId, STAND_UP.artifactId].sort(),
+    );
+  });
+
+  it("proves a condition-ending resolution against the artifact's own links", () => {
+    // The condition an `end-condition` resolution names is not a
+    // classification — Stand Up LINKS prone — so the compiler proves it
+    // through the one scc-link scanner rather than trusting the row.
+    expect(byId.get(STAND_UP.artifactId)?.canonRefs).toContain('mcdm.heroes.v1/condition/prone');
+    // Catch Breath's bytes under Stand Up's id: the row ends prone, and
+    // that artifact links no such condition.
+    expect(() =>
+      compileCommonAction({ artifactId: STAND_UP.artifactId, text: CATCH_BREATH.text }),
+    ).toThrow(CommonActionCompileError);
   });
 
   it('breaks loudly when the pinned bytes and the directory disagree', () => {
@@ -265,6 +284,11 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
     ).toEqual([
       'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
       'mcdm.heroes.v1/feature.common.maneuvers/knockback',
+      // Stand Up's restrained bar reads TRUE here (this hero is not
+      // restrained) — what is unknown is the prone precondition, which is
+      // about the creature who stands up, and a bare menu read has not
+      // named one.
+      'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
       'mcdm.heroes.v1/feature.common.move-actions/ride',
     ]);
   });
