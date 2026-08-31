@@ -16,6 +16,7 @@ import { Route as CharactersIndexRouteImport } from './routes/characters.index'
 import { Route as DirectoryIndexRouteImport } from './routes/directory.index'
 import { Route as DirectoryCampaignIdRouteImport } from './routes/directory.$campaignId'
 import { Route as JoinCodeRouteImport } from './routes/join.$code'
+import { Route as CharactersCharacterIdBuildRouteImport } from './routes/characters.$characterId.build'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +53,12 @@ const JoinCodeRoute = JoinCodeRouteImport.update({
   path: '/join/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CharactersCharacterIdBuildRoute =
+  CharactersCharacterIdBuildRouteImport.update({
+    id: '/characters/$characterId/build',
+    path: '/characters/$characterId/build',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -61,6 +68,7 @@ export interface FileRoutesByFullPath {
   '/campaigns/': typeof CampaignsIndexRoute
   '/characters/': typeof CharactersIndexRoute
   '/directory/': typeof DirectoryIndexRoute
+  '/characters/$characterId/build': typeof CharactersCharacterIdBuildRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -70,6 +78,7 @@ export interface FileRoutesByTo {
   '/campaigns': typeof CampaignsIndexRoute
   '/characters': typeof CharactersIndexRoute
   '/directory': typeof DirectoryIndexRoute
+  '/characters/$characterId/build': typeof CharactersCharacterIdBuildRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -80,6 +89,7 @@ export interface FileRoutesById {
   '/campaigns/': typeof CampaignsIndexRoute
   '/characters/': typeof CharactersIndexRoute
   '/directory/': typeof DirectoryIndexRoute
+  '/characters/$characterId/build': typeof CharactersCharacterIdBuildRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -91,6 +101,7 @@ export interface FileRouteTypes {
     | '/campaigns/'
     | '/characters/'
     | '/directory/'
+    | '/characters/$characterId/build'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -100,6 +111,7 @@ export interface FileRouteTypes {
     | '/campaigns'
     | '/characters'
     | '/directory'
+    | '/characters/$characterId/build'
   id:
     | '__root__'
     | '/'
@@ -109,6 +121,7 @@ export interface FileRouteTypes {
     | '/campaigns/'
     | '/characters/'
     | '/directory/'
+    | '/characters/$characterId/build'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -119,6 +132,7 @@ export interface RootRouteChildren {
   CampaignsIndexRoute: typeof CampaignsIndexRoute
   CharactersIndexRoute: typeof CharactersIndexRoute
   DirectoryIndexRoute: typeof DirectoryIndexRoute
+  CharactersCharacterIdBuildRoute: typeof CharactersCharacterIdBuildRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -172,6 +186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/characters/$characterId/build': {
+      id: '/characters/$characterId/build'
+      path: '/characters/$characterId/build'
+      fullPath: '/characters/$characterId/build'
+      preLoaderRoute: typeof CharactersCharacterIdBuildRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -183,6 +204,7 @@ const rootRouteChildren: RootRouteChildren = {
   CampaignsIndexRoute: CampaignsIndexRoute,
   CharactersIndexRoute: CharactersIndexRoute,
   DirectoryIndexRoute: DirectoryIndexRoute,
+  CharactersCharacterIdBuildRoute: CharactersCharacterIdBuildRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

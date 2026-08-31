@@ -19,4 +19,7 @@ export * from './source.js';
 export * from './pilot-encounter.js';
 export * from './statblock-stats.js';
 export * from './hero-stats.js';
+export * from './hero-document.js';
+export * from './hero-overlay-fury.js';
+export * from './hero-compile.js';
 export * from './benefit-phrase.js';

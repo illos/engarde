@@ -77,6 +77,13 @@ function CharacterCard({
         <div className="min-w-0">
           <h2 className="font-display text-xl">{character.name}</h2>
           <p className="font-mono text-xs text-text-mute">Level {character.level}</p>
+          <Link
+            to="/characters/$characterId/build"
+            params={{ characterId: character.characterId }}
+            className="mt-1 inline-block text-sm text-accent underline underline-offset-4"
+          >
+            Build
+          </Link>
           {character.concept ? (
             <p className="mt-2 whitespace-pre-wrap text-sm text-text-dim">{character.concept}</p>
           ) : null}

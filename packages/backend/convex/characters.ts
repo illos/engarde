@@ -115,7 +115,7 @@ async function bindingFor(
     .unique();
 }
 
-async function requireOwnedCharacter(
+export async function requireOwnedCharacter(
   ctx: DatabaseCtx,
   characterId: Id<'characters'>,
 ): Promise<{ character: Doc<'characters'>; ownerUserId: Id<'users'> }> {

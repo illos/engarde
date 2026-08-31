@@ -87,6 +87,9 @@ importers:
       '@engarde/backend':
         specifier: workspace:^
         version: link:../../packages/backend
+      '@engarde/canon':
+        specifier: workspace:^
+        version: link:../../packages/canon
       '@engarde/engine':
         specifier: workspace:^
         version: link:../../packages/engine
