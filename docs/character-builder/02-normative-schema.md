@@ -201,6 +201,45 @@ the document records what it projects against:
   carrying unresolved divergences renders them as first-class gaps in the
   wizard, exactly like unanswered choice points.
 
+**Overlay-key stability — the Q7 join contract (ruled 2026-08-31, shipped).**
+The `(scc, discriminator)` overlay keys the decision log stores are minted by
+the scc-join (`tools/character_builder_join.py`); the join **declares them
+stable** and backs the declaration mechanically:
+
+- **Determinism, proven not presumed.** The join is a pure function of
+  (pin, fs-extract): same inputs in, byte-identical artifacts out — including
+  the full key universe. A regression test
+  (`tools/tests/test_character_builder_join.py`,
+  `FullPipelineDeterminismTests`) runs the real join twice as separate
+  processes under different hash seeds and asserts every output byte-equal;
+  `KeyStabilityTests` covers the manifest and the diff classifier on
+  fixtures. Frozen-at-first-seed (§2.3(c)) is therefore reproducible: a
+  re-seed against the same pin can never mint different keys.
+- **The declaration artifact.** Each join run writes `key-manifest.json`
+  next to `scc-join.json`: the sorted, de-duplicated universe of
+  string-encoded keys (`<scc>` or `<scc>#<disc>`, §2.3(c)), a `keysSha256`
+  content hash (sha256 over the LF-joined sorted keys + trailing LF), and
+  the pin identity it was minted against (commit / tag from
+  `packages/canon/config/steelcompendium-source.json`). FS provenance is
+  recorded as labels only — no FS id is key material (DEC-0014).
+- **Mechanical pin-change classification.** `python3
+  tools/character_builder_join.py --diff-manifests OLD NEW` compares two
+  manifests and classifies every key: **unchanged** / **added** /
+  **removed**. Added keys are new unanswered choice points (wizard gaps,
+  nothing to migrate). **Any removed key makes the pin change a migration
+  event** (`migrationEvent: true`) for `build.decisions`.
+- **The migration-event contract.** A pin upgrade whose manifest diff
+  removes keys is handled through the divergence pass above, on the diff's
+  removed-key set: every log entry keyed by a removed key is either
+  **re-resolved** (a mechanical, ruling-grade mapping to its successor key —
+  e.g. a drift-map-grade rename) or **surfaced as invalidated** (the entry
+  gets its `divergence` record and the wizard shows the gap). **Silent
+  dropping is forbidden** — the entry itself is never deleted or rewritten,
+  and `pinVersion` does not bump while any removed key is unaccounted for.
+  Scope note: the diff capability and this contract are shipped; the
+  migration *executor* (the upgrade pass that walks documents) is
+  deliberately future work and must implement this contract when built.
+
 ### 2.3 Stored projections of the log
 
 Convex read surfaces (roster snapshots, character lists, the compile) should
@@ -906,12 +945,15 @@ note"; this document completes the supersession from keys to whole shapes.
   echelon-scaled stamina, damage-bonus collation) is rule math observed only
   in FS code. Pin-verify before `compileHero` composes kit contributions;
   until then a chosen kit's stats surface as receipts.
-- **Q7 (join contract, sibling task).** Discriminator slugs minted by the
-  join are persistent key components. The join artifact must declare them
-  stable (a re-run against the same pin yields identical keys), and a pin
-  upgrade that changes record cardinality is a **migration event** for
-  `build.decisions`, handled through the §2.2 divergence pass — stale keys
-  re-resolved or surfaced as invalidated, never silently dropped.
+- **Q7 (join contract — RESOLVED 2026-08-31, shipped).** Discriminator slugs
+  minted by the join are persistent key components. The join now declares
+  them stable: determinism is regression-tested (byte-identical re-runs),
+  each run emits a `key-manifest.json` (sorted key universe + content hash +
+  pin identity), and `--diff-manifests` mechanically classifies a pin change
+  as unchanged / added / removed keys. The migration-event contract for
+  removed keys — re-resolve or surface as invalidated via the §2.2
+  divergence pass, never silently drop — is written into §2.2 ("Overlay-key
+  stability"). The migration executor itself remains future work.
 - **Q8 (design confirmation, user ruling).** Revert scope and audit: rewind
   truncates the log (§2.2) — the removed suffix is gone from the document.
   Confirm that no separate removed-suffix audit trail is required for V1

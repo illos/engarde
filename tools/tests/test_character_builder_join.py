@@ -4,12 +4,19 @@ Covers the tricky parts: overlay-key cardinality (many FS rows -> one pin
 record, unique discriminators), the name-drift map, discrepancy
 categorization (excluded-book / no-pin-record / name-drift-unmapped /
 count-delta / unjoined-other), the mechanical retry rules, the R-A
-pre-seeded-grant worklist, and the row-accounting invariant (every FS row
-lands exactly once).
+pre-seeded-grant worklist, the row-accounting invariant (every FS row
+lands exactly once), and the builder-Q7 key-stability contract (the
+key manifest, its determinism, and the manifest diff classifier).
 """
 
+import hashlib
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -399,6 +406,163 @@ class WorklistAndAccountingTests(unittest.TestCase):
         self.assertEqual(len(paths), len(set(paths)))
 
 
+class KeyStabilityTests(unittest.TestCase):
+    """Builder Q7: overlay keys are persistent — the join declares them
+    stable via the key manifest, and the manifest diff classifies a pin
+    change mechanically (unchanged / added / removed)."""
+
+    FIXTURE_RECORDS = None
+    FIXTURE_ROWS = None
+
+    def fixtures(self):
+        records = [
+            record("heroes", "career", "career/agent.md", "Agent"),
+            record("heroes", "class", "class/fury.md", "Fury", fields=["starting_stamina", "recoveries", "skills"]),
+            record("heroes", "feature", "feature/fury/level-4/skill.md", "Skill", cls="fury", level=4),
+        ]
+        rows = [
+            {
+                "sourcebook": "core",
+                "collection": "career",
+                "fsId": "career-agent",
+                "name": "Agent",
+                "features": [
+                    {"fsId": "f1", "name": "Skill", "featureType": "Skill Choice"},
+                    {"fsId": "f2", "name": "Skill", "featureType": "Skill Choice"},
+                ],
+                "incitingIncidents": [],
+            },
+            {
+                "sourcebook": "core",
+                "collection": "class",
+                "fsId": "class-fury",
+                "name": "Fury",
+                "subclassName": "Primordial Aspect",
+                "featuresByLevel": [
+                    {"level": 4, "features": [{"fsId": "x", "name": "Skill", "featureType": "Skill Choice"}]}
+                ],
+            },
+        ]
+        return rows, records
+
+    PIN_LOCK = {"source": "test-pin", "commit": "c" * 40, "tag": "v-test", "commitDate": "2026-01-01T00:00:00Z"}
+    FS_PROV = {"source": "Forge Steel (test)", "commit": "f" * 40}
+
+    def manifest(self):
+        rows, records = self.fixtures()
+        joiner, _ = run(rows, records)
+        return cbj.build_key_manifest(joiner.joined, self.PIN_LOCK, self.FS_PROV)
+
+    def test_encode_overlay_key_grammar(self):
+        self.assertEqual(cbj.encode_overlay_key("mcdm.heroes.v1/career.agent", None), "mcdm.heroes.v1/career.agent")
+        self.assertEqual(
+            cbj.encode_overlay_key("mcdm.heroes.v1/career.agent", "skill-2"),
+            "mcdm.heroes.v1/career.agent#skill-2",
+        )
+        with self.assertRaises(ValueError):
+            cbj.encode_overlay_key("mcdm.heroes.v1/career.agent#oops", None)
+        with self.assertRaises(ValueError):
+            cbj.encode_overlay_key("mcdm.heroes.v1/career::agent", None)
+        with self.assertRaises(ValueError):
+            cbj.encode_overlay_key("mcdm.heroes.v1/career.agent", "Not Slugged")
+
+    def test_manifest_keys_sorted_unique_and_hashed(self):
+        manifest = self.manifest()
+        keys = manifest["keys"]
+        self.assertEqual(keys, sorted(set(keys)))
+        self.assertEqual(manifest["keyCount"], len(keys))
+        recomputed = hashlib.sha256(("\n".join(keys) + "\n").encode("utf-8")).hexdigest()
+        self.assertEqual(manifest["keysSha256"], recomputed)
+        self.assertEqual(manifest["pin"]["commit"], self.PIN_LOCK["commit"])
+        # Discriminated siblings both present, encoded per §2.3(c).
+        self.assertIn("mcdm.heroes.v1/career.agent#skill", keys)
+        self.assertIn("mcdm.heroes.v1/career.agent#skill-2", keys)
+
+    def test_no_fs_id_reaches_key_material(self):
+        # DEC-0014: FS ids are labels, never keys. Every key is scc-derived;
+        # fsIds like "career-agent"/"class-fury" appear nowhere in the keys
+        # except as pin-side slugs — assert the raw fsIds "f1"/"f2"/"x" and
+        # the FS commit never appear.
+        manifest = self.manifest()
+        blob = "\n".join(manifest["keys"])
+        for fs_id in ("#f1", "#f2", "#x"):
+            self.assertNotIn(fs_id, blob)
+        self.assertNotIn(self.FS_PROV["commit"], blob)
+
+    def test_same_input_twice_yields_byte_identical_manifest(self):
+        # The stability declaration itself: same pin in, identical keys out.
+        first = json.dumps(self.manifest(), sort_keys=False)
+        second = json.dumps(self.manifest(), sort_keys=False)
+        self.assertEqual(first, second)
+
+    def test_diff_manifests_classifies_unchanged_added_removed(self):
+        new = self.manifest()
+        old = dict(new)
+        old["pin"] = {"tag": "v-old"}
+        kept = [k for k in new["keys"] if k != "mcdm.heroes.v1/career.agent#skill-2"]
+        old["keys"] = sorted(kept + ["mcdm.heroes.v1/career.vanished"])
+        diff = cbj.diff_manifests(old, new)
+        self.assertEqual(diff["unchanged"], len(kept))
+        self.assertEqual(diff["added"], ["mcdm.heroes.v1/career.agent#skill-2"])
+        self.assertEqual(diff["removed"], ["mcdm.heroes.v1/career.vanished"])
+        self.assertTrue(diff["migrationEvent"])
+        self.assertIn("never silently drop", diff["note"])
+
+    def test_diff_manifests_no_removals_is_not_a_migration_event(self):
+        manifest = self.manifest()
+        diff = cbj.diff_manifests(manifest, manifest)
+        self.assertFalse(diff["migrationEvent"])
+        self.assertEqual(diff["added"], [])
+        self.assertEqual(diff["removed"], [])
+
+
+class FullPipelineDeterminismTests(unittest.TestCase):
+    """Runs the real join twice as separate processes (distinct hash seeds)
+    against the real pin + extract and asserts every artifact — the key
+    manifest above all — is byte-identical. Skipped when the corpus is
+    absent (CI); the corpus-enabled dev box runs it."""
+
+    EXTRACT = REPO / ".artifacts" / "canon" / "character-builder" / "fs-extract.json"
+    PIN = REPO / ".reference" / "steelcompendium" / "en" / "books"
+    OUTPUTS = ("scc-join.json", "discrepancies.json", "ra-worklist.json", "summary.json", "key-manifest.json")
+
+    def setUp(self):
+        if not self.EXTRACT.exists() or not self.PIN.is_dir():
+            self.skipTest("corpus (pin + fs-extract) not present")
+
+    def run_once(self, workdir, seed):
+        shutil.copy(self.EXTRACT, workdir / "fs-extract.json")
+        env = dict(os.environ, PYTHONHASHSEED=seed)
+        subprocess.run(
+            [
+                sys.executable,
+                str(TOOLS / "character_builder_join.py"),
+                "--artifacts",
+                str(workdir),
+                "--pin",
+                str(self.PIN),
+            ],
+            check=True,
+            env=env,
+            capture_output=True,
+        )
+
+    def test_rerun_is_byte_identical_across_hash_seeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "a"
+            second = Path(tmp) / "b"
+            first.mkdir()
+            second.mkdir()
+            self.run_once(first, "1")
+            self.run_once(second, "424242")
+            for name in self.OUTPUTS:
+                self.assertEqual(
+                    (first / name).read_bytes(),
+                    (second / name).read_bytes(),
+                    f"{name} differs between identical-input runs",
+                )
+
+
 class GeneratedArtifactInvariantTests(unittest.TestCase):
     """Sanity checks over the committed artifacts (skipped when absent)."""
 
@@ -454,6 +618,35 @@ class GeneratedArtifactInvariantTests(unittest.TestCase):
         joined = self.load("scc-join.json")["rows"]
         self.assertFalse([r for r in joined if r["sourcebook"] == "beastheart"])
         self.assertFalse([r for r in joined if "/beastheart/" in r["pinPath"]])
+
+    def manifest(self):
+        if not (self.ARTIFACTS / "key-manifest.json").exists():
+            self.skipTest("key-manifest.json not generated (pre-Q7 artifact set — re-run the join)")
+        return self.load("key-manifest.json")
+
+    def test_manifest_matches_join_rows_and_grammar(self):
+        manifest = self.manifest()
+        joined = self.load("scc-join.json")["rows"]
+        expected = sorted(
+            {cbj.encode_overlay_key(r["overlayKey"]["scc"], r["overlayKey"]["discriminator"]) for r in joined}
+        )
+        self.assertEqual(manifest["keys"], expected)
+        self.assertEqual(manifest["keyCount"], len(expected))
+        self.assertEqual(
+            manifest["keysSha256"],
+            hashlib.sha256(("\n".join(expected) + "\n").encode("utf-8")).hexdigest(),
+        )
+        for key in manifest["keys"]:
+            self.assertTrue(cbj.KEY_GRAMMAR.fullmatch(key), f"key fails grammar: {key}")
+            self.assertNotIn("::", key)
+
+    def test_manifest_pin_matches_source_lock(self):
+        manifest = self.manifest()
+        lock_path = REPO / "packages" / "canon" / "config" / "steelcompendium-source.json"
+        with open(lock_path, encoding="utf-8") as handle:
+            lock = json.load(handle)
+        self.assertEqual(manifest["pin"]["commit"], lock["commit"])
+        self.assertEqual(manifest["pin"]["tag"], lock["tag"])
 
 
 if __name__ == "__main__":
