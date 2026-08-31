@@ -630,7 +630,7 @@ hash-mismatched commit); the list does not grow.
 **Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
 226a6c49 verified), 2026-08-26.
 
-## R-0031 — Reaction interception points + classification residue (approved 2026-08-26)
+## R-0031 — Reaction interception points + classification residue; EXTENDED: the retarget template (approved 2026-08-26; extended 2026-08-31)
 
 **Question:** when does a triggered/free triggered action resolve relative
 to its trigger? The books are silent (bundle + PDF confirmed): they state
@@ -658,6 +658,66 @@ posture); reaction-EFFECT automation is a named follow-up family.
 
 **Gate 3:** accepted via the action-economy-gate3 card surface (cardHash
 e5ef4fce verified), 2026-08-26.
+
+**EXTENSION (2026-08-31): the retarget template.** The closed set gains one
+deterministic phrase template: "becomes the new target of the strike / the
+[triggering] ability" → targeting or pre-application per trigger, riding the
+SAME fallback as the two original retarget templates (a damage-carrying
+trigger has already left the targeting step). This was ROAD-0005
+generalizing seam #2, blocked on exactly this ruling: the five carriers
+previously fell to unclassified residue and defaulted to **applied** — the
+one point at which a retarget is meaningless, since the modification must
+substitute the in-flight target between the roll and its application
+(R-0032's fold in `commitResolutionEntry` already applies recorded
+`retarget` modifications there; a declared-phase retarget edits the
+declared target list per R-0041). The extension routes the POINT only —
+effect automation posture is unchanged (R-0044): the host still dispatches
+the retarget as a `modify-resolution` modification.
+
+**Extension evidence (verbatim, the five printed occurrences — the exact
+phrase appears nowhere else across all admitted books at the pin):**
+
+- vampire, Reactive Charm (undead 3rd echelon): "**Trigger:** A creature
+  makes a strike against the vampire." · "**Effect:** The target becomes
+  the new target of the strike." → targeting.
+- vampire-lord, Redirected Charm: same trigger and effect text, free
+  triggered action → targeting.
+- hulking-brain, Brawny Buffe (voiceless talker): "**Trigger:** An ally
+  voiceless talker within 5 squares takes damage from an enemy ability." ·
+  "**Effect:** The hulking brain shifts adjacent to the ally and becomes
+  the new target of the ability." → pre-application (damage trigger). The
+  shift clause and the 2-Malice prone rider stay table per R-0044.
+- castellan-hoplon, Timely Intervention (war dog 4th echelon):
+  "**Trigger:** An enemy within 10 squares targets an ally with an
+  ability." · "**Effect:** Hoplon teleports to an unoccupied space adjacent
+  to the enemy and becomes the new target of the ability. He can then make
+  a free strike against the enemy, and if that enemy has R < 4 they are
+  taunted until the end of their next turn." → targeting. The teleport,
+  free strike, and taunt clauses stay table per R-0044.
+- war-dog-mischievite, Misdirection (2nd echelon, Malice rider of a
+  Maneuver): "**2 Malice:** The mischievite can use this ability as a
+  triggered action when they are targeted by an ability. If they do, the
+  swapped target becomes the new target of the triggering ability." → the
+  template classifies the section to targeting (no Trigger line — the
+  documented null-trigger fallback). The rider's maneuver-to-triggered-
+  action conversion itself remains the malice family's NAMED deferral
+  (granting triggered actions, R-0030/reaction-effect scope cuts), so the
+  compiled Misdirection annotation still carries no interception point;
+  the classification home covers the text for the day that family lands.
+
+**Scope honesty:** the template is the printed third-person form only. The
+lich's "If the target has P < 4, they swap places with the lich to become
+the new target of the triggering ability." is a potency-gated swap in a
+different grammatical shape and deliberately does NOT match — it stays
+honest applied-default residue with its verbatim text on the receipt.
+Classification deltas at the accepted pin: 266 compiled triggered/
+free-triggered sections, classified 42 → 46, unclassified 224 → 220;
+targeting 6 → 9, pre-application 32 → 33, applied 227 → 223 (the four
+compiled carriers; Misdirection compiles as a Maneuver and is not in the
+266).
+
+**Extension Gate 3:** user-approved 2026-08-31 (R-0031 retarget-template
+ruling, ROAD-0005 seam #2 unblock).
 
 ## R-0032 — The resolution stack + explicit commit (approved 2026-08-26)
 
