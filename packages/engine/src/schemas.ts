@@ -2060,6 +2060,18 @@ export const IntentSchema = z.discriminatedUnion('kind', [
        * own text grants anytime ending ("(no action required)" — eight
        * printed abilities). Suppresses the off-turn free-maneuver warn. */
       noActionRequired: z.boolean().default(false),
+      /** Asserted-band economy parity [S11] — the third member of the
+       * family `apply-condition` and `apply-damage` already carry. Ending a
+       * condition is as much a USE of the ability that prints the ending as
+       * imposing one is, so it debits through the same one home.
+       *
+       * MUTUALLY EXCLUSIVE with the R-0001 imposer free maneuver above: an
+       * imposer whose own ability prints the removal satisfies both
+       * predicates, and one printed removal must not be charged twice at two
+       * different costs. A non-null band wins — it names the printed cost;
+       * the free maneuver is the default for a removal no ability claimed.
+       * Null = a bare Director edit or the plain imposer case. */
+      assertedAbilityUse: AssertedAbilityUseSchema.nullable().default(null),
     }),
   }),
   z.object({

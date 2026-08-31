@@ -6,6 +6,7 @@ import {
   sideOfParticipant,
   sideOfSquad,
 } from './action-economy.js';
+import { assertedActorRefusal, assertedEconomyPrelude } from './asserted-economy.js';
 import { runBoundarySweeps } from './boundary-sweeps.js';
 import { shiftCaptainBenefit } from './captain-benefits.js';
 import { executeUseCommonAction } from './common-action-execution.js';
@@ -30,7 +31,7 @@ import {
 import type { RandomSource } from './determinism.js';
 import { TERRAIN_CANON, executeUseEffect } from './effect-execution.js';
 import { appendGrant } from './grant-lifecycle.js';
-import { HEALTH_CANON, isDead, isDying, isHealthSourcedInstance } from './health.js';
+import { HEALTH_CANON, conditionRemovalBlocker, isDead, isDying } from './health.js';
 import { deriveOccurrences } from './occurrences.js';
 import { hashDeclaration } from './payload-hash.js';
 import { commitResolutionEntry, isOpenResolution, openResolutionsOwnedBy } from './resolution.js';
@@ -75,30 +76,6 @@ function refusal(intent: Intent, message: string): LogEntry {
   };
 }
 
-function assertedApplicationEntry(
-  intent: Intent,
-  asserted: AssertedAbilityUse,
-  targetId: string,
-): LogEntry | null {
-  // `partOf` is a child application of an already-recorded printed use,
-  // not another ability use in its own right.
-  if (asserted.partOf !== undefined) return null;
-  return {
-    kind: 'informational',
-    intentId: intent.intentId,
-    actor: intent.actor,
-    canonRefs: [asserted.abilityArtifactId],
-    message: `${asserted.actorParticipantId} applies ${asserted.abilityArtifactId} to ${targetId} without a power roll`,
-    data: {
-      nonrollingAbilityApplication: nonrollingAbilityApplicationClaim({
-        actorId: asserted.actorParticipantId,
-        abilityArtifactId: asserted.abilityArtifactId,
-        targetIds: [targetId],
-      }),
-    },
-  };
-}
-
 function applyIntentCore(
   state: EncounterState,
   rawIntent: Intent,
@@ -114,38 +91,19 @@ function applyIntentCore(
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
       const asserted = intent.payload.assertedAbilityUse;
-      if (asserted !== null && !state.participants[asserted.actorParticipantId]) {
-        return {
-          state,
-          log: [refusal(intent, `unknown participant ${asserted.actorParticipantId}`)],
-        };
+      const assertedRefusal = assertedActorRefusal(state, asserted);
+      if (assertedRefusal !== null) {
+        return { state, log: [refusal(intent, assertedRefusal)] };
       }
-      // Asserted-band economy parity (R-0029/R-0030): a manual tier
-      // assertion is still a use of the ability — it debits through the one
-      // home like the rolled path (silent grant consumption, warn-and-apply
-      // violations), and opens NO resolution entry (nothing rolled).
-      let preState = state;
-      const preLog: LogEntry[] = [];
-      if (asserted !== null) {
-        const application = assertedApplicationEntry(intent, asserted, intent.payload.target);
-        if (application !== null) preLog.push(application);
-      }
-      if (asserted !== null && state.turnState !== null) {
-        const debited = debitActionCost(
-          preState,
-          {
-            cost: asserted.actionCost,
-            payerId: asserted.actorParticipantId,
-            abilityKey: asserted.abilityArtifactId,
-            usesPerRound: asserted.usesPerRound,
-            partOf: asserted.partOf ?? null,
-            sharesAbilityUse: asserted.partOf !== undefined,
-          },
-          lifecycleContext,
-        );
-        preState = debited.state;
-        preLog.push(...debited.log);
-      }
+      // Asserted-band economy parity (R-0029/R-0030), through the one home.
+      const prelude = assertedEconomyPrelude(
+        state,
+        asserted,
+        intent.payload.target,
+        lifecycleContext,
+      );
+      const preState = prelude.state;
+      const preLog = prelude.log;
       const liveTarget = preState.participants[intent.payload.target] ?? target;
       const applied = applyConditionInstance(
         preState,
@@ -173,16 +131,26 @@ function applyIntentCore(
       const instance = target.conditions.find(
         (candidate) => candidate.instanceId === intent.payload.instanceId,
       );
-      // R-0004: the dying-mandated bleeding "can't be negated or removed in
-      // any way until you are no longer dying" [rule.health/dying]. This is a
-      // representational refusal, not a permissive warn-and-apply violation.
-      if (
-        instance !== undefined &&
-        isHealthSourcedInstance(instance) &&
-        instance.source.effectArtifactId === HEALTH_CANON.dying &&
-        target.stamina !== null &&
-        isDying(target.stamina.current)
-      ) {
+      // Structural refusals first, all of them, HOISTED ABOVE THE DEBIT —
+      // an asserted band pays a real cost, so an unknown instance that
+      // refused after the debit would charge a maneuver for a removal that
+      // never happened (refusal-with-change). The identical refusal still
+      // lives in `removeConditionInstance` for callers that reach it with
+      // no economy in front; here it must come first.
+      if (instance === undefined) {
+        return {
+          state,
+          log: [
+            refusal(
+              intent,
+              `no condition instance ${intent.payload.instanceId} on ${intent.payload.target}`,
+            ),
+          ],
+        };
+      }
+      // R-0004, through the one home.
+      const removalBlocker = conditionRemovalBlocker(target, instance);
+      if (removalBlocker !== null) {
         return {
           state,
           log: [
@@ -191,29 +159,53 @@ function applyIntentCore(
               intentId: intent.intentId,
               actor: intent.actor,
               canonRefs: [HEALTH_CANON.dying],
-              message: `${target.id} is still dying — this bleeding instance can't be removed until they are no longer dying`,
+              message: removalBlocker,
               data: { instanceId: instance.instanceId },
             },
           ],
         };
       }
-      // R-0001 wiring (pilot step 7): "A creature who imposes an effect on
-      // another creature using an ability can end that effect as a free
-      // maneuver unless the ability says otherwise" [chapter/classes
-      // §Ending Effects] — and free maneuvers are TURN-ONLY (R-0001). An
-      // imposer ending their imposed effect routes through the one debit
-      // home as a free maneuver: off-turn use warns-and-applies; the
-      // printed "(no action required)" ability-text escape is asserted at
-      // dispatch via noActionRequired.
-      let preState = state;
-      const preLog: LogEntry[] = [];
+      const asserted = intent.payload.assertedAbilityUse;
+      const assertedRefusal = assertedActorRefusal(state, asserted);
+      if (assertedRefusal !== null) {
+        return { state, log: [refusal(intent, assertedRefusal)] };
+      }
+
+      // Two economies can claim this dispatch and they are MUTUALLY
+      // EXCLUSIVE, because they are two different printed costs for the
+      // same one removal:
+      //
+      // (a) the asserted band [S11, R-0029/R-0030] — the removal is a use
+      //     of a named ability whose printed text ends the condition, and
+      //     the ability's own header cost is what gets paid;
+      // (b) the R-0001 imposer free maneuver — "A creature who imposes an
+      //     effect on another creature using an ability can end that effect
+      //     as a free maneuver unless the ability says otherwise"
+      //     [chapter/classes §Ending Effects], turn-only.
+      //
+      // A real dispatch satisfies both predicates at once: an imposer whose
+      // own ability prints the removal is both the imposer AND the asserted
+      // user. Debiting both would charge one printed removal twice, at two
+      // different costs. The asserted band wins because it names the
+      // printed cost explicitly, where (b) is the engine's default for a
+      // removal no ability claimed.
+      const assertedPrelude = assertedEconomyPrelude(
+        state,
+        asserted,
+        intent.payload.target,
+        lifecycleContext,
+      );
+      let preState = assertedPrelude.state;
+      const preLog: LogEntry[] = [...assertedPrelude.log];
       if (
+        asserted === null &&
         state.turnState !== null &&
-        instance !== undefined &&
         instance.source.effectArtifactId !== undefined &&
         intent.actor.kind === 'participant' &&
         intent.actor.participantId === instance.source.participantId &&
         intent.actor.participantId !== target.id &&
+        // The printed "(no action required)" ability-text escape (eight
+        // printed abilities), asserted at dispatch.
         !intent.payload.noActionRequired
       ) {
         const debited = debitActionCost(
@@ -320,11 +312,9 @@ function applyIntentCore(
         return { state, log: [refusal(intent, `unknown participant ${intent.payload.target}`)] };
       }
       const asserted = intent.payload.assertedAbilityUse;
-      if (asserted !== null && !state.participants[asserted.actorParticipantId]) {
-        return {
-          state,
-          log: [refusal(intent, `unknown participant ${asserted.actorParticipantId}`)],
-        };
+      const assertedRefusal = assertedActorRefusal(state, asserted);
+      if (assertedRefusal !== null) {
+        return { state, log: [refusal(intent, assertedRefusal)] };
       }
       // The minionKillVictims structural gate, hoisted above the economy
       // debit so a refusal never follows a mutation (refusal-with-change
@@ -343,31 +333,15 @@ function applyIntentCore(
           ],
         };
       }
-      // Asserted-band economy parity (R-0029/R-0030): a manual tier
-      // assertion is still a use of the ability — it debits through the one
-      // home like the rolled path, and opens NO resolution entry.
-      let economyState = state;
-      const economyLog: LogEntry[] = [];
-      if (asserted !== null) {
-        const application = assertedApplicationEntry(intent, asserted, intent.payload.target);
-        if (application !== null) economyLog.push(application);
-      }
-      if (asserted !== null && state.turnState !== null) {
-        const debited = debitActionCost(
-          economyState,
-          {
-            cost: asserted.actionCost,
-            payerId: asserted.actorParticipantId,
-            abilityKey: asserted.abilityArtifactId,
-            usesPerRound: asserted.usesPerRound,
-            partOf: asserted.partOf ?? null,
-            sharesAbilityUse: asserted.partOf !== undefined,
-          },
-          lifecycleContext,
-        );
-        economyState = debited.state;
-        economyLog.push(...debited.log);
-      }
+      // Asserted-band economy parity (R-0029/R-0030), through the one home.
+      const damagePrelude = assertedEconomyPrelude(
+        state,
+        asserted,
+        intent.payload.target,
+        lifecycleContext,
+      );
+      const economyState = damagePrelude.state;
+      const economyLog = damagePrelude.log;
       const liveTarget = economyState.participants[intent.payload.target] ?? target;
       // A living squad member's damage decrements the shared pool — the ONE
       // home for squad vitality [R-0024]; the dispatch-asserted `area` flag
