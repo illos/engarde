@@ -5,14 +5,23 @@
 > **Gate 3 (user sign-off) PENDING** — surfaced on the approvals page.
 > All quotes verbatim, attributed per the Draw Steel Creator License.
 
-## Summary for the builder schema (candidate, pending G3)
+## Ruled boundary (user, 2026-08-31 — DEC-0019)
 
-Write back onto the character at encounter end: **current Stamina,
-Recoveries remaining, Victories**, any hero conditions the hero opted to
-keep, winded/unconscious/dying states, and respite-scoped feature
-resources (e.g. fate points). Discard at encounter end: **heroic
-resource, surges, temporary Stamina**, opted-out conditions/effects.
-Respite refills Stamina/Recoveries and converts Victories to XP.
+> "The stats are always owned by the character sheet, and the encounter
+> simply makes the modifications that are needed — granting and clearing
+> where needed."
+
+The sheet is the single owner of persistent values (**current Stamina,
+Recoveries remaining, Victories**, persisting conditions/states). There
+is NO encounter-end write-back: encounter events that touch sheet-owned
+values (damage, Catch Breath, Victory award) apply to the sheet as they
+happen. Encounter-scoped values (**heroic resource, surges, temporary
+Stamina, combat conditions**) are grants into the encounter layer with a
+per-grant lifetime (`encounter` | `respite` | effect-specified);
+end-of-encounter clearing is expiry-by-lifetime, with the hero-conditions
+sweep per-hero opt-in (p.76). Respite refills sheet-owned
+Stamina/Recoveries, converts Victories to XP, and expires
+respite-lifetime grants (fate points, p.81).
 
 ## a. Stamina — persists across encounters; respite refills
 
