@@ -1596,6 +1596,23 @@ export type CommonActionPerRoundCap = z.infer<typeof CommonActionPerRoundCapSche
 export const CommonActionAlternativeSchema = z.object({
   key: z.string().min(1),
   sourceText: z.string().min(1),
+  /**
+   * A printed alternative that has a NAMED TARGET take a named action at a
+   * named cost — "Alternatively, a creature can use the Ride move action to
+   * have their mount use the Disengage move action as a free triggered
+   * action." The printed phrase OVERRIDES the named action's own header
+   * cost for this use, and the cost is the target's, not the actor's.
+   *
+   * Data, not an arm: without it the branch is a per-action `switch` on the
+   * feature id inside the shared executor, and the second alternative of
+   * this shape grows a second one. Null when the alternative does not name
+   * an action for its target (Stand Up's ally case: one maneuver, the
+   * actor's, and nothing is charged to the ally).
+   */
+  targetAction: z
+    .object({ artifactId: z.string().min(1), actionCost: ActionCostSchema })
+    .nullable()
+    .default(null),
 });
 export type CommonActionAlternative = z.infer<typeof CommonActionAlternativeSchema>;
 

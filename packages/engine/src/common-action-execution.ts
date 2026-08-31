@@ -310,6 +310,54 @@ function preludeEntries(
  * verbatim "once per round" warning and the start-of-round reset all come
  * out of that one call.
  */
+/**
+ * A printed alternative that has a NAMED TARGET take a named action at a
+ * named cost — "Alternatively, a creature can use the Ride move action to
+ * have their mount use the Disengage move action as a free triggered
+ * action."
+ *
+ * The cost is the TARGET's and the debit is its own, so `partOf` is
+ * deliberately null: the mount pays its own printed cost rather than
+ * consuming the rider's already-debited move action. Its dazed/surprised
+ * prevention couplings ride the one `ACTION_COST_DEBITS` row for free.
+ *
+ * The route is written into the arm, not left to the host, because the
+ * alternative is: a host that ALSO dispatched the target's action
+ * separately would debit it twice and double-increment that action's own
+ * per-ability counter. One dispatch, one debit.
+ */
+function debitAlternativeTargetAction(
+  state: EncounterState,
+  intent: UseCommonActionIntent,
+  context: LifecycleContext,
+): { state: EncounterState; log: LogEntry[] } {
+  const { feature, targets, partOf } = intent.payload;
+  const alternative = feature.alternatives.find((item) => item.key === intent.payload.alternative);
+  const targetAction = alternative?.targetAction ?? null;
+  // A later segment of the same action re-narrates the branch; it does not
+  // buy the target a second action.
+  if (targetAction === null || partOf !== undefined) return { state, log: [] };
+  let nextState = state;
+  const log: LogEntry[] = [];
+  for (const targetId of targets) {
+    const debited = debitActionCost(
+      nextState,
+      {
+        cost: targetAction.actionCost,
+        payerId: targetId,
+        abilityKey: targetAction.artifactId,
+        usesPerRound: null,
+        partOf: null,
+        sharesAbilityUse: false,
+      },
+      context,
+    );
+    nextState = debited.state;
+    log.push(...debited.log);
+  }
+  return { state: nextState, log };
+}
+
 function debitTargetCaps(
   state: EncounterState,
   intent: UseCommonActionIntent,
@@ -357,5 +405,9 @@ export function executeUseCommonAction(
 
   const resolved = executeResolutionDispatch(state, dispatch, context, random);
   const targetCaps = debitTargetCaps(resolved.state, intent, context);
-  return { state: targetCaps.state, log: [...resolved.log, ...targetCaps.log] };
+  const branch = debitAlternativeTargetAction(targetCaps.state, intent, context);
+  return {
+    state: branch.state,
+    log: [...resolved.log, ...targetCaps.log, ...branch.log],
+  };
 }

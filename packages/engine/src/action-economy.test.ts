@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type ApplyResult, applyIntent } from './apply-intent.js';
+import { ADVANCE } from './common-action.fixtures.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { checkInvariants } from './invariants.js';
@@ -152,24 +153,6 @@ const CHARGE_EFFECT = {
   canonRefs: [],
   actionType: null,
   actionCost: 'main-action' as const,
-  targetsText: null,
-  distanceText: null,
-  keywords: [],
-  resolution: { kind: 'table' as const },
-};
-
-/** Advance (heroes/md/feature/common/move-actions/advance.md) — a PROSE
- * common-action feature quoted verbatim: the move-action cost is its
- * printed grouping (feature.common.move-actions). */
-const ADVANCE_EFFECT = {
-  effectArtifactId: 'mcdm.heroes.v1/feature.common.move-actions/advance',
-  effectOrdinal: 1,
-  sourceSpan: { byteStart: 0, byteEnd: 289 },
-  sourceText:
-    'When a creature takes the [Advance](scc.v1:mcdm.heroes.v1/feature.common.move-actions/advance) move action, they move a number of squares up to their [speed](scc.v1:mcdm.heroes.v1/rule.character/speed). They can break up this movement with their maneuver and main action however they wish.',
-  canonRefs: [],
-  actionType: null,
-  actionCost: 'move-action' as const,
   targetsText: null,
   distanceText: null,
   keywords: [],
@@ -1071,13 +1054,16 @@ describe('minion per-member budget (R-0033, PDF-recovered Acting Together)', () 
     return dispatchChecked(state, director('start-turn', { turnId: 'sq-1' })).state;
   }
 
+  /** Advance through the one common-action dispatch path — the first
+   * consumer of `withinMinionMoveMenu` outside the squad pipeline. It must
+   * call THROUGH the menu, never around it. */
   function advanceBy(memberId: string): Intent {
     return {
       intentId: nextId('advance'),
-      kind: 'use-effect',
+      kind: 'use-common-action',
       actor: { kind: 'director' },
-      payload: { actorParticipantId: memberId, effect: ADVANCE_EFFECT, targets: [] },
-    };
+      payload: { actorParticipantId: memberId, feature: ADVANCE },
+    } as Intent;
   }
 
   it('two move actions on the squad turn are within the printed menu — no over-budget warn ("… or two move actions", Acting Together, Monsters p.8–9, R-0033)', () => {
@@ -1136,12 +1122,13 @@ describe('minion per-member budget (R-0033, PDF-recovered Acting Together)', () 
     // the suppression is exactly the R-0033 squad-turn combo.
     let state = beginCombat(baseEncounter(), 'heroes');
     state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
-    const advanceByHero = (): Intent => ({
-      intentId: nextId('advance'),
-      kind: 'use-effect',
-      actor: { kind: 'participant', participantId: 'hero' },
-      payload: { actorParticipantId: 'hero', effect: ADVANCE_EFFECT, targets: [] },
-    });
+    const advanceByHero = (): Intent =>
+      ({
+        intentId: nextId('advance'),
+        kind: 'use-common-action',
+        actor: { kind: 'participant', participantId: 'hero' },
+        payload: { actorParticipantId: 'hero', feature: ADVANCE },
+      }) as Intent;
     const first = dispatchChecked(state, advanceByHero());
     expect(first.log.filter((entry) => entry.kind === 'warning')).toEqual([]);
     const second = dispatchChecked(first.state, advanceByHero());
@@ -1159,11 +1146,13 @@ describe('R-0029 residue surfacing: an unresolved cost never debits silently', (
     let state = beginCombat(baseEncounter(), 'heroes');
     state = dispatchChecked(state, director('start-turn', { turnId: 'hero' })).state;
     // Synthetic residue shape for the surfacing path: the prose is the
-    // verbatim Advance feature; the raw value mirrors the real corpus
+    // verbatim Grab Effect line, and the raw value mirrors the real corpus
     // residue case (the vampire-lord stat-table "EV 36" cell, which the
-    // closed vocabulary correctly refuses). No debit is ever guessed.
+    // closed vocabulary correctly refuses). Residue is a HEADER-CELL
+    // phenomenon, so the fixture is a compiled Effect program — a
+    // headerless common action has no cell to refuse. No debit is guessed.
     const residueEffect = {
-      ...ADVANCE_EFFECT,
+      ...GRAB_EFFECT,
       actionCost: null,
       actionType: 'EV 36',
       actionCostResidue: 'unrecognized action-cost value "EV 36"',

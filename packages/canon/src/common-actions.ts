@@ -63,8 +63,14 @@ export interface CommonActionDirectoryEntry {
   /** One entry per printed once-per-round sentence, in source order. The
    * compiler matches these against the sentences it extracts. */
   perRoundCapSubjects: ReadonlyArray<{ subject: 'actor' | 'target'; sourceText: string }>;
-  /** One key per printed "Alternatively, …" sentence, in source order. */
-  alternativeKeys: readonly string[];
+  /** One entry per printed "Alternatively, …" sentence, in source order.
+   * `targetAction` records an alternative that has a NAMED TARGET take a
+   * named action at a named cost; the compiler proves both the action's
+   * printed name and the cost phrase against the sentence's bytes. */
+  alternatives: ReadonlyArray<{
+    key: string;
+    targetAction: { artifactId: string; actionCost: ActionCost; printedName: string } | null;
+  }>;
   /** Executable behaviour, when the printed text has some; null → the
    * verbatim table-directive disposition. */
   resolution: EffectResolution | null;
@@ -90,7 +96,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: true,
   },
@@ -100,7 +106,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -117,7 +123,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
       `${ABILITY}/ranged-weapon-free-strike`,
     ],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -127,7 +133,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -138,7 +144,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -152,7 +158,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: {
       kind: 'spend-recovery',
       subjectText: 'A creature who uses the Catch Breath maneuver',
@@ -167,7 +173,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'companion',
     companionArtifactIds: [`${ABILITY}/escape-grab`],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -178,7 +184,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'companion',
     companionArtifactIds: [`${ABILITY}/grab`],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -188,7 +194,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -199,7 +205,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'companion',
     companionArtifactIds: [`${ABILITY}/knockback`],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -209,7 +215,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -219,7 +225,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -230,8 +236,9 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     // "Alternatively, they can use this maneuver to make a willing
-    // adjacent prone creature stand up."
-    alternativeKeys: ['ally-stands-up'],
+    // adjacent prone creature stand up." — one maneuver, the actor's;
+    // nothing is charged to the ally, so no targetAction.
+    alternatives: [{ key: 'ally-stands-up', targetAction: null }],
     resolution: null,
     movesActor: false,
   },
@@ -241,7 +248,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: false,
   },
@@ -253,7 +260,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: true,
   },
@@ -264,7 +271,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternativeKeys: [],
+    alternatives: [],
     resolution: null,
     movesActor: true,
   },
@@ -292,8 +299,18 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     ],
     // "Alternatively, a creature can use the Ride move action to have
     // their mount use the Disengage move action as a free triggered
-    // action."
-    alternativeKeys: ['mount-disengages'],
+    // action." — the printed phrase overrides Disengage's own header cost
+    // for this use, and the cost is the MOUNT's, not the rider's.
+    alternatives: [
+      {
+        key: 'mount-disengages',
+        targetAction: {
+          artifactId: `${ID}.move-actions/disengage`,
+          actionCost: 'free-triggered-action',
+          printedName: 'Disengage',
+        },
+      },
+    ],
     resolution: null,
     movesActor: true,
   },
@@ -302,6 +319,22 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
 const DIRECTORY_BY_ID = new Map(
   COMMON_ACTION_DIRECTORY.map((entry) => [entry.featureArtifactId, entry]),
 );
+
+/**
+ * The printed phrase each closed action cost is written as in running
+ * prose. Used to prove a directory-declared alternative cost against the
+ * sentence that carries it — never to guess one.
+ */
+const ACTION_COST_PRINTED_PHRASE: Readonly<Record<ActionCost, string>> = {
+  'main-action': 'main action',
+  maneuver: 'maneuver',
+  'move-action': 'move action',
+  'triggered-action': 'triggered action',
+  'free-triggered-action': 'free triggered action',
+  'free-maneuver': 'free maneuver',
+  'no-action': 'no action',
+  'villain-action': 'villain action',
+};
 
 /** The printed alternative marker. Closed phrase — the corpus prints
  * exactly two ("Alternatively, …" on Stand Up and Ride). */
@@ -377,17 +410,44 @@ export function compileCommonAction(input: {
   });
 
   const alternativeSentences = sentences.filter((sentence) => ALTERNATIVELY.test(sentence));
-  if (alternativeSentences.length !== entry.alternativeKeys.length) {
+  if (alternativeSentences.length !== entry.alternatives.length) {
     fail(
       artifactId,
-      `printed alternatives (${alternativeSentences.length}) do not match the ${entry.alternativeKeys.length} keyed in the directory`,
+      `printed alternatives (${alternativeSentences.length}) do not match the ${entry.alternatives.length} keyed in the directory`,
     );
   }
   const alternatives: CommonActionAlternative[] = alternativeSentences.map((sourceText, index) => {
-    const key = entry.alternativeKeys[index];
-    if (key === undefined)
-      fail(artifactId, `printed alternative ${index + 1} has no directory key`);
-    return { key, sourceText };
+    const declared = entry.alternatives[index];
+    if (declared === undefined) {
+      fail(artifactId, `printed alternative ${index + 1} has no directory entry`);
+    }
+    const targetAction = declared.targetAction;
+    if (targetAction !== null) {
+      // Both halves of the reading are proved against the sentence's own
+      // bytes: the action it names, and the cost phrase that overrides
+      // that action's printed header for this use.
+      const costPhrase = ACTION_COST_PRINTED_PHRASE[targetAction.actionCost];
+      if (!sourceText.includes(targetAction.printedName)) {
+        fail(
+          artifactId,
+          `alternative ${JSON.stringify(declared.key)} names ${targetAction.printedName}, which its printed sentence does not`,
+        );
+      }
+      if (!sourceText.toLowerCase().includes(costPhrase)) {
+        fail(
+          artifactId,
+          `alternative ${JSON.stringify(declared.key)} claims a ${targetAction.actionCost} cost, which its printed sentence never prints ("${costPhrase}")`,
+        );
+      }
+    }
+    return {
+      key: declared.key,
+      sourceText,
+      targetAction:
+        targetAction === null
+          ? null
+          : { artifactId: targetAction.artifactId, actionCost: targetAction.actionCost },
+    };
   });
 
   // A resolution's verbatim subject phrase must be printed text, not a

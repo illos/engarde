@@ -109,6 +109,12 @@ describe('common-action program source', () => {
         key: 'mount-disengages',
         sourceText:
           'Alternatively, a creature can use the Ride move action to have their mount use the Disengage move action as a free triggered action.',
+        // The printed phrase overrides Disengage's own header cost for
+        // this use, and charges the MOUNT, not the rider.
+        targetAction: {
+          artifactId: 'mcdm.heroes.v1/feature.common.move-actions/disengage',
+          actionCost: 'free-triggered-action',
+        },
       },
     ]);
     expect(byId.get(STAND_UP.artifactId)?.alternatives).toEqual([
@@ -116,6 +122,8 @@ describe('common-action program source', () => {
         key: 'ally-stands-up',
         sourceText:
           'Alternatively, they can use this maneuver to make a willing adjacent prone creature stand up.',
+        // One maneuver, the actor's; nothing is charged to the ally.
+        targetAction: null,
       },
     ]);
     const withAlternatives = programs.filter((program) => program.alternatives.length > 0);
