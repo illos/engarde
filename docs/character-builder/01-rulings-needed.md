@@ -475,3 +475,49 @@ drops `potencies: null`.
 5. **R-G / R-H** — blocks the schema for items and nested entities.
 6. **R-E / R-I / R-F** — blocks specific surfaces.
 7. **R-J / R-K** — content and scope decisions; can run in parallel.
+
+## RULED — 2026-08-31 (normative-schema Q-pass, user decisions via approvals surface)
+
+The §8 open questions of `02-normative-schema.md` were put to the user on the
+approvals review surface; verbatim decision blob archived in the session
+record. Dispositions:
+
+- **Q1 — XP-gained hook (the R-C hole): (a) accepted.** The "gain [resource]
+  equal to the XP you gain" hook is represented as an **XP-award campaign
+  event** the runtime region subscribes to. Unblocks the Censor L10 slice
+  when its turn comes; nothing else waits on it.
+- **Q2 — characteristics column: stored projection CONFIRMED.** The shipped
+  `characteristics` column is a stored projection of the decision log with
+  one derivation home, as drafted.
+- **Q3 — nested creatures: REUSE confirmed.** Compiled summons/companions
+  reuse the engine's `ParticipantStats` + `statblockStats` path (pointer +
+  overrides), not a builder-local representation.
+- **Q4 — per-hero state across the encounter boundary: rulebot dispatched.**
+  User direction: verify in the books rather than decide by fiat; user's
+  table understanding is that Stamina and Recoveries are tracked **per
+  respite, not per encounter** (i.e. they persist across encounters and
+  refill at a respite). Awaiting Gate-1/Gate-2 evidence before any schema
+  slot is added.
+- **Q5 — languages/imbuements gap: PENDING, question unclear.** The user
+  did not understand the ask as phrased; re-asked in plain terms (which
+  source should supply the missing language/imbuement lists: upstream fix,
+  our own supplement source, or leave the wizard step visibly incomplete).
+- **Q6 — kit stat aggregation: pin check runs WITH the Fury vertical.**
+  Confirmed; already wired into the in-flight `feat/fury-vertical` brief
+  (verify printed math or surface receipts, never trust FS-observed math).
+- **Q7 — join key stability: SCHEDULED.** The join must declare its
+  discriminator slugs stable across re-runs at the same pin, and a pin
+  upgrade that changes record cardinality is a migration event for
+  `build.decisions` (stale keys re-resolved or surfaced as invalidated,
+  never silently dropped). Filed as an engineering task, in flight.
+- **Q8 — revert scope: CONFIRMED on both halves.** Rewind truncates the log
+  with no separate removed-suffix audit trail in V1 (the campaign log's
+  attribution of the revert mutation suffices), and orphaned
+  equipment/title layers are flagged for the Director, never
+  cascade-deleted.
+
+Separately ruled the same day (recorded in `docs/canon-rulings.md`): the
+**R-0031 retarget extension** — "becomes the new target of the
+strike/ability" joins the triggered-action template set (5 core statblocks:
+vampire, vampire-lord, hulking-brain, castellan-hoplon,
+war-dog-mischievite).
