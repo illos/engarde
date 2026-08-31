@@ -22,6 +22,23 @@ Outputs (all deterministic; re-runs are byte-identical):
     discrepancies.json   categorized non-joining rows + pin-only records
     ra-worklist.json     pre-seeded grant rows for the R-A per-row canon pass
     summary.json         counts, join rate, predicted-delta checks
+    key-manifest.json    the stable-keys declaration (builder Q7): the sorted
+                         universe of string-encoded overlay keys this join
+                         minted, a content hash over it, and the pin checkout
+                         it was minted against
+
+Key stability (builder Q7, ruled 2026-08-31): the `(scc, discriminator)`
+overlay keys minted here are PERSISTENT key components — hero documents key
+`build.decisions` entries by them. The join therefore declares them stable:
+a re-run against the same pin yields a byte-identical key set (regression-
+tested), and a run against a DIFFERENT pin is compared mechanically via
+
+    python3 tools/character_builder_join.py --diff-manifests OLD NEW
+
+which classifies every key as unchanged / added / removed. Removed keys are a
+MIGRATION EVENT for `build.decisions` (§2.2 divergence pass in
+docs/character-builder/02-normative-schema.md): stale keys are re-resolved or
+surfaced as invalidated, never silently dropped.
 
 Discrepancy categories:
     excluded-book        Beastheart content — the book is `exclude` in the pin
@@ -45,6 +62,7 @@ labels, never keys.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -52,6 +70,9 @@ import sys
 import tempfile
 import unicodedata
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PIN_SOURCE_LOCK = REPO_ROOT / "packages" / "canon" / "config" / "steelcompendium-source.json"
 
 PIN_BOOKS = ("heroes", "monsters", "beastheart", "summoner")
 EXCLUDED_PIN_BOOKS = frozenset({"beastheart"})
@@ -836,6 +857,93 @@ class Joiner:
 
 
 # ---------------------------------------------------------------------------
+# Stable-keys manifest (builder Q7)
+# ---------------------------------------------------------------------------
+
+# String encoding of an overlay key (02-normative-schema.md §2.3(c)): `<scc>`
+# when the record carries exactly one choice point, `<scc>#<disc>` when it
+# carries several. Neither `#` nor `::` occurs in the scc grammar
+# (`mcdm.<book>.v1/<category-path>/<slug>`), so parsing is unambiguous.
+# Nested path keys (segments joined by `::`) are composed at runtime from
+# these segments — the join mints segments only.
+KEY_GRAMMAR = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.v\d+/[a-z0-9./-]+(#[a-z0-9-]+)?")
+
+
+def encode_overlay_key(scc, discriminator):
+    """String-encode one overlay key. Fails loudly on key material that would
+    break the grammar (a `#`/`:` inside an scc, an unslugged discriminator) —
+    these are persistent keys; a malformed one must never reach an artifact."""
+    if "#" in scc or ":" in scc:
+        raise ValueError(f"scc contains a key-encoding delimiter: {scc!r}")
+    encoded = scc if discriminator is None else f"{scc}#{discriminator}"
+    if not KEY_GRAMMAR.fullmatch(encoded):
+        raise ValueError(f"overlay key does not parse under the key grammar: {encoded!r}")
+    return encoded
+
+
+def keys_digest(keys):
+    """Content hash of a key universe: sha256 over the sorted keys joined by
+    LF with a trailing LF, UTF-8. The digest definition is part of the
+    stability contract — do not change it without a migration note."""
+    return hashlib.sha256(("\n".join(keys) + "\n").encode("utf-8")).hexdigest()
+
+
+def build_key_manifest(joined, pin_lock, fs_provenance):
+    """The stable-keys declaration (builder Q7): the sorted, de-duplicated
+    universe of overlay keys this join minted, a content hash, and the pin
+    checkout the keys were minted against. Deterministic by construction
+    (sorted set; no timestamps). FS ids never enter key material (DEC-0014)."""
+    keys = sorted({encode_overlay_key(row["overlayKey"]["scc"], row["overlayKey"]["discriminator"]) for row in joined})
+    return {
+        "contract": (
+            "These overlay keys are PERSISTENT: hero documents key `build.decisions` entries by them "
+            "(builder Q7). Same pin in => byte-identical keys out. A pin upgrade that changes the key "
+            "universe is a migration event handled through the §2.2 divergence pass "
+            "(docs/character-builder/02-normative-schema.md): removed keys are re-resolved or surfaced "
+            "as invalidated, never silently dropped. Diff mechanically with --diff-manifests."
+        ),
+        "keyEncoding": "<scc> | <scc>#<discriminator> (02-normative-schema.md §2.3(c))",
+        "pin": {
+            "source": pin_lock.get("source"),
+            "commit": pin_lock.get("commit"),
+            "tag": pin_lock.get("tag"),
+            "commitDate": pin_lock.get("commitDate"),
+        },
+        "fsExtract": {
+            "source": fs_provenance.get("source"),
+            "commit": fs_provenance.get("commit"),
+            "role": "labels/shape only — FS ids are labels, never keys (DEC-0014)",
+        },
+        "keyCount": len(keys),
+        "keysSha256": keys_digest(keys),
+        "keys": keys,
+    }
+
+
+def diff_manifests(old, new):
+    """Mechanical key-universe diff between two manifests (e.g. two pins).
+    Classification only — the migration executor (§2.2 divergence pass) is a
+    separate, future pass; this diff is its input."""
+    old_keys = set(old["keys"])
+    new_keys = set(new["keys"])
+    removed = sorted(old_keys - new_keys)
+    return {
+        "oldPin": old.get("pin"),
+        "newPin": new.get("pin"),
+        "unchanged": len(old_keys & new_keys),
+        "added": sorted(new_keys - old_keys),
+        "removed": removed,
+        "migrationEvent": bool(removed),
+        "note": (
+            "removed keys are a migration event for `build.decisions` (§2.2 divergence pass): "
+            "re-resolve or surface as invalidated, never silently drop."
+            if removed
+            else "no keys removed — existing `build.decisions` entries all survive this pin change."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Pin-side reconciliation + summary
 # ---------------------------------------------------------------------------
 
@@ -940,12 +1048,28 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--artifacts", default=".artifacts/canon/character-builder")
     parser.add_argument("--pin", default=".reference/steelcompendium/en/books")
+    parser.add_argument(
+        "--diff-manifests",
+        nargs=2,
+        metavar=("OLD", "NEW"),
+        help="classify two key-manifest.json files (unchanged/added/removed) and exit; "
+        "needs neither the pin nor the extract",
+    )
     args = parser.parse_args(argv)
+
+    if args.diff_manifests:
+        old_path, new_path = args.diff_manifests
+        diff = diff_manifests(load_json(old_path), load_json(new_path))
+        json.dump(diff, sys.stdout, indent=1, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return 0
 
     artifacts = Path(args.artifacts)
     extract = load_json(artifacts / "fs-extract.json")
     pin_records = load_pin_records(args.pin)
     joiner, summary, pin_index = run_join(extract, pin_records)
+    pin_lock = load_json(PIN_SOURCE_LOCK)
+    key_manifest = build_key_manifest(joiner.joined, pin_lock, extract.get("_provenance") or {})
 
     write_json_atomic(artifacts / "scc-join.json", {"_provenance": PROVENANCE, "rows": joiner.joined})
     write_json_atomic(
@@ -963,12 +1087,15 @@ def main(argv=None):
         },
     )
     write_json_atomic(artifacts / "summary.json", {"_provenance": PROVENANCE, **summary})
+    write_json_atomic(artifacts / "key-manifest.json", {"_provenance": PROVENANCE, **key_manifest})
 
     print(f"scc-join: {summary['totalFsRows']} FS rows -> {summary['joined']} joined "
           f"({summary['joinRateOverAllRows']:.1%} of all, {summary['joinRateOverJoinableRows']:.1%} of joinable)")
     for category, count in summary["discrepancies"].items():
         print(f"  {category}: {count}")
     print(f"  R-A worklist: {summary['raWorklistRows']} rows")
+    print(f"  key manifest: {key_manifest['keyCount']} stable keys "
+          f"(sha256 {key_manifest['keysSha256'][:12]}…, pin {key_manifest['pin']['tag']})")
     return 0
 
 
