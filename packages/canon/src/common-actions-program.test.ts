@@ -22,6 +22,7 @@ import {
   RIDE,
   STAND_UP,
 } from './fixtures/common-actions.verbatim.js';
+import { GATE_SOURCE_FIXTURES } from './fixtures/gate-sources.verbatim.js';
 
 /**
  * Prose-feature program source [common-actions design §2, S2]. The 17
@@ -218,12 +219,27 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
     // precondition breaks loudly instead of leaving a stale quote in a
     // warning the Director is meant to trust.
     expect(COMMON_ACTION_ELIGIBILITY_GATES.length).toBeGreaterThan(0);
+    // A gate may cite a rule that never names the action it gates —
+    // `slowed` prints its bar on shifting and never mentions Disengage —
+    // so the quote is proved against the artifact the gate SAYS it came
+    // from, which is either one of the 17 or a committed gate-source cut.
+    const sources = new Map<string, string>([
+      ...programs.map((program): [string, string] => [
+        program.featureArtifactId,
+        program.sourceText,
+      ]),
+      ...GATE_SOURCE_FIXTURES.map((fixture): [string, string] => [
+        fixture.artifactId,
+        fixture.text,
+      ]),
+    ]);
     for (const gate of COMMON_ACTION_ELIGIBILITY_GATES) {
-      const program = byId.get(gate.featureArtifactId);
-      expect(program, gate.featureArtifactId).toBeDefined();
+      expect(byId.get(gate.featureArtifactId), gate.featureArtifactId).toBeDefined();
+      const source = sources.get(gate.sourceArtifactId);
+      expect(source, `${gate.featureArtifactId} cites ${gate.sourceArtifactId}`).toBeDefined();
       expect(
-        stripSccLinks(program?.sourceText ?? '').includes(gate.verbatim),
-        `${gate.featureArtifactId}: ${gate.verbatim}`,
+        stripSccLinks(source ?? '').includes(gate.verbatim),
+        `${gate.sourceArtifactId}: ${gate.verbatim}`,
       ).toBe(true);
     }
   });
@@ -240,12 +256,15 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
       'mcdm.heroes.v1/feature.common.maneuvers/grab',
       'mcdm.heroes.v1/feature.common.maneuvers/knockback',
     ]);
-    // Fifteen of the 17 print no precondition the engine can read at all;
-    // the two that do are the two registered gates.
+    // Every action whose availability is not plainly true has a registered
+    // gate behind it. Disengage's does not appear: its `slowed` gate reads
+    // TRUE on a creature who is not slowed, which is the point of a
+    // tri-state — an engine-known precondition that holds is silent.
     expect(
       menu.filter((offer) => offer.available !== true).map((offer) => offer.featureArtifactId),
     ).toEqual([
       'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+      'mcdm.heroes.v1/feature.common.maneuvers/knockback',
       'mcdm.heroes.v1/feature.common.move-actions/ride',
     ]);
   });

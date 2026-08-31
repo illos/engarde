@@ -11,13 +11,20 @@ import { commonActionMenu, hasCommonActionAccess } from './common-action-menu.js
 import {
   ADVANCE,
   CATCH_BREATH,
+  CHARGE,
+  DISENGAGE,
   FREE_STRIKE,
+  KNOCKBACK,
+  KNOCKBACK_ABILITY,
+  KNOCKBACK_COMPOSES,
   MELEE_WEAPON_FREE_STRIKE,
   RIDE,
+  SPEAR_CHARGE_COMPOSES,
   STAND_UP,
 } from './common-action.fixtures.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
+import { forcedMovementDirective } from './forced-movement.js';
 import { checkInvariants } from './invariants.js';
 import { deriveOccurrences } from './occurrences.js';
 import type {
@@ -366,10 +373,30 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
     ).toEqual([]);
   });
 
-  it('registers exactly the printed preconditions of waves 1-4', () => {
-    expect(COMMON_ACTION_ELIGIBILITY_GATES.map((gate) => gate.featureArtifactId)).toEqual([
-      'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
-      'mcdm.heroes.v1/feature.common.move-actions/ride',
+  it('registers exactly the printed preconditions built so far', () => {
+    expect(
+      COMMON_ACTION_ELIGIBILITY_GATES.map((gate) => [
+        gate.featureArtifactId,
+        gate.sourceArtifactId,
+      ]),
+    ).toEqual([
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+        'mcdm.heroes.v1/feature.common.maneuvers/catch-breath',
+      ],
+      [
+        'mcdm.heroes.v1/feature.common.move-actions/ride',
+        'mcdm.heroes.v1/feature.common.move-actions/ride',
+      ],
+      // The two registrations that cite an artifact other than the
+      // action's own prose: slowed prints its bar on shifting and never
+      // names Disengage; Knockback's targeting rule is printed on the
+      // companion ability's Effect line.
+      ['mcdm.heroes.v1/feature.common.move-actions/disengage', 'mcdm.heroes.v1/condition/slowed'],
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/knockback',
+        'mcdm.heroes.v1/feature.ability.common/knockback',
+      ],
     ]);
   });
 
@@ -649,5 +676,270 @@ describe('wave 4 — the four shipped arms', () => {
       payload: { resolutionId: struck.state.resolutionStack[0]?.resolutionId, payload },
     } as Intent);
     expect(commit.state.participants.warrior?.stamina?.current).toBe(8);
+  });
+});
+
+describe('wave 5 — Disengage and Charge', () => {
+  const SLOWED = 'mcdm.heroes.v1/condition/slowed';
+
+  function applyCondition(
+    state: EncounterState,
+    target: string,
+    conditionId: string,
+  ): EncounterState {
+    return dispatchChecked(state, {
+      intentId: nextId('condition'),
+      kind: 'apply-condition',
+      actor: { kind: 'director' },
+      payload: {
+        target,
+        conditionId,
+        ending: { kind: 'external' },
+        source: { participantId: 'warrior', effectArtifactId: conditionId },
+      },
+    } as Intent).state;
+  }
+
+  it('Disengage debits one move action and carries the printed shift verbatim', () => {
+    const result = dispatchChecked(onHeroTurn(), useCommonAction('hero', DISENGAGE));
+    expect(result.state.participants.hero?.actionBudget['move-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+    const directive = result.log.find((entry) => entry.data.manualCommonAction !== undefined);
+    expect(directive?.message).toBe(DISENGAGE.sourceText);
+    expect(directive?.canonRefs).toContain('mcdm.heroes.v1/movement/shifting');
+    expect(result.log.some((entry) => entry.kind === 'warning')).toBe(false);
+  });
+
+  it("a slowed creature's Disengage warns with slowed's own sentence, and still happens", () => {
+    // The gate cites a rule that never names Disengage: slowed prints its
+    // bar on SHIFTING, and Disengage is a shift.
+    const slowed = applyCondition(onHeroTurn(), 'hero', SLOWED);
+    const result = dispatchChecked(slowed, useCommonAction('hero', DISENGAGE));
+    const warning = result.log.find(
+      (entry) => entry.kind === 'warning' && entry.data.commonActionEligibility !== undefined,
+    );
+    expect(warning?.message).toContain("they can't shift");
+    expect(warning?.canonRefs).toContain(SLOWED);
+    // Permissive engine: warned, applied, Director adjudicates.
+    expect(result.state.participants.hero?.actionBudget['move-action']?.used).toBe(1);
+  });
+
+  it('Disengage is the free-triggered-action dispatch its callers print', () => {
+    // "the same artifact id legitimately dispatches at two different costs
+    // depending on which printed rule invoked it" — Ride and Dancer print
+    // Disengage as a free triggered action.
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('warrior', DISENGAGE, { actionCost: 'free-triggered-action' }),
+    );
+    // No budget consumed, and it does not count against the one triggered
+    // action per round.
+    expect(result.state.participants.warrior?.actionBudget['move-action']).toBeUndefined();
+    expect(result.state.participants.warrior?.triggeredThisRound).toBe(0);
+    const receipt = result.log[0]?.data.commonActionResolution as Record<string, unknown>;
+    expect((receipt.commonAction as Record<string, unknown>).actionCostSource).toBe('dispatch');
+  });
+
+  it('Charge debits one main action and records the composed child it declares', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', CHARGE, {
+        targets: ['warrior'],
+        composes: {
+          abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike',
+          keywords: MELEE_WEAPON_FREE_STRIKE.keywords,
+        },
+      }),
+    );
+    expect(result.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+    const composes = result.log.find((entry) => entry.data.commonActionComposes !== undefined);
+    expect(composes?.kind).toBe('table-directive');
+    expect(composes?.data.commonActionComposes).toEqual({
+      featureArtifactId: 'mcdm.heroes.v1/feature.common.main-actions/charge',
+      abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike',
+      viaSubstituteKeyword: null,
+    });
+    expect(result.log.some((entry) => entry.kind === 'warning')).toBe(false);
+  });
+
+  it('admits a substitute by the printed Charge keyword', () => {
+    // "If the creature has an ability with the Charge keyword, they can use
+    // that ability against the target instead of a free strike."
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('warrior', CHARGE, {
+        targets: ['hero'],
+        composes: SPEAR_CHARGE_COMPOSES,
+      }),
+    );
+    expect(
+      (
+        result.log.find((entry) => entry.data.commonActionComposes !== undefined)?.data
+          .commonActionComposes as Record<string, unknown>
+      ).viaSubstituteKeyword,
+    ).toBe('Charge');
+    // No COMPOSITION warning. (The goblin warrior is acting off the hero's
+    // turn here, so the ordinary off-turn economy warn is expected and is
+    // not what this case is about.)
+    expect(
+      result.log.some(
+        (entry) => entry.kind === 'warning' && entry.data.commonActionComposes !== undefined,
+      ),
+    ).toBe(false);
+  });
+
+  it('warns — and applies — when the composed child satisfies neither printed arm', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', CHARGE, { targets: ['warrior'], composes: KNOCKBACK_COMPOSES }),
+    );
+    const warning = result.log.find(
+      (entry) => entry.kind === 'warning' && entry.data.commonActionComposes !== undefined,
+    );
+    expect(warning?.message).toContain('an ability with the Charge keyword');
+    expect(result.state.participants.hero?.actionBudget['main-action']?.used).toBe(1);
+  });
+
+  it('Charge and its child strike cost ONE main action across both dispatches', () => {
+    let state = onHeroTurn();
+    const charge = dispatchChecked(
+      state,
+      useCommonAction('hero', CHARGE, {
+        targets: ['warrior'],
+        composes: {
+          abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike',
+          keywords: MELEE_WEAPON_FREE_STRIKE.keywords,
+        },
+      }),
+    );
+    state = charge.state;
+    expect(state.participants.hero?.actionBudget['main-action']?.used).toBe(1);
+
+    const strike = dispatchChecked(state, {
+      intentId: nextId('charge-strike'),
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload: {
+        actorParticipantId: 'hero',
+        ability: MELEE_WEAPON_FREE_STRIKE,
+        targets: ['warrior'],
+        dice: [5, 5],
+        characteristicChoice: 'A',
+        damageCharacteristicChoice: 'A',
+        partOf: charge.log[0]?.intentId,
+      },
+    } as Intent);
+    // The child consumes the parent's already-debited main action…
+    expect(strike.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+    // …and still records its own use of the strike ability.
+    expect(
+      strike.state.participants.hero?.abilityUses[
+        'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike'
+      ]?.round,
+    ).toBe(1);
+  });
+
+  it('declaring no composed child adds no receipt', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', CHARGE, { targets: ['warrior'] }),
+    );
+    expect(result.log.some((entry) => entry.data.commonActionComposes !== undefined)).toBe(false);
+    // The printed sentence still rides verbatim in the action's directive.
+    const directive = result.log.find((entry) => entry.data.manualCommonAction !== undefined);
+    expect(directive?.message).toContain('Charge keyword');
+  });
+});
+
+describe('wave 5 — Knockback and the one forced-movement receipt', () => {
+  it('the prose arm surfaces the printed targeting rule and takes no debit', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', KNOCKBACK, { targets: ['warrior'] }),
+    );
+    // Companion-paid: the maneuver is on the companion's header cell.
+    expect(result.state.participants.hero?.actionBudget.maneuver).toBeUndefined();
+    const directive = result.log.find((entry) => entry.data.commonActionEligibility !== undefined);
+    expect(directive?.kind).toBe('table-directive');
+    // Quoted from the COMPANION ability, which is where the rule is printed.
+    expect(directive?.message).toContain(
+      'You can usually target only creatures of your size or smaller',
+    );
+    expect(directive?.canonRefs).toContain('mcdm.heroes.v1/rule.character/size');
+  });
+
+  it('the companion pays the one maneuver and its outcome is a corrected receipt', () => {
+    let state = onHeroTurn();
+    const prose = dispatchChecked(
+      state,
+      useCommonAction('hero', KNOCKBACK, { targets: ['warrior'] }),
+    );
+    state = prose.state;
+
+    const payload = {
+      actorParticipantId: 'hero',
+      ability: KNOCKBACK_ABILITY,
+      targets: ['warrior'],
+      dice: [5, 5] as [number, number],
+    };
+    const rolled = dispatchChecked(state, {
+      intentId: nextId('knockback'),
+      kind: 'use-ability',
+      actor: { kind: 'participant', participantId: 'hero' },
+      payload,
+    } as Intent);
+    expect(rolled.state.participants.hero?.actionBudget.maneuver).toEqual({
+      used: 1,
+      granted: 0,
+    });
+
+    // dice [5,5] + Might -2 = 8 → tier 1 → Push 1 [verbatim Knockback].
+    const commit = dispatchChecked(rolled.state, {
+      intentId: nextId('commit'),
+      kind: 'commit-resolution',
+      actor: { kind: 'director' },
+      payload: { resolutionId: rolled.state.resolutionStack[0]?.resolutionId, payload },
+    } as Intent);
+    const push = commit.log.find((entry) => entry.data.forcedMovement !== undefined);
+    expect(push?.kind).toBe('table-directive');
+    expect(push?.data.forcedMovement).toEqual({
+      targetId: 'warrior',
+      kind: 'push',
+      distance: 1,
+      printedDistance: 1,
+      unappliedModifiers: ['stability', 'big-versus-little', 'ability-specific'],
+    });
+    // The number is never presented as final.
+    expect(push?.message).toContain('is the printed tier distance, unmodified');
+    expect(push?.canonRefs).toContain('mcdm.heroes.v1/rule.character/stability');
+    // Nothing moved: forced movement is a receipt, not a position.
+    expect(commit.state.participants.warrior?.stamina?.current).toBe(15);
+  });
+
+  it('the squad path emits the identical receipt from the same builder', () => {
+    const context = { intentId: 'i-1', actor: { kind: 'director' as const } };
+    const fromAbilityPath = forcedMovementDirective(context, {
+      moverId: 'hero',
+      targetId: 'warrior',
+      movement: { kind: 'push', distance: 2 },
+      abilityArtifactId: KNOCKBACK_ABILITY.abilityArtifactId,
+    });
+    // One builder, so the two call sites cannot drift on the very sentence
+    // added to stop a bare number reading as authoritative.
+    expect(fromAbilityPath.message).toContain('2 is the printed tier distance, unmodified');
+    expect(fromAbilityPath.canonRefs).toEqual([
+      KNOCKBACK_ABILITY.abilityArtifactId,
+      'mcdm.heroes.v1/movement/forced-movement',
+      'mcdm.heroes.v1/rule.character/stability',
+      'mcdm.heroes.v1/rule.character/size',
+    ]);
   });
 });

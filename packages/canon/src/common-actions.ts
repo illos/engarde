@@ -1,6 +1,7 @@
 import {
   type ActionCost,
   type CommonActionAlternative,
+  type CommonActionComposition,
   type CommonActionGroup,
   type CommonActionPerRoundCap,
   type CommonActionProgramData,
@@ -71,6 +72,10 @@ export interface CommonActionDirectoryEntry {
     key: string;
     targetAction: { artifactId: string; actionCost: ActionCost; printedName: string } | null;
   }>;
+  /** The printed child-ability composition, when the text names one. Both
+   * halves are proved against the artifact's bytes: the phrase that names
+   * the child, and the sentence granting a keyword substitute. */
+  composition: CommonActionComposition | null;
   /** Executable behaviour, when the printed text has some; null → the
    * verbatim table-directive disposition. */
   resolution: EffectResolution | null;
@@ -97,6 +102,20 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    // "then make a melee free strike … against a target when they end
+    // their move. If the creature has an ability with the Charge keyword,
+    // they can use that ability against the target instead of a free
+    // strike." The named child is the MELEE weapon free strike — the text
+    // prints "melee", so the ranged companion is not admitted here.
+    composition: {
+      namedArtifactId: `${ABILITY}/melee-weapon-free-strike`,
+      namedPhrase: 'make a melee free strike',
+      substitute: {
+        keyword: 'Charge',
+        sourceText:
+          'If the creature has an ability with the Charge keyword, they can use that ability against the target instead of a free strike.',
+      },
+    },
     resolution: null,
     movesActor: true,
   },
@@ -107,6 +126,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -124,6 +144,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     ],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -134,6 +155,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -145,6 +167,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -159,6 +182,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: {
       kind: 'spend-recovery',
       subjectText: 'A creature who uses the Catch Breath maneuver',
@@ -174,6 +198,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [`${ABILITY}/escape-grab`],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -185,6 +210,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [`${ABILITY}/grab`],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -195,6 +221,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -206,6 +233,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [`${ABILITY}/knockback`],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -216,6 +244,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -226,6 +255,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -239,6 +269,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     // adjacent prone creature stand up." — one maneuver, the actor's;
     // nothing is charged to the ally, so no targetAction.
     alternatives: [{ key: 'ally-stands-up', targetAction: null }],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -249,6 +280,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: false,
   },
@@ -261,6 +293,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: true,
   },
@@ -272,6 +305,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     companionArtifactIds: [],
     perRoundCapSubjects: [],
     alternatives: [],
+    composition: null,
     resolution: null,
     movesActor: true,
   },
@@ -311,6 +345,7 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
         },
       },
     ],
+    composition: null,
     resolution: null,
     movesActor: true,
   },
@@ -450,6 +485,32 @@ export function compileCommonAction(input: {
     };
   });
 
+  // A composition's two readings are proved against the artifact's bytes:
+  // the phrase naming the child, and the sentence granting a substitute.
+  if (entry.composition !== null) {
+    if (!stripped.includes(entry.composition.namedPhrase)) {
+      fail(
+        artifactId,
+        `composition names its child by ${JSON.stringify(entry.composition.namedPhrase)}, which the artifact does not print`,
+      );
+    }
+    const substitute = entry.composition.substitute;
+    if (substitute !== null) {
+      if (!sentences.includes(substitute.sourceText)) {
+        fail(
+          artifactId,
+          `composition substitute sentence ${JSON.stringify(substitute.sourceText)} is not a printed sentence of the artifact`,
+        );
+      }
+      if (!substitute.sourceText.includes(substitute.keyword)) {
+        fail(
+          artifactId,
+          `composition substitute claims the ${substitute.keyword} keyword, which its own printed sentence never names`,
+        );
+      }
+    }
+  }
+
   // A resolution's verbatim subject phrase must be printed text, not a
   // paraphrase of it.
   if (
@@ -473,6 +534,7 @@ export function compileCommonAction(input: {
     defaultActionCost: GROUP_DEFAULT_COST[entry.group],
     perRoundCaps,
     alternatives,
+    composition: entry.composition,
     debitContract: entry.debitContract,
     companionArtifactIds: [...entry.companionArtifactIds],
     movesActor: entry.movesActor,

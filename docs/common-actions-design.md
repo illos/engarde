@@ -29,13 +29,22 @@
 
 
 
-> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–4 are SHIPPED** —
+> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–5 are SHIPPED** —
 > S2 + S3 (prose-feature program source + dispatch-supplied cost),
 > S1 (`use-common-action` over one factored resolution dispatch path),
 > S4 + S5 + S14 (eligibility-gate registry, asserted-fact reader, offer
-> surface), and the four wave-4 arms (Advance, Ride, Catch Breath, Free
-> Strike). ROAD-0005 seam #3 (the per-actor allow/exclude slot) landed with
-> S14. Waves 5–13 are unbuilt.
+> surface), the four wave-4 arms (Advance, Ride, Catch Breath, Free
+> Strike), and wave 5 (S15's keyword extraction, Disengage, Charge,
+> Knockback, and the consolidated forced-movement receipt). ROAD-0005 seam
+> #3 (the per-actor allow/exclude slot) landed with S14. Waves 6–13 are
+> unbuilt.
+>
+> Wave 5 added two substrate shapes the design named but did not size:
+> the gate registry's **`sourceArtifactId`** (a gate must be allowed to
+> cite a rule that never names the action — `slowed` for Disengage, the
+> companion's Effect line for Knockback's size rule), and the compiled
+> **`composition`** row that turns Charge's keyword disjunction into data
+> the shared arm checks generically rather than a per-action branch.
 >
 > Four things this document says that implementation corrected or decided:
 >

@@ -35,6 +35,7 @@ export const ADVANCE: CommonActionProgramData = {
   debitContract: 'self',
   companionArtifactIds: [],
   movesActor: true,
+  composition: null,
   resolution: {
     kind: 'table',
   },
@@ -85,6 +86,73 @@ export const RIDE: CommonActionProgramData = {
   debitContract: 'self',
   companionArtifactIds: [],
   movesActor: true,
+  composition: null,
+  resolution: {
+    kind: 'table',
+  },
+};
+
+export const DISENGAGE: CommonActionProgramData = {
+  featureArtifactId: 'mcdm.heroes.v1/feature.common.move-actions/disengage',
+  provenance: 'prose-feature',
+  group: 'move-actions',
+  sourceSpan: {
+    byteStart: 0,
+    byteEnd: 482,
+  },
+  sourceText:
+    '\nWhen a creature takes the [Disengage](scc.v1:mcdm.heroes.v1/feature.common.move-actions/disengage) move action, they can [shift](scc.v1:mcdm.heroes.v1/movement/shifting) 1 square. Certain class features, kits, and other rules allow a creature to [shift](scc.v1:mcdm.heroes.v1/movement/shifting) more than 1 square when they disengage. A creature who does so can break up their [shift](scc.v1:mcdm.heroes.v1/movement/shifting) with their maneuver and main action however they wish.\n',
+  canonRefs: [
+    'mcdm.heroes.v1/feature.common.move-actions/disengage',
+    'mcdm.heroes.v1/movement/shifting',
+  ],
+  defaultActionCost: 'move-action',
+  perRoundCaps: [],
+  alternatives: [],
+  debitContract: 'self',
+  companionArtifactIds: [],
+  movesActor: true,
+  composition: null,
+  resolution: {
+    kind: 'table',
+  },
+};
+
+export const CHARGE: CommonActionProgramData = {
+  featureArtifactId: 'mcdm.heroes.v1/feature.common.main-actions/charge',
+  provenance: 'prose-feature',
+  group: 'main-actions',
+  sourceSpan: {
+    byteStart: 0,
+    byteEnd: 1230,
+  },
+  sourceText:
+    "\nWhen a creature takes the [Charge](scc.v1:mcdm.heroes.v1/feature.common.main-actions/charge) main action, they move up to their [speed](scc.v1:mcdm.heroes.v1/rule.character/speed) in a straight line, then make a [melee](scc.v1:mcdm.heroes.v1/rule.combat/melee) [free strike](scc.v1:mcdm.heroes.v1/feature.common.main-actions/free-strike) (see [Free Strikes](scc.v1:mcdm.heroes.v1/feature.common.main-actions/free-strike) below) against a target when they end their move. If the creature has an ability with the Charge keyword, they can use that ability against the target instead of a [free strike](scc.v1:mcdm.heroes.v1/feature.common.main-actions/free-strike).\n\nA creature can't move through [difficult terrain](scc.v1:mcdm.heroes.v1/movement/difficult-terrain) or [shift](scc.v1:mcdm.heroes.v1/movement/shifting) when they charge. They can [fly](scc.v1:mcdm.heroes.v1/movement/fly) or [burrow](scc.v1:mcdm.heroes.v1/movement/burrow) as part of the [Charge](scc.v1:mcdm.heroes.v1/feature.common.main-actions/charge) main action if they have that movement available to them, but they can't climb or swim while charging unless they can automatically use that movement at full [speed](scc.v1:mcdm.heroes.v1/rule.character/speed).\n",
+  canonRefs: [
+    'mcdm.heroes.v1/feature.common.main-actions/charge',
+    'mcdm.heroes.v1/rule.character/speed',
+    'mcdm.heroes.v1/rule.combat/melee',
+    'mcdm.heroes.v1/feature.common.main-actions/free-strike',
+    'mcdm.heroes.v1/movement/difficult-terrain',
+    'mcdm.heroes.v1/movement/shifting',
+    'mcdm.heroes.v1/movement/fly',
+    'mcdm.heroes.v1/movement/burrow',
+  ],
+  defaultActionCost: 'main-action',
+  perRoundCaps: [],
+  alternatives: [],
+  debitContract: 'self',
+  companionArtifactIds: [],
+  movesActor: true,
+  composition: {
+    namedArtifactId: 'mcdm.heroes.v1/feature.ability.common/melee-weapon-free-strike',
+    namedPhrase: 'make a melee free strike',
+    substitute: {
+      keyword: 'Charge',
+      sourceText:
+        'If the creature has an ability with the Charge keyword, they can use that ability against the target instead of a free strike.',
+    },
+  },
   resolution: {
     kind: 'table',
   },
@@ -117,6 +185,7 @@ export const FREE_STRIKE: CommonActionProgramData = {
     'mcdm.heroes.v1/feature.ability.common/ranged-weapon-free-strike',
   ],
   movesActor: false,
+  composition: null,
   resolution: {
     kind: 'table',
   },
@@ -145,6 +214,7 @@ export const CATCH_BREATH: CommonActionProgramData = {
   debitContract: 'self',
   companionArtifactIds: [],
   movesActor: false,
+  composition: null,
   resolution: {
     kind: 'spend-recovery',
     subjectText: 'A creature who uses the Catch Breath maneuver',
@@ -181,6 +251,30 @@ export const STAND_UP: CommonActionProgramData = {
   debitContract: 'self',
   companionArtifactIds: [],
   movesActor: false,
+  composition: null,
+  resolution: {
+    kind: 'table',
+  },
+};
+
+export const KNOCKBACK: CommonActionProgramData = {
+  featureArtifactId: 'mcdm.heroes.v1/feature.common.maneuvers/knockback',
+  provenance: 'prose-feature',
+  group: 'maneuvers',
+  sourceSpan: {
+    byteStart: 0,
+    byteEnd: 224,
+  },
+  sourceText:
+    '\nA creature wanting to [push](scc.v1:mcdm.heroes.v1/movement/forced-movement) an [adjacent](scc.v1:mcdm.heroes.v1/rule.combat/adjacent) creature away from them can attempt to shove that creature using the following ability.\n',
+  canonRefs: ['mcdm.heroes.v1/movement/forced-movement', 'mcdm.heroes.v1/rule.combat/adjacent'],
+  defaultActionCost: 'maneuver',
+  perRoundCaps: [],
+  alternatives: [],
+  debitContract: 'companion',
+  companionArtifactIds: ['mcdm.heroes.v1/feature.ability.common/knockback'],
+  movesActor: false,
+  composition: null,
   resolution: {
     kind: 'table',
   },
@@ -218,6 +312,64 @@ export const MELEE_WEAPON_FREE_STRIKE = {
       potency: null,
       conditionIds: [],
       ending: null,
+    },
+  },
+};
+
+/**
+ * Composition declarations for Charge's child half — the two-field shape a
+ * dispatch carries so the arm can check the printed constraint. Ids and
+ * keyword cells are verbatim from the pinned corpus.
+ */
+/** Spear Charge (goblin warrior stat block): "Charge, Melee, Strike,
+ * Weapon" — a Charge-keyword ability, so the printed substitution admits
+ * it in place of the free strike. */
+export const SPEAR_CHARGE_COMPOSES = {
+  abilityArtifactId: 'mcdm.monsters.v1/monster.goblin.statblock/goblin-warrior#spear-charge',
+  keywords: ['Charge', 'Melee', 'Strike', 'Weapon'],
+};
+/** The common Knockback ability: "Melee, Weapon" — neither the named child
+ * nor Charge-keyworded. */
+export const KNOCKBACK_COMPOSES = {
+  abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/knockback',
+  keywords: ['Melee', 'Weapon'],
+};
+
+/**
+ * The compiled KNOCKBACK companion (`feature.ability.common/knockback`) —
+ * the roll-bearing half Knockback's prose hands off to. Push 1/2/3 with no
+ * damage, no condition and no potency: its entire printed outcome is
+ * forced movement, which under DEC-0011 is a receipt rather than a state
+ * change. No Strike keyword, so strike-scoped grants are not consumed.
+ */
+export const KNOCKBACK_ABILITY = {
+  abilityArtifactId: 'mcdm.heroes.v1/feature.ability.common/knockback',
+  actionType: 'Maneuver',
+  actionCost: 'maneuver' as const,
+  keywords: ['Melee', 'Weapon'],
+  targetsText: 'One creature',
+  powerRollBonus: { kind: 'characteristic' as const, options: ['M' as const] },
+  tiers: {
+    tier1: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 1 },
+    },
+    tier2: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 2 },
+    },
+    tier3: {
+      damage: null,
+      potency: null,
+      conditionIds: [],
+      ending: null,
+      forcedMovement: { kind: 'push' as const, distance: 3 },
     },
   },
 };

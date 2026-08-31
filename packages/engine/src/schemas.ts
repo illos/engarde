@@ -1617,6 +1617,34 @@ export const CommonActionAlternativeSchema = z.object({
 export type CommonActionAlternative = z.infer<typeof CommonActionAlternativeSchema>;
 
 /**
+ * A printed COMPOSITION: an action whose text has the actor make a child
+ * ABILITY dispatch as part of it — "then make a melee free strike … If the
+ * creature has an ability with the Charge keyword, they can use that
+ * ability against the target instead of a free strike."
+ *
+ * Data, not an arm. The child is dispatched separately (an ordinary
+ * `use-ability` carrying `partOf`, so the one printed cost is paid once);
+ * what the common-action dispatch carries is the printed CONSTRAINT on
+ * which child is legal, so the arm's check is a generic predicate over
+ * compiled data rather than a `switch` on the feature id.
+ */
+export const CommonActionCompositionSchema = z.object({
+  /** The compiled ability the printed text names by default. */
+  namedArtifactId: z.string().min(1),
+  /** The printed phrase that names it, verbatim — proved against the
+   * artifact's own bytes at compile time. */
+  namedPhrase: z.string().min(1),
+  /** A printed keyword that admits a SUBSTITUTE ability in place of the
+   * named one, with the sentence granting the substitution. Null when the
+   * printed text offers no substitute. */
+  substitute: z
+    .object({ keyword: z.string().min(1), sourceText: z.string().min(1) })
+    .nullable()
+    .default(null),
+});
+export type CommonActionComposition = z.infer<typeof CommonActionCompositionSchema>;
+
+/**
  * A compiled common-action program — the dispatchable envelope for one of
  * the 17 headerless `feature.common.*` prose artifacts.
  *
@@ -1660,6 +1688,8 @@ export const CommonActionProgramDataSchema = z
      * directive so the Director sees them at adjudication. The engine
      * never evaluates whether a path crossed one [DEC-0011, R-0022]. */
     movesActor: z.boolean().default(false),
+    /** The printed child-ability composition, when the text names one. */
+    composition: CommonActionCompositionSchema.nullable().default(null),
     /** Executable behaviour, when the printed text has some. `table` (the
      * default) is the verbatim-directive disposition. */
     resolution: EffectResolutionSchema.default({ kind: 'table' }),
@@ -2142,6 +2172,21 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         /** The printed alternative selected ("Alternatively, …"), by key.
          * Null = the action's primary branch. */
         alternative: z.string().min(1).nullable().default(null),
+        /** The child ability this dispatch composes, when the printed text
+         * names one (Charge's strike half). Declared here so the arm can
+         * check the printed constraint and put the composition on the
+         * record; the child is dispatched SEPARATELY as a `use-ability`
+         * carrying `partOf`, which is what keeps the one printed cost from
+         * being paid twice. Null = not declared. */
+        composes: z
+          .object({
+            abilityArtifactId: z.string().min(1),
+            /** The child's compiled header keywords, for the printed
+             * substitution test. */
+            keywords: z.array(z.string().min(1)).default([]),
+          })
+          .nullable()
+          .default(null),
         ...resolutionInputShape,
       })
       .refine(RESOLUTION_INPUT_RULES.distinctTargets.holds, {
