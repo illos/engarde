@@ -1,3 +1,4 @@
+import { hasCondition } from './action-economy.js';
 import { isDying } from './health.js';
 import type { EncounterState, SpatialFact } from './schemas.js';
 
@@ -42,9 +43,17 @@ export type GateVerdict = true | false | 'unknown';
 
 export interface EligibilityGate {
   featureArtifactId: string;
+  /**
+   * The artifact the printed sentence comes FROM, which is not always the
+   * action's own prose: `slowed` prints its bar on shifting and never
+   * names Disengage, and Knockback's size sentence is printed on the
+   * companion ability rather than the prose feature. A registration must
+   * be allowed to cite a rule that never mentions the action — the canon
+   * test proves each quote against THIS artifact's bytes.
+   */
+  sourceArtifactId: string;
   /** The printed sentence, verbatim (scc links stripped). Quoted into the
-   * warning so the Director reads the rule, not a summary of it. A canon
-   * test proves every one of these against the artifact's own bytes. */
+   * warning so the Director reads the rule, not a summary of it. */
   verbatim: string;
   canonRefs: readonly string[];
   /** Facts the table must assert for this precondition, if any. Absent or
@@ -116,6 +125,8 @@ export function evaluateGate(gate: EligibilityGate, input: GateInput): GateVerdi
 
 const CATCH_BREATH = 'mcdm.heroes.v1/feature.common.maneuvers/catch-breath';
 const RIDE = 'mcdm.heroes.v1/feature.common.move-actions/ride';
+const DISENGAGE = 'mcdm.heroes.v1/feature.common.move-actions/disengage';
+const SLOWED = 'mcdm.heroes.v1/condition/slowed';
 
 /**
  * The registered printed preconditions. Each is one printed sentence; the
@@ -124,6 +135,7 @@ const RIDE = 'mcdm.heroes.v1/feature.common.move-actions/ride';
 export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
   {
     featureArtifactId: CATCH_BREATH,
+    sourceArtifactId: CATCH_BREATH,
     verbatim:
       "A creature who is dying (see Dying and Death in Stamina below) can't use the Catch Breath maneuver, but other creatures can help them spend Recoveries in other ways.",
     canonRefs: ['mcdm.heroes.v1/rule.health/dying', 'mcdm.heroes.v1/rule.health/recoveries'],
@@ -139,6 +151,7 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
   },
   {
     featureArtifactId: RIDE,
+    sourceArtifactId: RIDE,
     verbatim:
       'A creature can take the Ride move action only while mounted on another creature (see Mounted Combat below).',
     canonRefs: ['mcdm.heroes.v1/rule.combat/mounted-combat'],
@@ -149,6 +162,25 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
       // turn slot. So the engine knows exactly one thing here — whether the
       // dispatch named a mount at all — and leaves the rest to the table.
       targets.length === 0 ? false : 'unknown',
+  },
+  {
+    // Disengage IS a shift ("When a creature takes the Disengage move
+    // action, they can shift 1 square"), and slowed prints its bar on
+    // shifting without ever naming the action. This is the registration
+    // shape the design calls for: a gate citing a rule that never mentions
+    // the action it gates.
+    featureArtifactId: DISENGAGE,
+    sourceArtifactId: SLOWED,
+    verbatim:
+      "A creature who is slowed has speed 2 unless their speed is already lower, and they can't shift.",
+    canonRefs: [SLOWED, 'mcdm.heroes.v1/movement/shifting'],
+    holds: ({ state, actorId }) => {
+      const actor = state.participants[actorId];
+      if (actor === undefined) return 'unknown';
+      // `hasCondition` is the one membership home; no second
+      // `conditions.some(...)` is written here.
+      return !hasCondition(actor, SLOWED);
+    },
   },
 ];
 

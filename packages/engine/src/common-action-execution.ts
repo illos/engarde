@@ -8,6 +8,7 @@ import {
   executeResolutionDispatch,
   resolutionRefusal,
 } from './effect-execution.js';
+import { hasKeyword } from './keywords.js';
 import type {
   ActionCost,
   CommonActionPerRoundCap,
@@ -266,6 +267,58 @@ function preludeEntries(
           },
         },
       ),
+    );
+  }
+
+  // The printed child-ability composition, when the dispatch declares one.
+  // The check is a generic predicate over compiled data: the printed text
+  // names a default child and may admit a substitute by KEYWORD ("If the
+  // creature has an ability with the Charge keyword, they can use that
+  // ability against the target instead of a free strike"), so the arm
+  // reads the constraint rather than switching on the feature id.
+  //
+  // The two arms of the disjunction OVERLAP at this pin — the melee weapon
+  // free strike itself carries the Charge keyword — and are kept explicit
+  // anyway: a pin bump that dropped the keyword must not silently make the
+  // printed default illegal.
+  const composition = feature.composition;
+  const composes = intent.payload.composes;
+  if (composition !== null && composes !== null) {
+    const substitute = composition.substitute;
+    const legal =
+      composes.abilityArtifactId === composition.namedArtifactId ||
+      (substitute !== null && hasKeyword(composes.keywords, substitute.keyword));
+    log.push(
+      legal
+        ? entry(
+            context,
+            'table-directive',
+            `${intent.payload.actorParticipantId} composes ${composes.abilityArtifactId} as ${feature.featureArtifactId}'s child; that dispatch must carry partOf so the one printed cost is paid once`,
+            [...refs, composes.abilityArtifactId],
+            {
+              commonActionComposes: {
+                featureArtifactId: feature.featureArtifactId,
+                abilityArtifactId: composes.abilityArtifactId,
+                viaSubstituteKeyword:
+                  composes.abilityArtifactId === composition.namedArtifactId
+                    ? null
+                    : (substitute?.keyword ?? null),
+              },
+            },
+          )
+        : entry(
+            context,
+            'warning',
+            `${composes.abilityArtifactId} is neither ${composition.namedArtifactId} nor an ability with the ${substitute?.keyword ?? 'named'} keyword${substitute === null ? '' : `: "${substitute.sourceText}"`} — applied anyway; the Director adjudicates`,
+            [...refs, composes.abilityArtifactId],
+            {
+              commonActionComposes: {
+                featureArtifactId: feature.featureArtifactId,
+                abilityArtifactId: composes.abilityArtifactId,
+                violatesPrintedComposition: true,
+              },
+            },
+          ),
     );
   }
 
