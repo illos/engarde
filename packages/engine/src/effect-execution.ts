@@ -26,6 +26,7 @@ import {
   splitGrants,
 } from './grant-lifecycle.js';
 import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID } from './health.js';
+import { isAreaKeyworded } from './keywords.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
 import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
 import type {
@@ -834,7 +835,7 @@ export function executeResolutionDispatch(
     // Same-squad minion targets aggregate into ONE pool application per
     // squad [R-0026]; the effect header's Area keyword is the printed
     // discriminator for the per-minion cap [R-0025].
-    const isArea = binding.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+    const isArea = isAreaKeyworded(binding.keywords);
     const squadContributions = new Map<string, PendingSquadContribution[]>();
     for (const targetId of targets) {
       const target = nextState.participants[targetId];
@@ -1189,7 +1190,7 @@ function applyTestTier(
       pendingContributions,
     );
     if (squad) {
-      const isArea = binding.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+      const isArea = isAreaKeyworded(binding.keywords);
       const flushed = flushSquadContributions(
         nextState,
         pendingContributions,

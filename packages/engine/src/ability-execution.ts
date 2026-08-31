@@ -16,6 +16,7 @@ import {
   grantContribution,
   splitGrants,
 } from './grant-lifecycle.js';
+import { isAreaKeyworded, isStrikeKeyworded } from './keywords.js';
 import { hashDeclaration, hashPayload } from './payload-hash.js';
 import { CHARACTERISTIC_KEY, gatePotencyWithReceipt } from './potency.js';
 import {
@@ -243,7 +244,7 @@ export function applyAbilityOutcome(
   // Same-squad minion targets aggregate into ONE pool application per squad
   // (required by R-0026's once-per-squad weakness/immunity step); the Area
   // keyword is the printed discriminator for the per-minion cap [R-0025].
-  const isArea = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area');
+  const isArea = isAreaKeyworded(ability.keywords);
   const squadContributions = new Map<string, PendingSquadContribution[]>();
   const defaultedTiersLogged = new Set<Tier>();
   for (const targetId of targets) {
@@ -477,7 +478,7 @@ export function resolveAbilityRoll(
   // contribute to THAT target's pool only [R-0014, classes#roll-against-
   // multiple-creatures]. Consumption happens whether or not cancellation
   // later zeroes the numeric effect [R-0015].
-  const isStrike = ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'strike');
+  const isStrike = isStrikeKeyworded(ability.keywords);
   const rollShape = { kind: 'ability-roll' as const, isStrike };
   const consumeGrantsFrom = (
     holder: ParticipantState,

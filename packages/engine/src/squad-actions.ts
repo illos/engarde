@@ -15,6 +15,7 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
+import { isAreaKeyworded } from './keywords.js';
 import { hashDeclaration, hashPayload } from './payload-hash.js';
 import { gatePotencyWithReceipt } from './potency.js';
 import { POWER_ROLL_CANON, type Tier } from './power-roll.js';
@@ -299,7 +300,7 @@ export function executeSquadSignatureAttack(
     state,
     payload.squadId,
     payload.participation,
-    payload.ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area'),
+    isAreaKeyworded(payload.ability.keywords),
   );
   if (problem) return refuse(state, context, problem);
   const squad = state.squads.find((candidate) => candidate.squadId === payload.squadId);
@@ -372,9 +373,7 @@ export function executeSquadSignatureAttack(
   );
   nextState = rolled.state;
   log.push(...rolled.log);
-  const isArea = payload.ability.keywords.some(
-    (keyword) => keyword.trim().toLowerCase() === 'area',
-  );
+  const isArea = isAreaKeyworded(payload.ability.keywords);
   const breakdown = buildSquadBreakdown(nextState, payload, rolled.tierFor, !isArea);
   for (const row of breakdown) {
     if (row.memberIds.length > 3 && !isArea) {
@@ -818,7 +817,7 @@ export function applySquadBreakdown(
       nextState,
       pending,
       {
-        area: payload.ability.keywords.some((keyword) => keyword.trim().toLowerCase() === 'area'),
+        area: isAreaKeyworded(payload.ability.keywords),
         reason: `from ${payload.squadId}'s squad signature`,
         // One roll for the whole squad [R-0034].
         provenance: { rolled: true, sourceId: payload.squadId, resolutionId: resolutionId ?? null },

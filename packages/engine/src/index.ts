@@ -15,6 +15,7 @@ export * from './schemas.js';
 export * from './action-cost.js';
 export * from './resource-cost.js';
 export * from './action-economy.js';
+export * from './keywords.js';
 export * from './payload-hash.js';
 export * from './resolution.js';
 export * from './occurrences.js';
