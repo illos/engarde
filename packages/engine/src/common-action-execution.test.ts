@@ -14,6 +14,7 @@ import {
   CHARGE,
   DISENGAGE,
   FREE_STRIKE,
+  HEAL,
   KNOCKBACK,
   KNOCKBACK_ABILITY,
   KNOCKBACK_COMPOSES,
@@ -22,6 +23,7 @@ import {
   SPEAR_CHARGE_COMPOSES,
   STAND_UP,
 } from './common-action.fixtures.js';
+import { SAVING_THROW } from './condition-lifecycle.js';
 import { createSeededRandomSource } from './determinism.js';
 import { initialEncounterState } from './driver.js';
 import { forcedMovementDirective } from './forced-movement.js';
@@ -403,6 +405,12 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
       [
         'mcdm.heroes.v1/feature.common.maneuvers/knockback',
         'mcdm.heroes.v1/feature.ability.common/knockback',
+      ],
+      // Heal's one printed precondition is purely spatial, so its gate is
+      // entirely asserted-fact: the engine-known half is vacuously true.
+      [
+        'mcdm.heroes.v1/feature.common.main-actions/heal',
+        'mcdm.heroes.v1/feature.common.main-actions/heal',
       ],
       // Stand Up registers three: the restrained bar (a third citation of
       // someone else's artifact, and the ROLE proof — it reads the actor,
@@ -1278,5 +1286,274 @@ describe('Stand Up — wave 6 (S12 + S11)', () => {
         { random: createSeededRandomSource(1) },
       ),
     ).toThrow();
+  });
+});
+
+describe('Heal — wave 7 (S10)', () => {
+  const WEAKENED = 'mcdm.heroes.v1/condition/weakened';
+  const SAVING_THROW_RULE = 'mcdm.heroes.v1/rule.general/saving-throw';
+  const BLEEDING = 'mcdm.heroes.v1/condition/bleeding';
+  const DYING = 'mcdm.heroes.v1/rule.health/dying';
+
+  function impose(
+    state: EncounterState,
+    targetId: string,
+    ending: { kind: 'save-ends' } | { kind: 'external' } = { kind: 'save-ends' },
+    conditionId = WEAKENED,
+  ): { state: EncounterState; instanceId: string } {
+    const applied = dispatchChecked(state, {
+      intentId: nextId('impose'),
+      kind: 'apply-condition',
+      actor: { kind: 'director' },
+      payload: {
+        target: targetId,
+        conditionId,
+        ending,
+        source: { participantId: 'warrior' },
+      },
+    } as Intent);
+    const instance = applied.state.participants[targetId]?.conditions.find(
+      (candidate) => candidate.conditionId === conditionId,
+    );
+    expect(instance).toBeDefined();
+    return { state: applied.state, instanceId: instance?.instanceId ?? '' };
+  }
+
+  it('the Recovery branch is the SAME shipped offer Catch Breath uses', () => {
+    // "The target creature can spend a Recovery to regain Stamina" — no
+    // amount is printed and none is compiled; `spendRecovery` owns recovery
+    // value [rule.health/recoveries]. Goblin warrior staminaMax 15 → 5.
+    const start = onHeroTurn();
+    const hurt = dispatchChecked(start, {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'ally',
+        amount: 9,
+        reason: 'seeded damage',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+    expect(hurt.participants.ally?.stamina?.current).toBe(6);
+
+    const result = dispatchChecked(
+      hurt,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        recoverySpends: { ally: true },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+    );
+    expect(result.state.participants.ally?.stamina?.current).toBe(11);
+    expect(result.state.participants.ally?.stamina?.recoveries).toBe(7);
+    // One printed main action, the healer's. The target pays nothing —
+    // whether the target's half costs them anything is an open ruling
+    // (design §6.6 Heal S10), and the artifact prints one main action.
+    expect(result.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+    expect(result.state.participants.ally?.actionBudget['main-action']).toBeUndefined();
+    expect(result.log.some((entry) => entry.kind === 'warning')).toBe(false);
+  });
+
+  it('the saving-throw branch resolves through the one saving-throw home', () => {
+    const { state, instanceId } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: { ally: { instanceId, roll: SAVING_THROW.success } },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+    );
+    expect(result.state.participants.ally?.conditions).toHaveLength(0);
+    const save = result.log.find((entry) => entry.data.removedInstanceIds !== undefined);
+    expect(save?.canonRefs).toContain(SAVING_THROW_RULE);
+    // Still one printed main action, whichever branch was taken.
+    expect(result.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+
+    // Below the printed threshold the effect continues, and nothing is
+    // removed.
+    const failed = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: { ally: { instanceId, roll: SAVING_THROW.success - 1 } },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+    );
+    expect(failed.state.participants.ally?.conditions).toHaveLength(1);
+    expect(failed.log.some((entry) => entry.message.includes('fails the saving throw'))).toBe(true);
+  });
+
+  it('the branch selects the resolution, and its inputs are validated against THAT branch', () => {
+    // The defect this guards: if the payload's well-formedness rules read
+    // the action's primary resolution while the arm ran the branch's, each
+    // branch's inputs would be checked against the other branch's kind.
+    const { state, instanceId } = impose(onHeroTurn(), 'ally');
+
+    // Recovery inputs on the saving-throw branch: rejected FOR BEING
+    // Recovery inputs. Asserting the message is what makes this
+    // discriminating — reading the primary resolution would reject this
+    // dispatch too, but for the other field.
+    expect(() =>
+      applyIntent(
+        state,
+        useCommonAction('hero', HEAL, {
+          targets: ['ally'],
+          alternative: 'saving-throw',
+          savingThrows: { ally: { instanceId } },
+          recoverySpends: { ally: true },
+        }),
+        { random: createSeededRandomSource(1) },
+      ),
+    ).toThrow(/recoverySpends applies only to spend-recovery resolutions/);
+
+    // Saving-throw inputs on the primary branch: rejected for being
+    // saving-throw inputs.
+    expect(() =>
+      applyIntent(
+        state,
+        useCommonAction('hero', HEAL, {
+          targets: ['ally'],
+          recoverySpends: { ally: false },
+          savingThrows: { ally: { instanceId } },
+        }),
+        { random: createSeededRandomSource(1) },
+      ),
+    ).toThrow(/savingThrows applies only to saving-throw resolutions/);
+  });
+
+  it('auto-rolls from the injected source when the table asserts no roll', () => {
+    const { state, instanceId } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: { ally: { instanceId } },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+      7,
+    );
+    const expected = createSeededRandomSource(7).roll(SAVING_THROW.die);
+    expect(result.state.participants.ally?.conditions).toHaveLength(
+      expected >= SAVING_THROW.success ? 0 : 1,
+    );
+  });
+
+  it('refuses when no effect is named — the engine never picks which one', () => {
+    // "against ONE effect they are suffering": which one is the table's,
+    // and who chooses is itself an open ruling (design §6.6 Heal S2).
+    const { state } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, { targets: ['ally'], alternative: 'saving-throw' }),
+    );
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.log[0]?.message).toContain('the selection is dispatch-supplied');
+    expect(result.state).toEqual(state);
+  });
+
+  it('refuses an unknown instance BEFORE the debit', () => {
+    const { state } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: { ally: { instanceId: 'no-such-instance' } },
+      }),
+    );
+    expect(result.log).toHaveLength(1);
+    expect(result.log[0]?.kind).toBe('refusal');
+    expect(result.state).toEqual(state);
+  });
+
+  it('warns, and rolls anyway, against an effect no saving throw ends', () => {
+    // A Director override, not an incoherent payload: the d10 and its
+    // threshold are defined either way. The receipt records the ending the
+    // instance actually carries.
+    const { state, instanceId } = impose(onHeroTurn(), 'ally', { kind: 'external' });
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: { ally: { instanceId, roll: SAVING_THROW.success } },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+    );
+    const warning = result.log.find((entry) => entry.data.savingThrowEndingMismatch !== undefined);
+    expect(warning?.kind).toBe('warning');
+    expect(warning?.data.savingThrowEndingMismatch).toEqual({
+      targetId: 'ally',
+      instanceId,
+      ending: 'external',
+    });
+    expect(result.state.participants.ally?.conditions).toHaveLength(0);
+  });
+
+  it('asks the ONE removal blocker on a successful save', () => {
+    // R-0004: the dying-mandated bleeding "can't be negated or removed in
+    // any way until you are no longer dying". A save that succeeds still
+    // routes its removal through the one home, so the third surface cannot
+    // bypass it.
+    const dying = dispatchChecked(onHeroTurn(), {
+      intentId: nextId('damage'),
+      kind: 'apply-damage',
+      actor: { kind: 'director' },
+      payload: {
+        target: 'ally',
+        amount: 15,
+        reason: 'seeded damage to reach the dying band',
+        rolled: false,
+        sourceId: 'warrior',
+      },
+    } as Intent).state;
+    const bleeding = dying.participants.ally?.conditions.find(
+      (instance) => instance.conditionId === BLEEDING,
+    );
+    expect(bleeding?.source.effectArtifactId).toBe(DYING);
+
+    const result = dispatchChecked(
+      dying,
+      useCommonAction('hero', HEAL, {
+        targets: ['ally'],
+        alternative: 'saving-throw',
+        savingThrows: {
+          ally: { instanceId: bleeding?.instanceId ?? '', roll: SAVING_THROW.success },
+        },
+        spatialFacts: [{ fact: 'adjacent', a: 'hero', b: 'ally', holds: true }],
+      }),
+    );
+    const refused = result.log.find((entry) => entry.kind === 'refusal');
+    expect(refused?.message).toContain('still dying');
+    expect(refused?.data.perBinding).toBe(true);
+    expect(
+      result.state.participants.ally?.conditions.some(
+        (instance) => instance.instanceId === bleeding?.instanceId,
+      ),
+    ).toBe(true);
+  });
+
+  it('surfaces the printed adjacency precondition when the table has not asserted it', () => {
+    const { state } = impose(onHeroTurn(), 'ally');
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', HEAL, { targets: ['ally'], recoverySpends: { ally: false } }),
+    );
+    const reading = result.log.find((entry) => entry.data.commonActionEligibility !== undefined);
+    expect(reading?.kind).toBe('table-directive');
+    expect(reading?.message).toContain('adjacent creature feel better');
   });
 });

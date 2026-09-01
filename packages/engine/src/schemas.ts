@@ -1466,6 +1466,22 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
     kind: z.literal('end-condition'),
     conditionId: z.string().min(1),
   }),
+  /**
+   * A printed clause that has a creature MAKE a saving throw against one
+   * named effect — Heal's "or can make a saving throw against one effect
+   * they are suffering that is ended by a saving throw" [S10].
+   *
+   * It carries no instance and no roll, deliberately. The printed clause
+   * says "one effect they are suffering"; WHICH one is a choice the table
+   * makes (and who makes it is an open ruling — design §6.6 Heal S2), so
+   * the selection rides the dispatch (`savingThrows`), the exact sibling of
+   * `recoverySpends`. The d10 and the 6+ threshold are
+   * `rule.general/saving-throw`'s and live in `SAVING_THROW`; nothing about
+   * them is re-stated here.
+   */
+  z.object({
+    kind: z.literal('saving-throw'),
+  }),
   /** "(The|Each) target makes a[n] X test." — each creature target rolls
    * independently with their own named characteristic through the power-roll
    * core; objects auto-obtain tier 1 [R-0006, R-0007]. Skills cannot modify
@@ -1640,6 +1656,22 @@ export const CommonActionAlternativeSchema = z.object({
     .object({ artifactId: z.string().min(1), actionCost: ActionCostSchema })
     .nullable()
     .default(null),
+  /**
+   * The resolution this branch executes, when it differs from the action's
+   * primary one — Heal's two branches resolve differently ("can spend a
+   * Recovery to regain Stamina, OR can make a saving throw against one
+   * effect they are suffering"), and there is one printed main action
+   * behind both.
+   *
+   * Null when the branch changes WHO, not WHAT: Stand Up's ally branch and
+   * Ride's mount branch both keep their action's own resolution and only
+   * move the roles around.
+   *
+   * Data, for the same reason `targetAction` is: the alternative is a
+   * `switch` on the feature id inside the shared executor otherwise, and
+   * the next two-branch action grows a second one.
+   */
+  resolution: EffectResolutionSchema.nullable().default(null),
 });
 export type CommonActionAlternative = z.infer<typeof CommonActionAlternativeSchema>;
 
@@ -1732,6 +1764,31 @@ export type CommonActionProgramData = z.infer<typeof CommonActionProgramDataSche
 export type CommonActionProgramDataInput = z.input<typeof CommonActionProgramDataSchema>;
 
 /**
+ * The resolution a common-action dispatch actually executes: the action's
+ * own, unless the declared printed branch carries its own.
+ *
+ * ONE home, because two callers must agree byte-for-byte — the payload's
+ * well-formedness refinements and the arm that executes. If the refinements
+ * checked `feature.resolution` while the arm ran the branch's, a Heal
+ * dispatching the saving-throw branch would have its inputs validated
+ * against the Recovery branch's kind and vice versa: both directions
+ * silently wrong.
+ */
+export function effectiveCommonActionResolution(dispatch: {
+  feature: {
+    resolution: EffectResolution;
+    alternatives: ReadonlyArray<{ key: string; resolution: EffectResolution | null }>;
+  };
+  alternative: string | null;
+}): EffectResolution {
+  if (dispatch.alternative === null) return dispatch.feature.resolution;
+  const branch = dispatch.feature.alternatives.find(
+    (candidate) => candidate.key === dispatch.alternative,
+  );
+  return branch?.resolution ?? dispatch.feature.resolution;
+}
+
+/**
  * Payload inputs a compiled `EffectResolution` consumes, shared by the two
  * dispatch surfaces that carry one — `use-effect` (a compiled `**Effect:**`
  * program) and `use-common-action` (a compiled prose feature). ONE home:
@@ -1775,6 +1832,17 @@ const resolutionInputShape = {
    * here would be the engine answering it. Every bound target must be
    * answered; the receipt records what was chosen. */
   endedInstances: z.record(ParticipantIdSchema, z.array(z.string().min(1))).default({}),
+  /** Per-target saving-throw selection for a `saving-throw` resolution
+   * [S10] — the exact sibling of `recoverySpends`. The printed clause names
+   * "one effect they are suffering", so the dispatch names the instance;
+   * `roll` is the table's asserted d10 and wins over the injected source,
+   * exactly as on the end-of-turn path. Every bound target must answer. */
+  savingThrows: z
+    .record(
+      ParticipantIdSchema,
+      z.object({ instanceId: z.string().min(1), roll: dieRoll.optional() }),
+    )
+    .default({}),
 };
 
 /** The shape both resolution-carrying payloads satisfy, for the shared
@@ -1785,6 +1853,7 @@ interface ResolutionInputPayload {
   testRolls: Record<string, unknown>;
   recoverySpends: Record<string, boolean>;
   endedInstances: Record<string, string[]>;
+  savingThrows: Record<string, { instanceId: string; roll?: number }>;
 }
 
 /** Shared payload predicates + their messages — one home for both dispatch
@@ -1813,6 +1882,13 @@ export const RESOLUTION_INPUT_RULES = {
         ? Object.keys(payload.endedInstances).every((id) => payload.targets.includes(id))
         : Object.keys(payload.endedInstances).length === 0,
     message: 'endedInstances applies only to end-condition resolutions, over declared targets',
+  },
+  savingThrowsScoped: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'saving-throw'
+        ? Object.keys(payload.savingThrows).every((id) => payload.targets.includes(id))
+        : Object.keys(payload.savingThrows).length === 0,
+    message: 'savingThrows applies only to saving-throw resolutions, over declared targets',
   },
   distinctEndedInstances: {
     holds: (payload: ResolutionInputPayload): boolean =>
@@ -2283,7 +2359,7 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         (payload) =>
           RESOLUTION_INPUT_RULES.recoverySpendsScoped.holds(
             payload,
-            payload.feature.resolution.kind,
+            effectiveCommonActionResolution(payload).kind,
           ),
         { message: RESOLUTION_INPUT_RULES.recoverySpendsScoped.message },
       )
@@ -2291,16 +2367,27 @@ export const IntentSchema = z.discriminatedUnion('kind', [
         (payload) =>
           RESOLUTION_INPUT_RULES.endedInstancesScoped.holds(
             payload,
-            payload.feature.resolution.kind,
+            effectiveCommonActionResolution(payload).kind,
           ),
         { message: RESOLUTION_INPUT_RULES.endedInstancesScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.savingThrowsScoped.holds(
+            payload,
+            effectiveCommonActionResolution(payload).kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.savingThrowsScoped.message },
       )
       .refine(RESOLUTION_INPUT_RULES.distinctEndedInstances.holds, {
         message: RESOLUTION_INPUT_RULES.distinctEndedInstances.message,
       })
       .refine(
         (payload) =>
-          RESOLUTION_INPUT_RULES.testHasSubject.holds(payload, payload.feature.resolution.kind),
+          RESOLUTION_INPUT_RULES.testHasSubject.holds(
+            payload,
+            effectiveCommonActionResolution(payload).kind,
+          ),
         { message: RESOLUTION_INPUT_RULES.testHasSubject.message },
       )
       .refine(RESOLUTION_INPUT_RULES.testRollsScoped.holds, {
@@ -2308,14 +2395,17 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       })
       .refine(
         (payload) =>
-          RESOLUTION_INPUT_RULES.testInputsScoped.holds(payload, payload.feature.resolution.kind),
+          RESOLUTION_INPUT_RULES.testInputsScoped.holds(
+            payload,
+            effectiveCommonActionResolution(payload).kind,
+          ),
         { message: RESOLUTION_INPUT_RULES.testInputsScoped.message },
       )
       .refine(
         (payload) =>
           RESOLUTION_INPUT_RULES.automaticNeedsTarget.holds(
             payload,
-            payload.feature.resolution.kind,
+            effectiveCommonActionResolution(payload).kind,
           ),
         { message: 'automatic common-action programs require at least one target' },
       )
