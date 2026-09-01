@@ -29,15 +29,15 @@
 
 
 
-> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–6 are SHIPPED** —
+> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–7 are SHIPPED** —
 > S2 + S3 (prose-feature program source + dispatch-supplied cost),
 > S1 (`use-common-action` over one factored resolution dispatch path),
 > S4 + S5 + S14 (eligibility-gate registry, asserted-fact reader, offer
 > surface), the four wave-4 arms (Advance, Ride, Catch Breath, Free
 > Strike), and wave 5 (S15's keyword extraction, Disengage, Charge,
 > Knockback, and the consolidated forced-movement receipt), and wave 6
-> (S12 + S11 + Stand Up). ROAD-0005 seam #3 (the per-actor allow/exclude
-> slot) landed with S14. Waves 7–13 are unbuilt.
+> (S12 + S11 + Stand Up), and wave 7 (S10 + Heal). ROAD-0005 seam #3 (the
+> per-actor allow/exclude slot) landed with S14. Waves 8–13 are unbuilt.
 >
 > Wave 5 added two substrate shapes the design named but did not size:
 > the gate registry's **`sourceArtifactId`** (a gate must be allowed to
@@ -104,9 +104,41 @@
 >
 > Wave 6 also removed a second home the audits do not catch: the Convex
 > play-panel query re-typed the whole resolution-kind union by hand. It now
-> builds from the engine's `EFFECT_RESOLUTION_KINDS`.
+> builds from the engine's `EFFECT_RESOLUTION_KINDS`. (Wave 7 added a tenth
+> member and the panel picked it up with no edit — the fix working as
+> intended.)
+>
+> **Wave 7 (S10 + Heal)** corrected one thing this document assumes and
+> added one shape it did not size:
+>
+> - **Heal is TWO branches that resolve DIFFERENTLY**, which no other one
+>   of the 17 is. §3 lists it as "S10" only, but a program carries one
+>   resolution, so the printed branch had to be able to carry its own.
+>   `CommonActionAlternative.resolution` is that field, and
+>   `effectiveCommonActionResolution` is its ONE home — read by the arm AND
+>   by the payload's well-formedness refinements, because if the two
+>   disagreed each branch's inputs would be validated against the other
+>   branch's kind, silently, in both directions.
+> - **A printed branch has two printed FORMS.** Stand Up and Ride print a
+>   whole "Alternatively, …" sentence, which the compiler extracts by
+>   marker. Heal prints both halves inside one sentence joined by ", or",
+>   so its branch is declared as a verbatim CLAUSE and proved as a printed
+>   substring — the same declare-and-prove shape `perRoundCapSubjects` and
+>   `composition.substitute` already use, not a loophole around the marker.
+> - **S10's modifier surface is named AND folded.** The design says "named
+>   but unfilled"; the fold lives in `resolveSavingThrow` because that is
+>   the one place a saving throw is banded, and four core artifacts do
+>   print a "+1 bonus to saving throws". What is missing is a *producer* —
+>   no grant kind carries one — so W8's standing-grant substrate supplies
+>   data rather than re-adding arithmetic at two call sites.
+> - **Heal's Recovery half re-uses `spend-recovery` unchanged**, so R-0019a
+>   (0 Recoveries), R-0019b (Director-creature conversion) and R-0019c
+>   (minion routing) all apply to it for free, and nothing about recovery
+>   value is compiled into Heal. §6.6 Heal S1 (does Heal inherit the
+>   generic offer semantics?) remains an OPEN Gate-3 question; the code
+>   states no amount of its own either way.
 
-**Status:** waves 1–6 shipped; waves 7–13 designed, not authorized. **Inputs:** the 17 specs under
+**Status:** waves 1–7 shipped; waves 8–13 designed, not authorized. **Inputs:** the 17 specs under
 `.artifacts/canon/common-actions-spec/specs/`, `SUBSTRATE-BRIEF.md`, and three
 cross-cutting analyses (shared substrate, duplication audit, asserted-fact
 vocabulary). **Repo:** `../engarde`. **Related:** DEC-0011 (spatial belongs to

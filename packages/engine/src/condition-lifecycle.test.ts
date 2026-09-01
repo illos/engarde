@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyIntent } from './apply-intent.js';
-import { CANON, SAVING_THROW } from './condition-lifecycle.js';
+import { CANON, SAVING_THROW, resolveSavingThrow } from './condition-lifecycle.js';
 import { createSeededRandomSource } from './determinism.js';
 import { upgradeEncounterState } from './migrate.js';
 import { type EncounterState, type Intent, ParticipantStateSchema } from './schemas.js';
@@ -160,6 +160,110 @@ describe('end-turn saving throws', () => {
     const expected = createSeededRandomSource(1).roll(SAVING_THROW.die);
     const remaining = auto.state.participants.hero?.conditions.length;
     expect(remaining).toBe(expected >= SAVING_THROW.success ? 0 : 1);
+  });
+
+  it('reports through the one saving-throw home, which removes nothing itself', () => {
+    // S10: the roll was inlined in the sweep's loop, and the sweep walks
+    // EVERY save-ends instance — Heal needs one named instance and there was
+    // no entry point. `resolveSavingThrow` reports; the caller decides what
+    // to do with the instance, because the two callers differ (the sweep
+    // rebuilds the condition list; a resolution removes through
+    // `removeConditionInstance`).
+    const context = { intentId: 'i-1', actor: { kind: 'director' as const } };
+    const target = ParticipantStateSchema.parse({
+      id: 'hero',
+      kind: 'hero',
+      stats: null,
+      stamina: null,
+      grants: [],
+      conditions: [],
+    });
+    const instance = {
+      instanceId: `${WEAKENED}#i1`,
+      conditionId: WEAKENED,
+      ending: { kind: 'save-ends' as const },
+      source: { participantId: 'cultist' },
+    };
+
+    const success = resolveSavingThrow(
+      { target, instance, assertedRoll: SAVING_THROW.success, roll: () => 1, modifiers: [] },
+      context,
+    );
+    expect(success.succeeded).toBe(true);
+    expect(success.asserted).toBe(true);
+    expect(success.log.kind).toBe('mutation');
+    expect(success.log.canonRefs).toContain(CANON.savingThrow);
+
+    const failure = resolveSavingThrow(
+      { target, instance, assertedRoll: SAVING_THROW.success - 1, roll: () => 10, modifiers: [] },
+      context,
+    );
+    expect(failure.succeeded).toBe(false);
+    expect(failure.log.kind).toBe('informational');
+
+    // No asserted roll: the injected source is called, once.
+    let calls = 0;
+    const injected = resolveSavingThrow(
+      {
+        target,
+        instance,
+        assertedRoll: undefined,
+        roll: () => {
+          calls += 1;
+          return SAVING_THROW.success;
+        },
+        modifiers: [],
+      },
+      context,
+    );
+    expect(calls).toBe(1);
+    expect(injected.asserted).toBe(false);
+    expect(injected.succeeded).toBe(true);
+  });
+
+  it('folds printed saving-throw modifiers in the one place the roll is banded', () => {
+    // NAMED BUT UNFILLED: no grant kind carries a saving-throw modifier
+    // today, so nothing in the engine produces this list. The value and the
+    // phrase below are the printed ones from a real core artifact, so that
+    // when the standing-grant substrate lands (W8) it supplies data here
+    // rather than re-adding the arithmetic at each call site.
+    const context = { intentId: 'i-1', actor: { kind: 'director' as const } };
+    const target = ParticipantStateSchema.parse({
+      id: 'hero',
+      kind: 'hero',
+      stats: null,
+      stamina: null,
+      grants: [],
+      conditions: [],
+    });
+    const instance = {
+      instanceId: `${WEAKENED}#i1`,
+      conditionId: WEAKENED,
+      ending: { kind: 'save-ends' as const },
+      source: { participantId: 'cultist' },
+    };
+    const outcome = resolveSavingThrow(
+      {
+        target,
+        instance,
+        assertedRoll: SAVING_THROW.success - 1,
+        roll: () => 1,
+        modifiers: [
+          {
+            value: 1,
+            reason: '+1 bonus to saving throws',
+            sourceArtifactId:
+              'mcdm.heroes.v1/feature.ability.elementalist.level-3/swarm-of-spirits',
+          },
+        ],
+      },
+      context,
+    );
+    expect(outcome.roll).toBe(SAVING_THROW.success - 1);
+    expect(outcome.total).toBe(SAVING_THROW.success);
+    expect(outcome.succeeded).toBe(true);
+    // The die face and the modified total are both on the receipt.
+    expect(outcome.log.message).toContain(`rolled ${SAVING_THROW.success - 1}+1`);
   });
 
   it("expires an end-of-targets-next-turn instance at the bearer's end of turn", () => {

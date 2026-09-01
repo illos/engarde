@@ -9,14 +9,15 @@ import {
   resolutionRefusal,
 } from './effect-execution.js';
 import { hasKeyword } from './keywords.js';
-import type {
-  ActionCost,
-  CommonActionPerRoundCap,
-  CommonActionProgramData,
-  EncounterState,
-  LogEntry,
-  ParsedIntent,
-  SpatialFact,
+import {
+  type ActionCost,
+  type CommonActionPerRoundCap,
+  type CommonActionProgramData,
+  type EncounterState,
+  type LogEntry,
+  type ParsedIntent,
+  type SpatialFact,
+  effectiveCommonActionResolution,
 } from './schemas.js';
 
 /**
@@ -149,7 +150,14 @@ export function commonActionDispatch(
       : (feature.alternatives.find((item) => item.key === intent.payload.alternative) ?? null);
   return {
     binding: bindingOf(feature),
-    resolution: feature.resolution,
+    // A printed branch may resolve DIFFERENTLY from the action's primary
+    // half (Heal's Recovery vs saving throw), through the one home the
+    // payload's well-formedness rules also read — or a branch's inputs are
+    // validated against the other branch's kind.
+    resolution: effectiveCommonActionResolution({
+      feature,
+      alternative: intent.payload.alternative,
+    }),
     inputs: {
       actorParticipantId,
       targets,
@@ -160,6 +168,7 @@ export function commonActionDispatch(
       knockOut: intent.payload.knockOut,
       recoverySpends: intent.payload.recoverySpends,
       endedInstances: intent.payload.endedInstances,
+      savingThrows: intent.payload.savingThrows,
     },
     economy: {
       cost: resolved.cost,

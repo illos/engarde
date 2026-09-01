@@ -194,6 +194,7 @@ const DISENGAGE = 'mcdm.heroes.v1/feature.common.move-actions/disengage';
 const SLOWED = 'mcdm.heroes.v1/condition/slowed';
 const KNOCKBACK = 'mcdm.heroes.v1/feature.common.maneuvers/knockback';
 const KNOCKBACK_ABILITY = 'mcdm.heroes.v1/feature.ability.common/knockback';
+const HEAL = 'mcdm.heroes.v1/feature.common.main-actions/heal';
 const STAND_UP = 'mcdm.heroes.v1/feature.common.maneuvers/stand-up';
 const PRONE = 'mcdm.heroes.v1/condition/prone';
 const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
@@ -283,6 +284,22 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
     // and that two corpus items displace this gate outright — even fully
     // stored it would warn, never refuse.
     holds: () => 'unknown',
+  },
+  {
+    // Heal's one printed precondition is spatial and the engine models no
+    // geometry [DEC-0011], so it is entirely a table assertion: the gate's
+    // engine-known half is vacuously true and the whole verdict comes from
+    // the asserted-fact surface. Whether a healer may target THEMSELF is an
+    // open ruling (design §6.6 Heal S4); a self-targeted dispatch simply
+    // reads 'unknown' here, which is honest — the engine is not answering
+    // it either way.
+    featureArtifactId: HEAL,
+    sourceArtifactId: HEAL,
+    verbatim:
+      'A creature who uses the Heal main action employs medicine or inspiring words to make an adjacent creature feel better and stay in the fight.',
+    canonRefs: [ADJACENT],
+    assertedFacts: [{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }],
+    holds: () => true,
   },
   {
     // The role proof S4 promised. `restrained` bars the restrained creature

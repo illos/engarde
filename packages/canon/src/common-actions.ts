@@ -64,13 +64,29 @@ export interface CommonActionDirectoryEntry {
   /** One entry per printed once-per-round sentence, in source order. The
    * compiler matches these against the sentences it extracts. */
   perRoundCapSubjects: ReadonlyArray<{ subject: 'actor' | 'target'; sourceText: string }>;
-  /** One entry per printed "Alternatively, …" sentence, in source order.
-   * `targetAction` records an alternative that has a NAMED TARGET take a
-   * named action at a named cost; the compiler proves both the action's
-   * printed name and the cost phrase against the sentence's bytes. */
+  /**
+   * The printed branches of the action, in source order.
+   *
+   * Two printed forms exist and both are proved against the bytes:
+   * `printedClause: null` means the branch is a whole "Alternatively, …"
+   * SENTENCE and the compiler extracts it by marker (Stand Up, Ride);
+   * a string means the branch is a CLAUSE inside a longer sentence and the
+   * directory declares it verbatim (Heal's "or can make a saving
+   * throw…"), which the compiler proves is a printed substring — the same
+   * declare-and-prove shape `perRoundCapSubjects` and
+   * `composition.substitute` already use.
+   *
+   * `targetAction` records a branch that has a NAMED TARGET take a named
+   * action at a named cost; the compiler proves both the action's printed
+   * name and the cost phrase against the branch's bytes. `resolution`
+   * records a branch that resolves DIFFERENTLY from the action's primary
+   * one (Heal's two halves); null keeps the action's own.
+   */
   alternatives: ReadonlyArray<{
     key: string;
+    printedClause?: string;
     targetAction: { artifactId: string; actionCost: ActionCost; printedName: string } | null;
+    resolution?: EffectResolution;
   }>;
   /** The printed child-ability composition, when the text names one. Both
    * halves are proved against the artifact's bytes: the phrase that names
@@ -85,6 +101,7 @@ export interface CommonActionDirectoryEntry {
 }
 
 const ID = 'mcdm.heroes.v1/feature.common';
+const SAVING_THROW_RULE = 'mcdm.heroes.v1/rule.general/saving-throw';
 const ABILITY = 'mcdm.heroes.v1/feature.ability.common';
 
 /**
@@ -149,14 +166,38 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     movesActor: false,
   },
   {
+    // "The target creature can spend a Recovery to regain Stamina, or can
+    // make a saving throw against one effect they are suffering that is
+    // ended by a saving throw." — ONE printed main action, TWO branches
+    // that resolve differently. The Recovery half is the shipped
+    // `spend-recovery` resolution (a declinable per-participant offer);
+    // nothing about the amount is stated here, because `spendRecovery`
+    // owns recovery value [rule.health/recoveries]. The saving-throw half
+    // is a printed BRANCH carrying its own resolution.
+    //
+    // The branch is declared as a CLAUSE, not extracted by the
+    // "Alternatively" marker, because the book prints both halves inside
+    // one sentence joined by ", or".
     featureArtifactId: `${ID}.main-actions/heal`,
     group: 'main-actions',
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternatives: [],
+    alternatives: [
+      {
+        key: 'saving-throw',
+        printedClause:
+          'or can make a saving throw against one effect they are suffering that is ended by a saving throw.',
+        targetAction: null,
+        resolution: { kind: 'saving-throw' },
+      },
+    ],
     composition: null,
-    resolution: null,
+    resolution: {
+      kind: 'spend-recovery',
+      subjectText: 'The target creature',
+      singular: true,
+    },
     movesActor: false,
   },
   // ── maneuvers ───────────────────────────────────────────────────────
@@ -447,17 +488,43 @@ export function compileCommonAction(input: {
     return { subject: declared.subject, uses: 1, sourceText };
   });
 
+  // Two printed branch forms, both proved against the bytes: whole
+  // "Alternatively, …" SENTENCES are extracted by marker and matched to the
+  // directory's marker-declared branches in order; a branch that is a
+  // CLAUSE inside a longer sentence (Heal prints its two halves in one
+  // sentence, joined by ", or") is declared verbatim and proved as a
+  // printed substring. Declaring a clause is NOT a loophole around the
+  // marker: it is the same declare-and-prove shape the per-round caps and
+  // the composition substitute already use, and a pin bump that rewords the
+  // clause breaks just as loudly.
   const alternativeSentences = sentences.filter((sentence) => ALTERNATIVELY.test(sentence));
-  if (alternativeSentences.length !== entry.alternatives.length) {
+  const markerDeclared = entry.alternatives.filter(
+    (declared) => declared.printedClause === undefined,
+  );
+  if (alternativeSentences.length !== markerDeclared.length) {
     fail(
       artifactId,
-      `printed alternatives (${alternativeSentences.length}) do not match the ${entry.alternatives.length} keyed in the directory`,
+      `printed "Alternatively" sentences (${alternativeSentences.length}) do not match the ${markerDeclared.length} marker branches keyed in the directory`,
     );
   }
-  const alternatives: CommonActionAlternative[] = alternativeSentences.map((sourceText, index) => {
-    const declared = entry.alternatives[index];
-    if (declared === undefined) {
-      fail(artifactId, `printed alternative ${index + 1} has no directory entry`);
+  let markerIndex = 0;
+  const alternatives: CommonActionAlternative[] = entry.alternatives.map((declared) => {
+    let sourceText: string;
+    if (declared.printedClause === undefined) {
+      const extracted = alternativeSentences[markerIndex];
+      markerIndex += 1;
+      if (extracted === undefined) {
+        fail(artifactId, `alternative ${JSON.stringify(declared.key)} has no printed sentence`);
+      }
+      sourceText = extracted;
+    } else {
+      if (!stripped.includes(declared.printedClause)) {
+        fail(
+          artifactId,
+          `alternative ${JSON.stringify(declared.key)} declares the clause ${JSON.stringify(declared.printedClause)}, which the artifact does not print`,
+        );
+      }
+      sourceText = declared.printedClause;
     }
     const targetAction = declared.targetAction;
     if (targetAction !== null) {
@@ -485,6 +552,7 @@ export function compileCommonAction(input: {
         targetAction === null
           ? null
           : { artifactId: targetAction.artifactId, actionCost: targetAction.actionCost },
+      resolution: declared.resolution ?? null,
     };
   });
 
@@ -514,29 +582,43 @@ export function compileCommonAction(input: {
     }
   }
 
-  // A resolution's verbatim subject phrase must be printed text, not a
-  // paraphrase of it.
-  if (
-    entry.resolution !== null &&
-    'subjectText' in entry.resolution &&
-    !stripped.includes(entry.resolution.subjectText)
-  ) {
-    fail(
-      artifactId,
-      `resolution subjectText ${JSON.stringify(entry.resolution.subjectText)} is not printed in the artifact`,
-    );
-  }
-
-  // A condition-ending resolution names a condition [S12]. The name is not
-  // a classification — the artifact LINKS the condition it ends — so it is
-  // proved against the artifact's own scc links through the one scanner,
-  // and a pin bump that relinks the clause breaks loudly.
+  // Every declared resolution is proved against the bytes — the action's
+  // own AND any a printed branch carries, or a branch's reading would ship
+  // unproved simply because it is not the primary one.
   const refs = canonRefsIn(text);
-  if (entry.resolution?.kind === 'end-condition' && !refs.includes(entry.resolution.conditionId)) {
-    fail(
-      artifactId,
-      `resolution ends ${entry.resolution.conditionId}, which the artifact never links`,
-    );
+  const declaredResolutions: ReadonlyArray<{ where: string; resolution: EffectResolution }> = [
+    ...(entry.resolution === null ? [] : [{ where: 'resolution', resolution: entry.resolution }]),
+    ...entry.alternatives.flatMap((declared) =>
+      declared.resolution === undefined
+        ? []
+        : [
+            {
+              where: `alternative ${JSON.stringify(declared.key)}`,
+              resolution: declared.resolution,
+            },
+          ],
+    ),
+  ];
+  for (const { where, resolution } of declaredResolutions) {
+    // A verbatim subject phrase must be printed text, not a paraphrase.
+    if ('subjectText' in resolution && !stripped.includes(resolution.subjectText)) {
+      fail(
+        artifactId,
+        `${where} subjectText ${JSON.stringify(resolution.subjectText)} is not printed in the artifact`,
+      );
+    }
+    // A condition-ending resolution names a condition [S12]. The name is not
+    // a classification — the artifact LINKS the condition it ends — so it is
+    // proved against the artifact's own scc links through the one scanner,
+    // and a pin bump that relinks the clause breaks loudly.
+    if (resolution.kind === 'end-condition' && !refs.includes(resolution.conditionId)) {
+      fail(artifactId, `${where} ends ${resolution.conditionId}, which the artifact never links`);
+    }
+    // Likewise a saving-throw resolution: the artifact must LINK the rule
+    // it sends the target to [S10].
+    if (resolution.kind === 'saving-throw' && !refs.includes(SAVING_THROW_RULE)) {
+      fail(artifactId, `${where} makes a saving throw, which the artifact never links`);
+    }
   }
 
   return CommonActionProgramDataSchema.parse({

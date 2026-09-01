@@ -1,9 +1,12 @@
 import { abilityCostOf, targetCountOf } from './ability-execution.js';
 import { ECONOMY_CANON, debitActionCost } from './action-economy.js';
 import {
+  CANON as CONDITION_CANON,
   type LifecycleContext,
+  SAVING_THROW,
   applyConditionInstance,
   removeConditionInstance,
+  resolveSavingThrow,
 } from './condition-lifecycle.js';
 import {
   type DamageOutcome,
@@ -121,6 +124,10 @@ export interface ResolutionInputs {
    * The engine never picks: the printed clause names a condition, this
    * names the instances. */
   endedInstances: Record<string, string[]>;
+  /** Per-target selection + asserted roll for a `saving-throw` resolution
+   * [S10]. Same reason as above: the printed clause names "one effect they
+   * are suffering", not which one. */
+  savingThrows: Record<string, { instanceId: string; roll?: number }>;
 }
 
 /**
@@ -411,6 +418,33 @@ export function resolutionRefusal(
       }
     }
   }
+  if (resolution.kind === 'saving-throw') {
+    for (const targetId of targets) {
+      const selected = inputs.savingThrows[targetId];
+      // Unanswered, not violated: the printed clause names "one effect they
+      // are suffering" and the engine must not choose which — who chooses
+      // is itself an open ruling. Nothing coherent to resolve.
+      if (selected === undefined) {
+        return entry(
+          context,
+          'refusal',
+          `no effect named for ${targetId} — a saving throw is made against one named effect, and the selection is dispatch-supplied`,
+          bindingRefs(binding, [CONDITION_CANON.savingThrow]),
+          dispatchReceipt(dispatch),
+        );
+      }
+      const held = state.participants[targetId]?.conditions ?? [];
+      if (!held.some((instance) => instance.instanceId === selected.instanceId)) {
+        return entry(
+          context,
+          'refusal',
+          `no condition instance ${selected.instanceId} on ${targetId}`,
+          bindingRefs(binding, [CONDITION_CANON.savingThrow]),
+          dispatchReceipt(dispatch),
+        );
+      }
+    }
+  }
   if (resolution.kind === 'terrain-fact') {
     const factId = `${binding.artifactId}#${binding.ordinal}#${context.intentId}-terrain`;
     if (state.terrainFacts.some((fact) => fact.factId === factId)) {
@@ -476,6 +510,7 @@ export function executeUseEffect(
         knockOut: intent.payload.knockOut,
         recoverySpends: intent.payload.recoverySpends,
         endedInstances: intent.payload.endedInstances,
+        savingThrows: intent.payload.savingThrows,
       },
       economy: {
         cost: abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType }),
@@ -893,6 +928,90 @@ export function executeResolutionDispatch(
       }
     }
     return { state: endedState, log };
+  }
+
+  if (resolution.kind === 'saving-throw') {
+    let savedState = economyState;
+    for (const targetId of targets) {
+      const selected = inputs.savingThrows[targetId];
+      const target = savedState.participants[targetId];
+      if (selected === undefined || !target) continue; // proven by the refusal gates
+      const instance = target.conditions.find(
+        (candidate) => candidate.instanceId === selected.instanceId,
+      );
+      if (instance === undefined) continue; // proven by the refusal gates
+      // "one effect they are suffering THAT IS ENDED BY A SAVING THROW."
+      // A named instance that is not save-ends is a Director override, not
+      // an incoherent payload — the roll and its threshold are defined
+      // either way — so it warns and applies [R-0030], and the receipt
+      // records the ending the instance actually carries.
+      if (instance.ending.kind !== 'save-ends') {
+        log.push(
+          entry(
+            context,
+            'warning',
+            `${selected.instanceId} on ${targetId} is not ended by a saving throw (it ends ${instance.ending.kind}); ${binding.artifactId} prints its saving throw against an effect that is — rolled anyway; the Director adjudicates`,
+            bindingRefs(binding, [CONDITION_CANON.savingThrow, instance.conditionId]),
+            {
+              savingThrowEndingMismatch: {
+                targetId,
+                instanceId: selected.instanceId,
+                ending: instance.ending.kind,
+              },
+            },
+          ),
+        );
+      }
+      // The ONE saving-throw home [S10]. No die, no threshold and no
+      // modifier arithmetic is repeated here.
+      const outcome = resolveSavingThrow(
+        {
+          target,
+          instance,
+          assertedRoll: selected.roll,
+          roll: () => random.roll(SAVING_THROW.die),
+          // No producer exists yet — see SavingThrowModifier.
+          modifiers: [],
+        },
+        context,
+      );
+      if (!outcome.succeeded) {
+        log.push({ ...outcome.log, canonRefs: bindingRefs(binding, outcome.log.canonRefs) });
+        continue;
+      }
+      // A success ends the effect, and the removal goes through the one
+      // removal home — which is also where R-0004 is asked. `resolveSavingThrow`
+      // deliberately removes nothing itself: the sweep rebuilds its list as
+      // it walks, this path does not.
+      const blocker = conditionRemovalBlocker(target, instance);
+      if (blocker !== null) {
+        log.push(
+          entry(context, 'refusal', blocker, bindingRefs(binding, [HEALTH_CANON.dying]), {
+            perBinding: true,
+            instanceId: selected.instanceId,
+            savingThrow: { roll: outcome.roll, total: outcome.total, succeeded: true },
+          }),
+        );
+        continue;
+      }
+      log.push({ ...outcome.log, canonRefs: bindingRefs(binding, outcome.log.canonRefs) });
+      const removed = removeConditionInstance(
+        savedState,
+        target,
+        selected.instanceId,
+        context,
+        [CONDITION_CANON.savingThrow],
+        `${instance.conditionId} on ${targetId} ends — ${target.id} saved against it`,
+      );
+      savedState = removed.state;
+      log.push(
+        ...removed.log.map((item) => ({
+          ...item,
+          canonRefs: bindingRefs(binding, item.canonRefs),
+        })),
+      );
+    }
+    return { state: savedState, log };
   }
 
   if (resolution.kind === 'terrain-fact') {

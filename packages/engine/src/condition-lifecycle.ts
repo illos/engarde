@@ -151,6 +151,99 @@ export function removeConditionInstance(
 }
 
 /**
+ * A printed modifier to a saving throw.
+ *
+ * NAMED BUT UNFILLED [common-actions design §2, S10]. The core corpus does
+ * print them — four artifacts grant a "+1 bonus to saving throws"
+ * (`feature.ability.elementalist.level-3/swarm-of-spirits`,
+ * `feature.troubadour.level-7/equal-billing`,
+ * `feature.censor.level-1/inner-light`, `complication/searching-for-a-cure`)
+ * — but no grant kind carries a saving-throw modifier today, so nothing in
+ * the engine can produce one and every caller passes an empty list.
+ *
+ * The slot is named HERE, in the one place a saving throw is banded, so
+ * that when the standing-grant substrate lands (W8, S6) the modifier is
+ * applied once rather than re-added at each call site — which is the shape
+ * this whole extraction exists to prevent.
+ */
+export interface SavingThrowModifier {
+  value: number;
+  /** The printed phrase, verbatim. */
+  reason: string;
+  sourceArtifactId: string;
+}
+
+export interface SavingThrowRequest {
+  target: ParticipantState;
+  instance: ConditionInstance;
+  /** A roll the table asserted. Wins over the injected source, exactly as
+   * on the end-of-turn path. */
+  assertedRoll: number | undefined;
+  /** The injected d10 source, called only when no roll was asserted. */
+  roll: () => number;
+  modifiers: readonly SavingThrowModifier[];
+}
+
+export interface SavingThrowOutcome {
+  succeeded: boolean;
+  /** The die face, before modifiers. */
+  roll: number;
+  /** What was compared against the printed threshold. */
+  total: number;
+  asserted: boolean;
+  log: LogEntry;
+}
+
+/**
+ * S10 — the ONE home for a saving throw [rule.general/saving-throw: "To
+ * make a saving throw, a creature rolls a d10. On a 6 or higher, the effect
+ * ends. Otherwise, it continues."].
+ *
+ * It was inlined in `endOfTurnSweep`'s loop, which is the only place the
+ * engine ever rolled one — and that loop walks EVERY save-ends instance,
+ * with no entry point for a single named one. Heal prints exactly that
+ * ("can make a saving throw against ONE effect they are suffering that is
+ * ended by a saving throw"), so the second caller needed the roll without
+ * the sweep. The threshold and the die stay in `SAVING_THROW`; this adds
+ * no math, only a callable boundary.
+ *
+ * It reports; it removes nothing. Whether a success removes the instance is
+ * the caller's, because the two callers differ: the sweep rebuilds the
+ * condition list as it walks, while a resolution removes through
+ * `removeConditionInstance`.
+ */
+export function resolveSavingThrow(
+  request: SavingThrowRequest,
+  context: LifecycleContext,
+): SavingThrowOutcome {
+  const { target, instance } = request;
+  const asserted = request.assertedRoll !== undefined;
+  const roll = request.assertedRoll ?? request.roll();
+  const bonus = request.modifiers.reduce((sum, modifier) => sum + modifier.value, 0);
+  const total = roll + bonus;
+  const succeeded = total >= SAVING_THROW.success;
+  const rolled =
+    bonus === 0 ? `rolled ${roll}` : `rolled ${roll}${bonus > 0 ? '+' : ''}${bonus} = ${total}`;
+  return {
+    succeeded,
+    roll,
+    total,
+    asserted,
+    log: entry(
+      context,
+      succeeded ? 'mutation' : 'informational',
+      succeeded
+        ? `${target.id} saves against ${instance.conditionId} (${rolled})`
+        : `${target.id} fails the saving throw against ${instance.conditionId} (${rolled})`,
+      [instance.conditionId, CANON.savingThrow],
+      succeeded
+        ? { removedInstanceIds: [instance.instanceId], roll, total, asserted }
+        : { instanceId: instance.instanceId, roll, total, asserted },
+    ),
+  };
+}
+
+/**
  * End-of-turn processing for one participant: saving throws for save-ends
  * instances (asserted roll wins; otherwise the injected source rolls), and
  * expiry of end-of-targets-next-turn instances.
@@ -174,30 +267,19 @@ export function endOfTurnSweep(
       continue;
     }
     if (instance.ending.kind === 'save-ends') {
-      const roll = rolls[instance.instanceId] ?? rollSavingThrow();
-      const asserted = rolls[instance.instanceId] !== undefined;
-      if (roll >= SAVING_THROW.success) {
-        log.push(
-          entry(
-            context,
-            'mutation',
-            `${target.id} saves against ${instance.conditionId} (rolled ${roll})`,
-            [instance.conditionId, CANON.savingThrow],
-            { removedInstanceIds: [instance.instanceId], roll, asserted },
-          ),
-        );
-      } else {
-        log.push(
-          entry(
-            context,
-            'informational',
-            `${target.id} fails the saving throw against ${instance.conditionId} (rolled ${roll})`,
-            [instance.conditionId, CANON.savingThrow],
-            { instanceId: instance.instanceId, roll, asserted },
-          ),
-        );
-        remaining.push(instance);
-      }
+      const outcome = resolveSavingThrow(
+        {
+          target,
+          instance,
+          assertedRoll: rolls[instance.instanceId],
+          roll: rollSavingThrow,
+          // No producer exists yet — see SavingThrowModifier.
+          modifiers: [],
+        },
+        context,
+      );
+      log.push(outcome.log);
+      if (!outcome.succeeded) remaining.push(instance);
       continue;
     }
     if (instance.ending.kind === 'end-of-targets-next-turn') {

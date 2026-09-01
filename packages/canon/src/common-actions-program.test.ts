@@ -19,6 +19,7 @@ import {
   CATCH_BREATH,
   COMMON_ACTION_FIXTURES,
   FREE_STRIKE,
+  HEAL,
   RIDE,
   STAND_UP,
 } from './fixtures/common-actions.verbatim.js';
@@ -104,7 +105,8 @@ describe('common-action program source', () => {
     }
   });
 
-  it('keys the two printed alternatives, and only those two', () => {
+  it('keys the printed branches, in both printed forms, and only those', () => {
+    // Form one: a whole "Alternatively, …" SENTENCE, extracted by marker.
     expect(byId.get(RIDE.artifactId)?.alternatives).toEqual([
       {
         key: 'mount-disengages',
@@ -116,6 +118,8 @@ describe('common-action program source', () => {
           artifactId: 'mcdm.heroes.v1/feature.common.move-actions/disengage',
           actionCost: 'free-triggered-action',
         },
+        // The branch moves WHO acts, not WHAT resolves.
+        resolution: null,
       },
     ]);
     expect(byId.get(STAND_UP.artifactId)?.alternatives).toEqual([
@@ -125,12 +129,36 @@ describe('common-action program source', () => {
           'Alternatively, they can use this maneuver to make a willing adjacent prone creature stand up.',
         // One maneuver, the actor's; nothing is charged to the ally.
         targetAction: null,
+        resolution: null,
+      },
+    ]);
+    // Form two: a CLAUSE inside a longer sentence, declared verbatim and
+    // proved as a printed substring. Heal prints both of its halves in one
+    // sentence joined by ", or", so there is no marker to extract.
+    expect(byId.get(HEAL.artifactId)?.alternatives).toEqual([
+      {
+        key: 'saving-throw',
+        sourceText:
+          'or can make a saving throw against one effect they are suffering that is ended by a saving throw.',
+        targetAction: null,
+        // The one branch in the 17 that resolves differently from its
+        // action's primary half.
+        resolution: { kind: 'saving-throw' },
       },
     ]);
     const withAlternatives = programs.filter((program) => program.alternatives.length > 0);
     expect(withAlternatives.map((program) => program.featureArtifactId).sort()).toEqual(
-      [RIDE.artifactId, STAND_UP.artifactId].sort(),
+      [HEAL.artifactId, RIDE.artifactId, STAND_UP.artifactId].sort(),
     );
+  });
+
+  it("proves a declared clause against the artifact's own bytes", () => {
+    // Declaring a clause is not a loophole around the marker: it is the
+    // same declare-and-prove shape the per-round caps use, and a pin bump
+    // that rewords the clause breaks just as loudly.
+    expect(() =>
+      compileCommonAction({ artifactId: HEAL.artifactId, text: CATCH_BREATH.text }),
+    ).toThrow(CommonActionCompileError);
   });
 
   it('records the debit contract on the envelope — the four companion-paid actions', () => {
@@ -178,7 +206,7 @@ describe('common-action program source', () => {
     for (const id of silent) expect(byId.get(id)?.debitContract, id).toBe('companion');
   });
 
-  it('compiles the two executable resolutions in the 17 and leaves the rest verbatim', () => {
+  it('compiles the three executable resolutions in the 17 and leaves the rest verbatim', () => {
     expect(byId.get(CATCH_BREATH.artifactId)?.resolution).toEqual({
       kind: 'spend-recovery',
       subjectText: 'A creature who uses the Catch Breath maneuver',
@@ -191,9 +219,17 @@ describe('common-action program source', () => {
       kind: 'end-condition',
       conditionId: 'mcdm.heroes.v1/condition/prone',
     });
+    // Heal's primary half is the SAME shipped Recovery offer Catch Breath
+    // uses — nothing about the amount is compiled here; `spendRecovery`
+    // owns recovery value.
+    expect(byId.get(HEAL.artifactId)?.resolution).toEqual({
+      kind: 'spend-recovery',
+      subjectText: 'The target creature',
+      singular: true,
+    });
     const executable = programs.filter((program) => program.resolution.kind !== 'table');
     expect(executable.map((program) => program.featureArtifactId).sort()).toEqual(
-      [CATCH_BREATH.artifactId, STAND_UP.artifactId].sort(),
+      [CATCH_BREATH.artifactId, HEAL.artifactId, STAND_UP.artifactId].sort(),
     );
   });
 
@@ -276,9 +312,11 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
       'mcdm.heroes.v1/feature.common.maneuvers/knockback',
     ]);
     // Every action whose availability is not plainly true has a registered
-    // gate behind it. Disengage's does not appear: its `slowed` gate reads
-    // TRUE on a creature who is not slowed, which is the point of a
-    // tri-state — an engine-known precondition that holds is silent.
+    // gate behind it. Two registered gates deliberately do NOT appear:
+    // Disengage's `slowed` gate reads TRUE on a creature who is not slowed
+    // (an engine-known precondition that holds is silent, which is the
+    // point of a tri-state), and Heal's precondition is entirely about a
+    // target this bare read has not named — no target, no reading.
     expect(
       menu.filter((offer) => offer.available !== true).map((offer) => offer.featureArtifactId),
     ).toEqual([

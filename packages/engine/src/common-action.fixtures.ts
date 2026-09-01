@@ -81,6 +81,7 @@ export const RIDE: CommonActionProgramData = {
         artifactId: 'mcdm.heroes.v1/feature.common.move-actions/disengage',
         actionCost: 'free-triggered-action',
       },
+      resolution: null,
     },
   ],
   debitContract: 'self',
@@ -246,6 +247,7 @@ export const STAND_UP: CommonActionProgramData = {
       sourceText:
         'Alternatively, they can use this maneuver to make a willing adjacent prone creature stand up.',
       targetAction: null,
+      resolution: null,
     },
   ],
   debitContract: 'self',
@@ -255,6 +257,45 @@ export const STAND_UP: CommonActionProgramData = {
   resolution: {
     kind: 'end-condition',
     conditionId: 'mcdm.heroes.v1/condition/prone',
+  },
+};
+
+export const HEAL: CommonActionProgramData = {
+  featureArtifactId: 'mcdm.heroes.v1/feature.common.main-actions/heal',
+  provenance: 'prose-feature',
+  group: 'main-actions',
+  sourceSpan: {
+    byteStart: 0,
+    byteEnd: 599,
+  },
+  sourceText:
+    '\nA creature who uses the [Heal](scc.v1:mcdm.heroes.v1/feature.common.main-actions/heal) main action employs medicine or inspiring words to make an [adjacent](scc.v1:mcdm.heroes.v1/rule.combat/adjacent) creature feel better and stay in the fight. The target creature can spend a [Recovery](scc.v1:mcdm.heroes.v1/rule.health/recoveries) to regain [Stamina](scc.v1:mcdm.heroes.v1/rule.health/stamina), or can make a [saving throw](scc.v1:mcdm.heroes.v1/rule.general/saving-throw) against one effect they are suffering that is ended by a [saving throw](scc.v1:mcdm.heroes.v1/rule.general/saving-throw).\n',
+  canonRefs: [
+    'mcdm.heroes.v1/feature.common.main-actions/heal',
+    'mcdm.heroes.v1/rule.combat/adjacent',
+    'mcdm.heroes.v1/rule.health/recoveries',
+    'mcdm.heroes.v1/rule.health/stamina',
+    'mcdm.heroes.v1/rule.general/saving-throw',
+  ],
+  defaultActionCost: 'main-action',
+  perRoundCaps: [],
+  alternatives: [
+    {
+      key: 'saving-throw',
+      sourceText:
+        'or can make a saving throw against one effect they are suffering that is ended by a saving throw.',
+      targetAction: null,
+      resolution: { kind: 'saving-throw' },
+    },
+  ],
+  debitContract: 'self',
+  companionArtifactIds: [],
+  movesActor: false,
+  composition: null,
+  resolution: {
+    kind: 'spend-recovery',
+    subjectText: 'The target creature',
+    singular: true,
   },
 };
 
