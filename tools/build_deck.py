@@ -73,19 +73,27 @@ def prep(deck_dir):
     return cards
 
 
+def unwrap(workflow_output):
+    """Accept the raw return value or the harness's {summary, result, ...} envelope."""
+    if isinstance(workflow_output, dict) and "result" in workflow_output and "mode" not in workflow_output:
+        return workflow_output["result"]
+    return workflow_output
+
+
 def ingest(deck_dir, workflow_output):
+    workflow_output = unwrap(workflow_output)
     if not isinstance(workflow_output, dict) or workflow_output.get("mode") != "verify":
         raise ValueError("workflow output must be the verify-mode return value")
     cards = {c["qid"]: c for c in load_json(os.path.join(deck_dir, "cards.json"))}
     answers, findings = [], []
     for answer in workflow_output.get("answers", []):
         card = cards.get(answer.get("qid"))
-        if card is None or card["question"] != answer.get("question"):
+        if card is None or answer.get("question") not in (None, card["question"]):
             raise ValueError(f"answer does not identify a card of this deck: {answer.get('qid')}")
         answers.append(
             {
                 "qid": answer["qid"],
-                "question": answer["question"],
+                "question": card["question"],
                 "answer": answer["answer"],
                 "basis": answer["basis"],
                 "evidence": answer.get("evidence", ""),

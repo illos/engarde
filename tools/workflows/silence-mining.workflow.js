@@ -15,7 +15,7 @@ export const meta = {
 //   mode: 'verify' | 'mine',
 //   deckDir: absolute path of the deck directory (cards/<qid>.json exist for verify),
 //   repoRoot: absolute path of the engarde checkout,
-//   cards: [{qid, question, group, subQuestions, sourceArtifactIds, cardPath}],   (verify mode)
+//   cards: [{qid, group, cardPath, question?}],  (verify mode; question may be omitted — agents read the card file)
 //   batches: [{batch, artifactIds, sourcesPath, mapHints}],                          (mine mode)
 //   refuters: number of independent skeptics per card (default 1),
 // }
@@ -134,7 +134,7 @@ function answerPrompt(card) {
 ${card.cardPath} — it holds the question, the printed cases it settles (subQuestions), and the
 VERBATIM pinned source text of every artifact involved. Read the whole file before answering.
 
-Card question: ${card.question}
+Card question: ${card.question || '(read it from the card file — the "question" field)'}
 Group: ${card.group}
 
 Then:
