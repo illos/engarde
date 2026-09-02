@@ -37,9 +37,17 @@ import type {
   LogEntry,
   ParsedIntent,
   ParticipantState,
+  TestCharacteristic,
+  TestDifficulty,
   TestTier,
 } from './schemas.js';
 import { nonrollingAbilityApplicationClaim } from './schemas.js';
+import {
+  TEST_OUTCOME_CANON,
+  TEST_OUTCOME_LABEL,
+  isSuccess,
+  outcomeForTest,
+} from './test-outcome.js';
 import { rollTest } from './test-roll.js';
 
 /** Canon grounding for recorded terrain facts [R-0022]. */
@@ -122,6 +130,20 @@ export interface ResolutionInputs {
    * [S10]. Same reason as above: the printed clause names "one effect they
    * are suffering", not which one. */
   savingThrows: Record<string, { instanceId: string; roll?: number }>;
+  /** The ACTOR's inputs to an `ordinary-test` resolution — the
+   * characteristic, difficulty, dice and modifiers the printed steps hand
+   * to the Director [rule.test/test]. Null = the dispatch named no test,
+   * which is refused. */
+  ordinaryTest: {
+    characteristic: TestCharacteristic;
+    difficulty: TestDifficulty | null;
+    taskText: string | null;
+    dice?: [number, number];
+    edges: number;
+    banes: number;
+    bonuses: Array<{ value: number; reason: string }>;
+    penalties: Array<{ value: number; reason: string }>;
+  } | null;
 }
 
 /**
@@ -332,6 +354,30 @@ export function resolutionRefusal(
       }
     }
   }
+  if (resolution.kind === 'ordinary-test') {
+    // "asks the hero's player to make a power roll using an appropriate
+    // characteristic" — the characteristic is the Director's. A dispatch
+    // that names none has not said what to roll, and the engine choosing
+    // one would be the engine deciding the test.
+    if (inputs.ordinaryTest === null) {
+      return entry(
+        context,
+        'refusal',
+        `no test named — the characteristic, cost and difficulty of an ordinary test are the Director's, and ${binding.artifactId} compiles none`,
+        bindingRefs(binding, [TEST_CANON.test]),
+        dispatchReceipt(dispatch),
+      );
+    }
+    if (!state.participants[inputs.actorParticipantId]?.stats) {
+      return entry(
+        context,
+        'refusal',
+        `${inputs.actorParticipantId} has no recorded stats to roll a ${inputs.ordinaryTest.characteristic} test`,
+        bindingRefs(binding, [TEST_CANON.test]),
+        dispatchReceipt(dispatch),
+      );
+    }
+  }
   if (resolution.kind === 'next-roll-grant') {
     for (const targetId of targets) {
       const grantId = `${binding.artifactId}#${context.intentId}-${targetId}`;
@@ -505,6 +551,7 @@ export function executeUseEffect(
         recoverySpends: intent.payload.recoverySpends,
         endedInstances: intent.payload.endedInstances,
         savingThrows: intent.payload.savingThrows,
+        ordinaryTest: intent.payload.ordinaryTest,
       },
       economy: {
         cost: abilityCostOf({ actionCost: effect.actionCost, actionType: effect.actionType }),
@@ -616,6 +663,10 @@ export function executeResolutionDispatch(
 
   if (resolution.kind === 'test') {
     return executeTest(economyState, dispatch, resolution, log, context, random);
+  }
+
+  if (resolution.kind === 'ordinary-test') {
+    return executeOrdinaryTest(economyState, dispatch, resolution, log, context, random);
   }
 
   if (resolution.kind === 'next-roll-grant') {
@@ -1255,6 +1306,155 @@ function executeTest(
   }
 
   return { state: nextState, log };
+}
+
+type OrdinaryTestResolution = Extract<EffectResolution, { kind: 'ordinary-test' }>;
+
+/**
+ * Ordinary-test execution [Make or Assist a Test; rule.test/test,
+ * rule.test/test-difficulty] — the actor rolls the test the Director named,
+ * through the ONE test-roll home, and the printed outcome reaches the
+ * table as a directive. The engine applies nothing beyond the debit and
+ * the R-0013 grant consumption inside the roll: "the Director interprets
+ * its success or failure", and consequences and rewards are narrative.
+ *
+ * Two printed outcome shapes:
+ * - the Test Difficulty Outcomes Table, read against the dispatch-supplied
+ *   difficulty — or, when the Director kept it secret, the tier alone;
+ * - a printed tier → modifier map (§Assist a Test), whose bullet is quoted
+ *   for the named creature. The modifier is REPORTED, not placed as a
+ *   pending grant: the printed binding is "the test you're assisting" —
+ *   one specific test — and the grant vocabulary's nearest member
+ *   ('power-roll') would let an intervening ability roll consume it,
+ *   contradicting the text. Binding a grant to a named test is the S7
+ *   predicate extension that lands after ruling W0-d (design §6.4, §6.11
+ *   S5); until then the table places it by hand (`add-grant`), and the
+ *   receipt says so.
+ */
+function executeOrdinaryTest(
+  state: EncounterState,
+  dispatch: ResolutionDispatch,
+  resolution: OrdinaryTestResolution,
+  log: LogEntry[],
+  context: LifecycleContext,
+  random: RandomSource,
+): ExecutionResult {
+  const { binding, inputs } = dispatch;
+  const test = inputs.ordinaryTest;
+  const rollerId = inputs.actorParticipantId;
+  if (test === null) return { state, log }; // proven by the refusal gates
+
+  // An ordinary test is NOT a reactive test: skills may apply (the +2
+  // arrives in `bonuses`) and assist is available, so the roll entry cites
+  // rule.test/test and never rule.test/reactive-test [design §6.11 S6].
+  const rolled = rollTest(
+    state,
+    {
+      rollerId,
+      characteristic: test.characteristic,
+      input: test,
+      baseRefs: bindingRefs(binding),
+      rollRefs: [TEST_CANON.test, POWER_ROLL_CANON.powerRoll],
+    },
+    context,
+    random,
+  );
+  if (rolled === null) return { state, log }; // proven by the refusal gates
+  log.push(...rolled.log);
+  const { tier, naturalTopEnd } = rolled.resolution;
+  const task = test.taskText === null ? '' : ` (${test.taskText})`;
+
+  const map = resolution.tierPolarities;
+  if (map !== null) {
+    // The printed tier table names the modifier; the creature it lands on
+    // is the dispatch's one named target.
+    const assistedId = inputs.targets[0] ?? null;
+    const bullet = map[`tier${tier}`];
+    log.push(
+      entry(
+        context,
+        'table-directive',
+        `${rollerId}'s test${task} came up tier ${tier}: "${bullet.sourceText}" — ${assistedId ?? 'the assisted creature'} carries a ${bullet.polarity} on the test being assisted; the table places it on that test (the engine binds no grant to a named test yet)`,
+        bindingRefs(binding, [
+          map.sourceArtifactId,
+          bullet.polarity === 'edge' || bullet.polarity === 'double-edge'
+            ? GRANT_CANON.edge
+            : GRANT_CANON.bane,
+        ]),
+        {
+          assistOutcome: {
+            rollerId,
+            assistedId,
+            tier,
+            polarity: bullet.polarity,
+            sourceText: bullet.sourceText,
+            sourceArtifactId: map.sourceArtifactId,
+            grantPlaced: false,
+          },
+        },
+      ),
+    );
+  }
+
+  if (test.difficulty === null) {
+    if (map === null) {
+      // "The Director can also keep a test's difficulty secret until after
+      // the player rolls the test" — the engine reports the tier and total;
+      // the outcome is the Director's to read from the table.
+      log.push(
+        entry(
+          context,
+          'table-directive',
+          `${rollerId}'s test${task} came up tier ${tier} (total ${rolled.resolution.total}${naturalTopEnd ? ', natural 19–20' : ''}); no difficulty was shared — the Director reads the outcome from the Test Difficulty Outcomes Table`,
+          bindingRefs(binding, [TEST_OUTCOME_CANON.testDifficulty]),
+          {
+            testOutcome: {
+              rollerId,
+              taskText: test.taskText,
+              difficulty: null,
+              tier,
+              naturalTopEnd,
+              outcome: null,
+              label: null,
+              success: null,
+            },
+          },
+        ),
+      );
+    }
+    return { state: rolled.state, log };
+  }
+
+  // The ONE outcome-table home; the tier bands are the power roll's own.
+  const outcome = outcomeForTest(test.difficulty, tier, naturalTopEnd);
+  const label = TEST_OUTCOME_LABEL[outcome];
+  log.push(
+    entry(
+      context,
+      'table-directive',
+      map === null
+        ? `${rollerId}'s ${test.difficulty} test${task}: ${label} (tier ${tier}${naturalTopEnd ? ', natural 19–20' : ''}) — the Director narrates the outcome`
+        : `${rollerId}'s test${task} was also given a ${test.difficulty} difficulty: ${label} (tier ${tier}${naturalTopEnd ? ', natural 19–20' : ''}) — whether difficulty applies to a test with its own printed tier table is an open ruling; the Director adjudicates`,
+      bindingRefs(binding, [
+        TEST_OUTCOME_CANON.testDifficulty,
+        ...(naturalTopEnd ? [TEST_OUTCOME_CANON.natural1920] : []),
+      ]),
+      {
+        testOutcome: {
+          rollerId,
+          taskText: test.taskText,
+          difficulty: test.difficulty,
+          tier,
+          naturalTopEnd,
+          outcome,
+          label,
+          success: isSuccess(outcome),
+          ...(map === null ? {} : { openRuling: 'common-actions design §6.11 S4' }),
+        },
+      },
+    ),
+  );
+  return { state: rolled.state, log };
 }
 
 /** Apply one rolled tier bullet to one creature target through the one-home

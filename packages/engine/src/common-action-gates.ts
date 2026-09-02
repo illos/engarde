@@ -199,6 +199,8 @@ const STAND_UP = 'mcdm.heroes.v1/feature.common.maneuvers/stand-up';
 const PRONE = 'mcdm.heroes.v1/condition/prone';
 const RESTRAINED = 'mcdm.heroes.v1/condition/restrained';
 const ADJACENT = 'mcdm.heroes.v1/rule.combat/adjacent';
+const MAKE_OR_ASSIST = 'mcdm.heroes.v1/feature.common.maneuvers/make-or-assist-a-test';
+const ASSIST_A_TEST = 'mcdm.heroes.v1/chapter/tests#assist-a-test';
 
 /** Every named target carries the condition the action's precondition
  * names. `hasCondition` is the one membership home. */
@@ -348,6 +350,23 @@ export const COMMON_ACTION_ELIGIBILITY_GATES: readonly EligibilityGate[] = [
     assertedFacts: [{ fact: 'adjacent', a: 'actor', b: 'target', holds: true }],
     requiresConsent: true,
     holds: (input) => everyTargetHas(input, PRONE),
+  },
+  {
+    // The assist branch's three printed provisos in one sentence — an
+    // applicable skill, the assisted creature not using that same skill,
+    // and help that makes sense "to the Director's satisfaction". None is
+    // engine-knowable: there is no skill model (the +2 arrives as an
+    // asserted bonus) and the third is the Director's judgment by its own
+    // words. So the whole sentence is surfaced as a table directive at the
+    // moment it applies, never read as false. Printed on the chapter
+    // section the action's own text points to, not on the action.
+    featureArtifactId: MAKE_OR_ASSIST,
+    sourceArtifactId: ASSIST_A_TEST,
+    whenAlternative: 'assist',
+    verbatim:
+      "You can attempt to assist another creature with a test they make, provided you have a skill that applies to the test, the other creature isn't using that same skill on the test, and you can describe how your character helps to the Director's satisfaction.",
+    canonRefs: [ASSIST_A_TEST, 'mcdm.heroes.v1/rule.test/test'],
+    holds: () => 'unknown',
   },
 ];
 

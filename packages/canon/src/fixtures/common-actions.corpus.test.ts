@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { ingestStructuredRecord } from '../extract.js';
 import { COMMON_ACTION_FIXTURES } from './common-actions.verbatim.js';
 import { GATE_SOURCE_FIXTURES } from './gate-sources.verbatim.js';
-import { TEST_RULE_FIXTURES } from './test-rules.verbatim.js';
+import { TEST_RULE_CHUNK_FIXTURES, TEST_RULE_FIXTURES } from './test-rules.verbatim.js';
 
 /**
  * Drift guard for the 17 committed common-action cuts: re-cut every one
@@ -74,6 +74,24 @@ describe.skipIf(!sourceRoot)(
         }
         expect(artifact.id, fixture.sourcePath).toBe(fixture.artifactId);
         expect(artifact.text, fixture.artifactId).toBe(fixture.text);
+        expect(
+          createHash('sha256').update(fixture.text, 'utf8').digest('hex'),
+          fixture.artifactId,
+        ).toBe(fixture.textSha256);
+      }
+    });
+
+    it('re-cuts every chapter CHUNK by pinned byte span, after proving the file hash', async () => {
+      // A chunk has no paired JSON of its own; the chapter pipeline cuts it
+      // by span from the chapter file, and so does this guard.
+      expect(TEST_RULE_CHUNK_FIXTURES.length).toBeGreaterThan(0);
+      for (const fixture of TEST_RULE_CHUNK_FIXTURES) {
+        const file = await readFile(resolve(sourceRoot ?? '', fixture.sourcePath));
+        expect(createHash('sha256').update(file).digest('hex'), fixture.sourcePath).toBe(
+          fixture.fileSha256,
+        );
+        const cut = file.subarray(fixture.span.byteStart, fixture.span.byteEnd).toString('utf8');
+        expect(cut, fixture.artifactId).toBe(fixture.text);
         expect(
           createHash('sha256').update(fixture.text, 'utf8').digest('hex'),
           fixture.artifactId,

@@ -29,15 +29,17 @@
 
 
 
-> **IMPLEMENTATION STATUS (2026-08-31).** **Waves 1–7 are SHIPPED** —
+> **IMPLEMENTATION STATUS (2026-09-02).** **Waves 1–7 and 9 are SHIPPED** —
 > S2 + S3 (prose-feature program source + dispatch-supplied cost),
 > S1 (`use-common-action` over one factored resolution dispatch path),
 > S4 + S5 + S14 (eligibility-gate registry, asserted-fact reader, offer
 > surface), the four wave-4 arms (Advance, Ride, Catch Breath, Free
 > Strike), and wave 5 (S15's keyword extraction, Disengage, Charge,
 > Knockback, and the consolidated forced-movement receipt), and wave 6
-> (S12 + S11 + Stand Up), and wave 7 (S10 + Heal). ROAD-0005 seam #3 (the
-> per-actor allow/exclude slot) landed with S14. Waves 8–13 are unbuilt.
+> (S12 + S11 + Stand Up), wave 7 (S10 + Heal), and wave 9 (S9 + S20 +
+> Make or Assist a Test — built out of order because W8 is gated on
+> ruling W0-d and W9 is not). ROAD-0005 seam #3 (the per-actor
+> allow/exclude slot) landed with S14. Waves 8 and 10–13 are unbuilt.
 >
 > Wave 5 added two substrate shapes the design named but did not size:
 > the gate registry's **`sourceArtifactId`** (a gate must be allowed to
@@ -108,6 +110,45 @@
 > member and the panel picked it up with no edit — the fix working as
 > intended.)
 >
+> **Wave 9 (S9 + S20 + Make or Assist a Test)** shipped ahead of W8
+> (gated on W0-d) and corrected or decided four things:
+>
+> - **The assist grant is REPORTED, not placed.** §6.4 flagged that
+>   `GrantScope`'s nearest member (`'power-roll'`) would let an
+>   intervening ability roll consume an edge the text binds to *"the test
+>   you're assisting"*. Placing it that way would be a misapplied rule, so
+>   the assist branch rolls the assister's test through the one home, maps
+>   the tier to the printed bullet, and emits a `table-directive`
+>   (`assistOutcome`, `grantPlaced: false`) naming the assisted creature.
+>   The named-test binding is S7's predicate extension after W0-d; until
+>   then the table places the edge with `add-grant`. Documented scope cut,
+>   not hidden debt.
+> - **`ordinary-test` is an `EffectResolutionSchema` member carrying only
+>   a printed tier→modifier map, or null.** Everything else the printed
+>   steps hand to the Director — characteristic, difficulty (null = kept
+>   secret), the +2 skill bonus as an attributed modifier, the cost — is
+>   the `ordinaryTest` dispatch input, refused when absent. A printed tier
+>   table (the assist form) is exactly the R-0008 displacement shape, so
+>   its presence is the signal; when a difficulty is ALSO supplied on that
+>   branch both readings reach the table flagged with §6.11 S4.
+> - **The assist branch is a printed CLAUSE with a FOREIGN source.**
+>   "Assisting a test is also a maneuver in combat" is the branch (Heal's
+>   declare-and-prove form); its three bullets are printed on
+>   `chapter/tests#assist-a-test`, which the action links only by parent.
+>   The compiler proves the parent link and that each bullet names its
+>   polarity noun; the canon test proves each bullet against the committed
+>   chunk cut, and a byte-span drift guard proves the cut against the
+>   chapter file — the gate registry's `sourceArtifactId` shape, extended
+>   to a resolution. The provisos sentence is a fourth foreign-artifact
+>   gate, `'unknown'` by construction (no skill model).
+> - **S9 lifted the whole loop body, and the claim's roller is now
+>   `rollerId`.** `executeTest` keeps only its tier application and object
+>   loop; the ordinary path supplies its own roll refs so it cannot inherit
+>   `reactive-test`. The receipt invariant for `use-common-action` checks
+>   both (one roll, rolled by the actor, no reactive ref). S20's table is
+>   engine data proved canon-side cell by cell; the critical-success string
+>   comes from it.
+>
 > **Wave 7 (S10 + Heal)** corrected one thing this document assumes and
 > added one shape it did not size:
 >
@@ -138,7 +179,7 @@
 >   generic offer semantics?) remains an OPEN Gate-3 question; the code
 >   states no amount of its own either way.
 
-**Status:** waves 1–7 shipped; waves 8–13 designed, not authorized. **Inputs:** the 17 specs under
+**Status:** waves 1–7 and 9 shipped; waves 8, 10–13 designed, not authorized. **Inputs:** the 17 specs under
 `.artifacts/canon/common-actions-spec/specs/`, `SUBSTRATE-BRIEF.md`, and three
 cross-cutting analyses (shared substrate, duplication audit, asserted-fact
 vocabulary). **Repo:** `../engarde`. **Related:** DEC-0011 (spatial belongs to
@@ -302,7 +343,7 @@ Breath appears in **zero** engine files). They are pulled into **wave 4**.
 | **6** | **Stand Up** | S12 + S11. Unblocks Heal branch B, Escape Grab's top tier, and 13 corpus files. |
 | **7** | **Heal** | S10. Unblocks the 232-file save-ends corpus family. |
 | **8** | **Defend → Aid Attack** | **The grant substrate as ONE commit:** S6 + S7 + S8. Defend with a null anchor; Aid Attack proves consumer + anchor. Then the **six unimplemented printed conditions land as pure data rows** — the largest single yield in the slice, and the test that the substrate is done. Requires W0-d. |
-| **9** | **Make or Assist a Test** | S9 + S20. Unblocks montage, group tests, downtime, negotiation. Both halves use pinned chapter artifacts. |
+| **9** ✅ | **Make or Assist a Test** | S9 + S20. Unblocks montage, group tests, downtime, negotiation. Both halves use pinned chapter artifacts. **Shipped 2026-09-02** (built before W8, which is gated on W0-d); the assist modifier is reported, not placed, until S7. |
 | **10** | **Hide** | S18 + S17 + the three spatial members. Sweep is blocked on W0-c; whole action is gated on the staleness decision (§7), not provenance. |
 | **11** | **Search for Hidden Creatures** | S19. Blocked on W10 — Search is the eraser, Hide the writer. Its source section is pinned. |
 | **12** | **Grab → Escape Grab** | S13 + the two grammar extensions + the concurrency cap. Requires W0-b. Retroactively upgrades Knockback's size gate and grabbed's speed clause from asserted to engine-known. |

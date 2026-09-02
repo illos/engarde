@@ -169,6 +169,7 @@ export function commonActionDispatch(
       recoverySpends: intent.payload.recoverySpends,
       endedInstances: intent.payload.endedInstances,
       savingThrows: intent.payload.savingThrows,
+      ordinaryTest: intent.payload.ordinaryTest,
     },
     economy: {
       cost: resolved.cost,
