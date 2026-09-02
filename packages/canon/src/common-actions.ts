@@ -7,6 +7,7 @@ import {
   type CommonActionProgramData,
   CommonActionProgramDataSchema,
   type EffectResolution,
+  type GrantPolarity,
 } from '@engarde/engine';
 import { ONCE_PER_ROUND } from './action-cost.js';
 import { canonRefsIn, stripSccLinks } from './effect-grammar.js';
@@ -102,6 +103,7 @@ export interface CommonActionDirectoryEntry {
 
 const ID = 'mcdm.heroes.v1/feature.common';
 const SAVING_THROW_RULE = 'mcdm.heroes.v1/rule.general/saving-throw';
+const ASSIST_A_TEST = 'mcdm.heroes.v1/chapter/tests#assist-a-test';
 const ABILITY = 'mcdm.heroes.v1/feature.ability.common';
 
 /**
@@ -279,14 +281,50 @@ export const COMMON_ACTION_DIRECTORY: readonly CommonActionDirectoryEntry[] = [
     movesActor: false,
   },
   {
+    // "Many tests are maneuvers if made in combat." — the whole content is
+    // a power roll the ACTOR makes; the characteristic, the difficulty and
+    // the cost are the Director's and ride the dispatch. This is the one
+    // action of the 17 whose printed cost is not fixed ("might require a
+    // main action" / "are usually free maneuvers"), which S3's
+    // dispatch-supplied cost exists for.
     featureArtifactId: `${ID}.maneuvers/make-or-assist-a-test`,
     group: 'maneuvers',
     debitContract: 'self',
     companionArtifactIds: [],
     perRoundCapSubjects: [],
-    alternatives: [],
+    // "Assisting a test is also a maneuver in combat (see Assist a Test in
+    // Chapter 9: Tests)." — the printed branch is a clause, and its
+    // mechanics are printed on the chapter section the clause points to,
+    // whose three tier bullets are declared verbatim here and proved
+    // against the committed cut of that section (a foreign artifact, the
+    // same shape the gate registry's `sourceArtifactId` uses).
+    alternatives: [
+      {
+        key: 'assist',
+        printedClause: 'Assisting a test is also a maneuver in combat',
+        targetAction: null,
+        resolution: {
+          kind: 'ordinary-test',
+          tierPolarities: {
+            sourceArtifactId: ASSIST_A_TEST,
+            tier1: {
+              polarity: 'bane',
+              sourceText: 'The creature takes a bane on their test.',
+            },
+            tier2: {
+              polarity: 'edge',
+              sourceText: 'Your help grants the other creature an edge on their test.',
+            },
+            tier3: {
+              polarity: 'double-edge',
+              sourceText: 'Your help gives the other creature a double edge on their test.',
+            },
+          },
+        },
+      },
+    ],
     composition: null,
-    resolution: null,
+    resolution: { kind: 'ordinary-test', tierPolarities: null },
     movesActor: false,
   },
   {
@@ -413,6 +451,21 @@ const ACTION_COST_PRINTED_PHRASE: Readonly<Record<ActionCost, string>> = {
   'free-maneuver': 'free maneuver',
   'no-action': 'no action',
   'villain-action': 'villain action',
+};
+
+/**
+ * The printed NOUN phrase for each grant polarity, as a tier bullet names
+ * it ("takes a bane", "grants … an edge", "gives … a double edge"). Used
+ * to prove a directory-declared tier→modifier row against the sentence
+ * that carries it — never to parse one. (The Effect grammar's verb-phrase
+ * table keys on "gains an edge" etc.; a tier bullet's verb varies, the
+ * noun does not.)
+ */
+const GRANT_POLARITY_PRINTED_NOUN: Readonly<Record<GrantPolarity, string>> = {
+  edge: 'an edge',
+  'double-edge': 'a double edge',
+  bane: 'a bane',
+  'double-bane': 'a double bane',
 };
 
 /** The printed alternative marker. Closed phrase — the corpus prints
@@ -618,6 +671,33 @@ export function compileCommonAction(input: {
     // it sends the target to [S10].
     if (resolution.kind === 'saving-throw' && !refs.includes(SAVING_THROW_RULE)) {
       fail(artifactId, `${where} makes a saving throw, which the artifact never links`);
+    }
+    // A printed tier→modifier map is read from a FOREIGN artifact (the
+    // chapter section the action's own text points to). Two things are
+    // proved here against this artifact's bytes: that it links the
+    // section's parent, and that each declared bullet names the polarity
+    // it is classified as. The bullets themselves are proved against the
+    // committed cut of the foreign artifact by the canon test, exactly as
+    // a gate's quote is.
+    if (resolution.kind === 'ordinary-test' && resolution.tierPolarities !== null) {
+      const map = resolution.tierPolarities;
+      const parent = map.sourceArtifactId.split('#')[0] ?? map.sourceArtifactId;
+      if (!refs.includes(parent)) {
+        fail(
+          artifactId,
+          `${where} reads its tier map from ${map.sourceArtifactId}, whose artifact ${parent} this text never links`,
+        );
+      }
+      for (const tier of ['tier1', 'tier2', 'tier3'] as const) {
+        const row = map[tier];
+        const noun = GRANT_POLARITY_PRINTED_NOUN[row.polarity];
+        if (!row.sourceText.includes(noun)) {
+          fail(
+            artifactId,
+            `${where} ${tier} is classified ${row.polarity}, which its declared bullet never names ("${noun}"): ${JSON.stringify(row.sourceText)}`,
+          );
+        }
+      }
     }
   }
 

@@ -20,10 +20,12 @@ import {
   COMMON_ACTION_FIXTURES,
   FREE_STRIKE,
   HEAL,
+  MAKE_OR_ASSIST_A_TEST,
   RIDE,
   STAND_UP,
 } from './fixtures/common-actions.verbatim.js';
 import { GATE_SOURCE_FIXTURES } from './fixtures/gate-sources.verbatim.js';
+import { ASSIST_A_TEST, TEST_RULE_CHUNK_FIXTURES } from './fixtures/test-rules.verbatim.js';
 
 /**
  * Prose-feature program source [common-actions design §2, S2]. The 17
@@ -146,10 +148,61 @@ describe('common-action program source', () => {
         resolution: { kind: 'saving-throw' },
       },
     ]);
+    // Make or Assist prints its branch as a clause too — "Assisting a test
+    // is also a maneuver in combat" — and the branch's mechanics are
+    // printed on the chapter section that clause points to.
+    expect(byId.get(MAKE_OR_ASSIST_A_TEST.artifactId)?.alternatives.map((a) => a.key)).toEqual([
+      'assist',
+    ]);
     const withAlternatives = programs.filter((program) => program.alternatives.length > 0);
     expect(withAlternatives.map((program) => program.featureArtifactId).sort()).toEqual(
-      [HEAL.artifactId, RIDE.artifactId, STAND_UP.artifactId].sort(),
+      [
+        HEAL.artifactId,
+        MAKE_OR_ASSIST_A_TEST.artifactId,
+        RIDE.artifactId,
+        STAND_UP.artifactId,
+      ].sort(),
     );
+  });
+
+  it("reads the assist branch's tier map from the chapter section, verbatim", () => {
+    // The action's own text prints no bullets; §Assist a Test does. Each
+    // declared bullet is proved here against the committed cut of that
+    // section (a foreign artifact — the gate registry's `sourceArtifactId`
+    // shape), and the compiler has already proved the action LINKS the
+    // section's parent and that each bullet names its polarity.
+    const assist = byId
+      .get(MAKE_OR_ASSIST_A_TEST.artifactId)
+      ?.alternatives.find((alternative) => alternative.key === 'assist');
+    expect(assist?.sourceText).toBe('Assisting a test is also a maneuver in combat');
+    expect(assist?.resolution?.kind).toBe('ordinary-test');
+    const map =
+      assist?.resolution?.kind === 'ordinary-test' ? assist.resolution.tierPolarities : null;
+    expect(map?.sourceArtifactId).toBe(ASSIST_A_TEST.artifactId);
+    const section = stripSccLinks(ASSIST_A_TEST.text);
+    for (const tier of ['tier1', 'tier2', 'tier3'] as const) {
+      expect(section.includes(map?.[tier].sourceText ?? '∅'), tier).toBe(true);
+    }
+    expect([map?.tier1.polarity, map?.tier2.polarity, map?.tier3.polarity]).toEqual([
+      'bane',
+      'edge',
+      'double-edge',
+    ]);
+    // The bullets are printed in tier order: ≤11, 12-16, 17+.
+    const positions = (['tier1', 'tier2', 'tier3'] as const).map((tier) =>
+      section.indexOf(map?.[tier].sourceText ?? '∅'),
+    );
+    expect(positions[0]).toBeLessThan(positions[1] ?? -1);
+    expect(positions[1]).toBeLessThan(positions[2] ?? -1);
+    expect(section.indexOf('**≤11:**')).toBeLessThan(positions[0] ?? -1);
+    expect(section.indexOf('**12-16:**')).toBeLessThan(positions[1] ?? -1);
+    expect(section.indexOf('**17+:**')).toBeLessThan(positions[2] ?? -1);
+    // The primary half compiles the MADE test: no printed tier map, so the
+    // outcome is the Test Difficulty Outcomes Table.
+    expect(byId.get(MAKE_OR_ASSIST_A_TEST.artifactId)?.resolution).toEqual({
+      kind: 'ordinary-test',
+      tierPolarities: null,
+    });
   });
 
   it("proves a declared clause against the artifact's own bytes", () => {
@@ -206,7 +259,7 @@ describe('common-action program source', () => {
     for (const id of silent) expect(byId.get(id)?.debitContract, id).toBe('companion');
   });
 
-  it('compiles the three executable resolutions in the 17 and leaves the rest verbatim', () => {
+  it('compiles the four executable resolutions in the 17 and leaves the rest verbatim', () => {
     expect(byId.get(CATCH_BREATH.artifactId)?.resolution).toEqual({
       kind: 'spend-recovery',
       subjectText: 'A creature who uses the Catch Breath maneuver',
@@ -229,7 +282,12 @@ describe('common-action program source', () => {
     });
     const executable = programs.filter((program) => program.resolution.kind !== 'table');
     expect(executable.map((program) => program.featureArtifactId).sort()).toEqual(
-      [CATCH_BREATH.artifactId, HEAL.artifactId, STAND_UP.artifactId].sort(),
+      [
+        CATCH_BREATH.artifactId,
+        HEAL.artifactId,
+        MAKE_OR_ASSIST_A_TEST.artifactId,
+        STAND_UP.artifactId,
+      ].sort(),
     );
   });
 
@@ -284,6 +342,10 @@ describe('the printed gates and the offer surface read the pinned bytes', () => 
         program.sourceText,
       ]),
       ...GATE_SOURCE_FIXTURES.map((fixture): [string, string] => [
+        fixture.artifactId,
+        fixture.text,
+      ]),
+      ...TEST_RULE_CHUNK_FIXTURES.map((fixture): [string, string] => [
         fixture.artifactId,
         fixture.text,
       ]),

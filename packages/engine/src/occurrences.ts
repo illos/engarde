@@ -322,7 +322,7 @@ export function deriveOccurrences(
           occurrenceId: next(),
           intentId,
           round,
-          actorId: testRoll.targetId,
+          actorId: testRoll.rollerId,
           resolutionId: null,
           tier: testResolution.tier,
           natural: testResolution.natural,

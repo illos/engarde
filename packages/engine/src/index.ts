@@ -24,6 +24,8 @@ export * from './condition-lifecycle.js';
 export * from './grant-lifecycle.js';
 export * from './health.js';
 export * from './power-roll.js';
+export * from './test-outcome.js';
+export * from './test-roll.js';
 export * from './damage.js';
 export * from './potency.js';
 export * from './ability-execution.js';

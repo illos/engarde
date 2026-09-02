@@ -1420,6 +1420,34 @@ export const TestCharacteristicSchema = z.enum(TEST_CHARACTERISTICS);
 export type TestCharacteristic = z.infer<typeof TestCharacteristicSchema>;
 
 /**
+ * The three printed test difficulties — "easy, medium, or hard"
+ * [rule.test/test-difficulty]. A difficulty is a Director's choice that
+ * rides the dispatch; the engine never selects one. Its ONLY mechanical
+ * content is the outcome-label mapping in `test-outcome.ts` [R-0008: no
+ * DC, no roll modifier].
+ */
+export const TEST_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
+export const TestDifficultySchema = z.enum(TEST_DIFFICULTIES);
+export type TestDifficulty = z.infer<typeof TestDifficultySchema>;
+
+/**
+ * The five printed cells of the Test Difficulty Outcomes Table
+ * [rule.test/test-difficulty], as closed identifiers. The printed labels
+ * they stand for live in `TEST_OUTCOME_LABEL` (one home), and the
+ * success/failure families are `isSuccess` / `isFailure` — both are
+ * printed definitions, not conveniences.
+ */
+export const TEST_OUTCOMES = [
+  'failure-with-consequence',
+  'failure',
+  'success-with-consequence',
+  'success',
+  'success-with-reward',
+] as const;
+export const TestOutcomeSchema = z.enum(TEST_OUTCOMES);
+export type TestOutcome = z.infer<typeof TestOutcomeSchema>;
+
+/**
  * One attached tier bullet of a characteristic test (R-0011): automatic when
  * the certified tier grammar reads the whole payload, verbatim otherwise.
  * Both retain the exact bullet line for receipts; nothing is paraphrased.
@@ -1481,6 +1509,37 @@ export const EffectResolutionSchema = z.discriminatedUnion('kind', [
    */
   z.object({
     kind: z.literal('saving-throw'),
+  }),
+  /**
+   * An ORDINARY test — one the actor initiates, against a Director-set
+   * difficulty [rule.test/test, R-0008's reserved ground] — as opposed to
+   * the statblock-forced `test` above whose printed tier table displaces
+   * difficulty. The characteristic, the cost, the difficulty and any skill
+   * bonus are all the Director's and ride the dispatch (`ordinaryTest`);
+   * nothing about them is compiled here. The roller is the ACTOR.
+   *
+   * `tierPolarities` is a printed tier → modifier map for the roll's
+   * outcome, when the text prints one — §Assist a Test's three bullets
+   * ("The creature takes a bane on their test" / "an edge" / "a double
+   * edge"). A printed tier table is exactly the shape R-0008 says
+   * displaces the difficulty table, so its presence is the signal; whether
+   * difficulty ALSO applies to such a test is an open ruling (design §6.11
+   * S4) and both readings are reported when both inputs are present. Each
+   * bullet is carried verbatim with the artifact it was read from, because
+   * the map may be printed on a different artifact than the action.
+   * `null` = the outcome is the Test Difficulty Outcomes Table
+   * [`test-outcome.ts`].
+   */
+  z.object({
+    kind: z.literal('ordinary-test'),
+    tierPolarities: z
+      .object({
+        sourceArtifactId: z.string().min(1),
+        tier1: z.object({ polarity: GrantPolaritySchema, sourceText: z.string().min(1) }),
+        tier2: z.object({ polarity: GrantPolaritySchema, sourceText: z.string().min(1) }),
+        tier3: z.object({ polarity: GrantPolaritySchema, sourceText: z.string().min(1) }),
+      })
+      .nullable(),
   }),
   /** "(The|Each) target makes a[n] X test." — each creature target rolls
    * independently with their own named characteristic through the power-roll
@@ -1795,25 +1854,46 @@ export function effectiveCommonActionResolution(dispatch: {
  * the two surfaces execute through the same resolution applicator, so their
  * inputs and their well-formedness rules must not drift apart.
  */
+/** One roller's inputs to a characteristic test — the shape both test
+ * resolutions consume. Asserted dice win; absent → two draws from the
+ * injected source. */
+const testRollInput = z.object({
+  dice: z.tuple([dieRoll, dieRoll]).optional(),
+  edges: z.number().int().min(0).default(0),
+  banes: z.number().int().min(0).default(0),
+  bonuses: z.array(attributedValue).default([]),
+  penalties: z.array(attributedValue).default([]),
+});
+
 const resolutionInputShape = {
-  /** Per-creature-target roll inputs for a test resolution. Asserted
-   * dice win; absent → two draws per target from the injected source.
-   * Sourced edges/banes and rule-specified numeric modifiers are the
-   * ONLY modifier inputs — skills cannot modify creature/DTO reactive
-   * tests, so no skill field exists [R-0009]; Assist is likewise
-   * unavailable [R-0010]. */
-  testRolls: z
-    .record(
-      ParticipantIdSchema,
-      z.object({
-        dice: z.tuple([dieRoll, dieRoll]).optional(),
-        edges: z.number().int().min(0).default(0),
-        banes: z.number().int().min(0).default(0),
-        bonuses: z.array(attributedValue).default([]),
-        penalties: z.array(attributedValue).default([]),
-      }),
-    )
-    .default({}),
+  /** Per-creature-target roll inputs for a test resolution. Sourced
+   * edges/banes and rule-specified numeric modifiers are the ONLY
+   * modifier inputs — skills cannot modify creature/DTO reactive tests,
+   * so no skill field exists [R-0009]; Assist is likewise unavailable
+   * [R-0010]. */
+  testRolls: z.record(ParticipantIdSchema, testRollInput).default({}),
+  /**
+   * The ACTOR's inputs to an `ordinary-test` resolution [rule.test/test]:
+   * everything the printed steps hand to the Director. "asks the hero's
+   * player to make a power roll using an appropriate characteristic" — the
+   * characteristic is named here, never chosen by the engine. "selects a
+   * difficulty for the power roll, either secretly or publicly" — `null`
+   * is the secret case, and the engine then reports the tier only. "If the
+   * Director agrees the skill applies, the hero gains a +2 bonus to the
+   * roll" — that bonus arrives as an ordinary attributed `bonuses` entry;
+   * the engine has no skill model and asserts nothing about
+   * applicability. A dispatch that names no test is refused, not resolved
+   * by the engine picking. `taskText` is the table's description of the
+   * task, for the receipt.
+   */
+  ordinaryTest: testRollInput
+    .extend({
+      characteristic: TestCharacteristicSchema,
+      difficulty: TestDifficultySchema.nullable().default(null),
+      taskText: z.string().min(1).nullable().default(null),
+    })
+    .nullable()
+    .default(null),
   /** Non-participant object targets of a test: they do not roll and
    * automatically obtain a tier 1 result [R-0007, rule.combat/target].
    * Labels are Director-asserted names, not participant ids. */
@@ -1848,9 +1928,11 @@ const resolutionInputShape = {
 /** The shape both resolution-carrying payloads satisfy, for the shared
  * well-formedness predicates below. */
 interface ResolutionInputPayload {
+  actorParticipantId: string;
   targets: string[];
   objectTargets: string[];
   testRolls: Record<string, unknown>;
+  ordinaryTest: unknown;
   recoverySpends: Record<string, boolean>;
   endedInstances: Record<string, string[]>;
   savingThrows: Record<string, { instanceId: string; roll?: number }>;
@@ -1913,10 +1995,31 @@ export const RESOLUTION_INPUT_RULES = {
       (Object.keys(payload.testRolls).length === 0 && payload.objectTargets.length === 0),
     message: 'testRolls/objectTargets apply only to test resolutions',
   },
+  ordinaryTestScoped: {
+    holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
+      resolutionKind === 'ordinary-test' || payload.ordinaryTest === null,
+    message: 'ordinaryTest applies only to ordinary-test resolutions',
+  },
+  /** The roller of an ordinary test is the ACTOR, so a MADE test names no
+   * target; a printed tier→modifier map (the assist form) lands on exactly
+   * one OTHER creature — "assist another creature with a test they make". */
+  ordinaryTestSubject: {
+    holds: (
+      payload: ResolutionInputPayload,
+      resolution: { kind: string } & Record<string, unknown>,
+    ): boolean => {
+      if (resolution.kind !== 'ordinary-test') return true;
+      if (resolution.tierPolarities === null) return payload.targets.length === 0;
+      return payload.targets.length === 1 && payload.targets[0] !== payload.actorParticipantId;
+    },
+    message:
+      'an ordinary test names no target; a printed tier→modifier map names exactly one other creature',
+  },
   automaticNeedsTarget: {
     holds: (payload: ResolutionInputPayload, resolutionKind: string): boolean =>
       resolutionKind === 'table' ||
       resolutionKind === 'test' ||
+      resolutionKind === 'ordinary-test' ||
       resolutionKind === 'terrain-fact' ||
       payload.targets.length > 0,
     message: 'automatic programs require at least one target',
@@ -2278,6 +2381,16 @@ export const IntentSchema = z.discriminatedUnion('kind', [
       )
       .refine(
         (payload) =>
+          RESOLUTION_INPUT_RULES.ordinaryTestScoped.holds(payload, payload.effect.resolution.kind),
+        { message: RESOLUTION_INPUT_RULES.ordinaryTestScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.ordinaryTestSubject.holds(payload, payload.effect.resolution),
+        { message: RESOLUTION_INPUT_RULES.ordinaryTestSubject.message },
+      )
+      .refine(
+        (payload) =>
           RESOLUTION_INPUT_RULES.automaticNeedsTarget.holds(
             payload,
             payload.effect.resolution.kind,
@@ -2400,6 +2513,22 @@ export const IntentSchema = z.discriminatedUnion('kind', [
             effectiveCommonActionResolution(payload).kind,
           ),
         { message: RESOLUTION_INPUT_RULES.testInputsScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.ordinaryTestScoped.holds(
+            payload,
+            effectiveCommonActionResolution(payload).kind,
+          ),
+        { message: RESOLUTION_INPUT_RULES.ordinaryTestScoped.message },
+      )
+      .refine(
+        (payload) =>
+          RESOLUTION_INPUT_RULES.ordinaryTestSubject.holds(
+            payload,
+            effectiveCommonActionResolution(payload),
+          ),
+        { message: RESOLUTION_INPUT_RULES.ordinaryTestSubject.message },
       )
       .refine(
         (payload) =>

@@ -309,13 +309,13 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
     const result = applyIntent(before, dispatched, { random: createSeededRandomSource(1) });
 
     const roll = result.log.find((entry) => entry.data.testRoll !== undefined)?.data.testRoll as {
-      targetId: string;
+      rollerId: string;
       characteristic: string;
       characteristicValue: number;
       testCriticalSuccess: boolean;
       resolution: { tier: number };
     };
-    expect(roll.targetId).toBe('target');
+    expect(roll.rollerId).toBe('target');
     expect(roll.characteristic).toBe('presence');
     expect(roll.characteristicValue).toBe(0);
     expect(roll.resolution.tier).toBe(3);
@@ -374,8 +374,8 @@ describe('characteristic-test execution [R-0006..R-0011]', () => {
 
     const rolls = result.log
       .filter((entry) => entry.data.testRoll !== undefined)
-      .map((entry) => entry.data.testRoll as { targetId: string; resolution: { tier: number } });
-    expect(rolls.map((roll) => [roll.targetId, roll.resolution.tier])).toEqual([
+      .map((entry) => entry.data.testRoll as { rollerId: string; resolution: { tier: number } });
+    expect(rolls.map((roll) => [roll.rollerId, roll.resolution.tier])).toEqual([
       ['target', 3],
       ['actor-2', 1],
     ]);

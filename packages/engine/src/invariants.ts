@@ -8,6 +8,7 @@ import {
   EncounterStateSchema,
   type Intent,
   LogEntrySchema,
+  effectiveCommonActionResolution,
 } from './schemas.js';
 
 /**
@@ -803,6 +804,50 @@ export function checkInvariants(
     }
   }
 
+  // An ordinary test logs exactly one roll receipt, and its roller is the
+  // ACTOR — the shape that distinguishes it from a statblock-forced test
+  // (whose rollers are the targets). A refused dispatch logs none.
+  if (intent.kind === 'use-common-action') {
+    // `Intent` is the INPUT shape (defaults not yet applied), so the
+    // parsed-shape reader is fed the same defaults the reducer applies.
+    const feature = intent.payload.feature;
+    const resolution = effectiveCommonActionResolution({
+      feature: {
+        resolution: feature.resolution ?? { kind: 'table' },
+        alternatives: (feature.alternatives ?? []).map((alternative) => ({
+          key: alternative.key,
+          resolution: alternative.resolution ?? null,
+        })),
+      },
+      alternative: intent.payload.alternative ?? null,
+    });
+    const refused = result.log.some(
+      (entry) => entry.kind === 'refusal' && entry.data.perBinding !== true,
+    );
+    if (resolution.kind === 'ordinary-test' && !refused) {
+      const rollers = result.log
+        .filter((entry) => entry.data.testRoll !== undefined)
+        .map((entry) => (entry.data.testRoll as { rollerId?: unknown }).rollerId);
+      if (JSON.stringify(rollers) !== JSON.stringify([intent.payload.actorParticipantId])) {
+        violations.push({
+          code: 'effect-receipt-mismatch',
+          detail: 'an ordinary test must log exactly one roll receipt, rolled by the actor',
+        });
+      }
+      const reactive = result.log.some(
+        (entry) =>
+          entry.data.testRoll !== undefined &&
+          entry.canonRefs.includes('mcdm.heroes.v1/rule.test/reactive-test'),
+      );
+      if (reactive) {
+        violations.push({
+          code: 'effect-receipt-mismatch',
+          detail: 'an ordinary test must not cite rule.test/reactive-test [R-0009, R-0010]',
+        });
+      }
+    }
+  }
+
   // ── Action-economy reconciliation (v6, R-0029/R-0030/R-0032/R-0033) ─────
   // Every new counter/slot walks the SAME claim machinery (walkClaims /
   // reconcileSetClaims — a bespoke walker is a design smell), and capacity
@@ -1422,7 +1467,7 @@ export function checkInvariants(
     if (intent.payload.effect.resolution.kind === 'test' && !refused) {
       const rollReceipts = result.log.filter((entry) => entry.data.testRoll !== undefined);
       const rolledTargets = rollReceipts.map(
-        (entry) => (entry.data.testRoll as { targetId?: unknown }).targetId,
+        (entry) => (entry.data.testRoll as { rollerId?: unknown }).rollerId,
       );
       if (JSON.stringify(rolledTargets) !== JSON.stringify(intent.payload.targets)) {
         violations.push({

@@ -853,7 +853,7 @@ describe('the "loses Stamina" / "takes damage" distinction [R-0040]', () => {
       message: 'a test',
       data: {
         testRoll: {
-          targetId: 'warrior',
+          rollerId: 'warrior',
           edges: 1,
           banes: 0,
           resolution: { tier: 2, natural: 12 },

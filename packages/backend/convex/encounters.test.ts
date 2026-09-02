@@ -712,9 +712,9 @@ test('characteristic tests roll each target server-side; objects auto-obtain tie
   });
   expect(log.map((entry) => entry.kind)).not.toContain('invariant-violation');
   const rolls = log
-    .map((entry) => (entry.data as { testRoll?: { targetId: string } } | null)?.testRoll)
+    .map((entry) => (entry.data as { testRoll?: { rollerId: string } } | null)?.testRoll)
     .filter((roll) => roll !== undefined);
-  expect(rolls.map((roll) => roll?.targetId)).toEqual(['warrior-a', 'warrior-b']);
+  expect(rolls.map((roll) => roll?.rollerId)).toEqual(['warrior-a', 'warrior-b']);
   expect(
     log.some(
       (entry) =>

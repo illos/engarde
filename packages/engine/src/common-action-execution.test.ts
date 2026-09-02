@@ -18,6 +18,7 @@ import {
   KNOCKBACK,
   KNOCKBACK_ABILITY,
   KNOCKBACK_COMPOSES,
+  MAKE_OR_ASSIST_A_TEST,
   MELEE_WEAPON_FREE_STRIKE,
   RIDE,
   SPEAR_CHARGE_COMPOSES,
@@ -35,6 +36,7 @@ import type {
   Intent,
   ParticipantStats,
 } from './schemas.js';
+import { TEST_OUTCOME_CANON, TEST_OUTCOME_LABEL } from './test-outcome.js';
 
 /**
  * `use-common-action` — the one dispatch path for the 17 printed common
@@ -424,6 +426,13 @@ describe('printed eligibility gates + the asserted-fact reader (S4 + S5)', () =>
       [
         'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
         'mcdm.heroes.v1/feature.common.maneuvers/stand-up',
+      ],
+      // Make or Assist's assist branch: the three printed provisos are on
+      // the chapter section the action's own text points to, not on the
+      // action — a fourth citation of a foreign artifact.
+      [
+        'mcdm.heroes.v1/feature.common.maneuvers/make-or-assist-a-test',
+        'mcdm.heroes.v1/chapter/tests#assist-a-test',
       ],
     ]);
   });
@@ -1555,5 +1564,360 @@ describe('Heal — wave 7 (S10)', () => {
     const reading = result.log.find((entry) => entry.data.commonActionEligibility !== undefined);
     expect(reading?.kind).toBe('table-directive');
     expect(reading?.message).toContain('adjacent creature feel better');
+  });
+});
+
+describe('Make or Assist a Test — wave 9 (S9 + S20)', () => {
+  const MOA = MAKE_OR_ASSIST_A_TEST;
+  const ASSIST_A_TEST = 'mcdm.heroes.v1/chapter/tests#assist-a-test';
+  const REACTIVE_TEST = 'mcdm.heroes.v1/rule.test/reactive-test';
+  const TEST_RULE = 'mcdm.heroes.v1/rule.test/test';
+
+  /** The goblin-warrior fixture's Reason is 0, so the dice ARE the total. */
+  function madeTest(
+    overrides: Record<string, unknown> = {},
+    test: Record<string, unknown> = {},
+  ): Intent {
+    return useCommonAction('hero', MOA, {
+      ordinaryTest: { characteristic: 'reason', difficulty: 'medium', dice: [6, 6], ...test },
+      ...overrides,
+    });
+  }
+
+  function rollReceipt(result: ApplyResult): {
+    entry: (typeof result.log)[number] | undefined;
+    roll: { rollerId: string; resolution: { tier: number; total: number; bonusTotal: number } };
+  } {
+    const entry = result.log.find((item) => item.data.testRoll !== undefined);
+    return {
+      entry,
+      roll: entry?.data.testRoll as {
+        rollerId: string;
+        resolution: { tier: number; total: number; bonusTotal: number };
+      },
+    };
+  }
+
+  function outcomeReceipt(result: ApplyResult): {
+    entry: (typeof result.log)[number] | undefined;
+    outcome: Record<string, unknown>;
+  } {
+    const entry = result.log.find((item) => item.data.testOutcome !== undefined);
+    return { entry, outcome: entry?.data.testOutcome as Record<string, unknown> };
+  }
+
+  it('a made test debits the printed maneuver, rolls the ACTOR, and reads the outcome table', () => {
+    const result = dispatchChecked(onHeroTurn(), madeTest());
+    expect(result.state.participants.hero?.actionBudget.maneuver).toEqual({ used: 1, granted: 0 });
+
+    // The roller is the actor — not a target (a made test names none).
+    const { entry, roll } = rollReceipt(result);
+    expect(roll.rollerId).toBe('hero');
+    expect(roll.resolution.tier).toBe(2);
+    // An ordinary test is NOT a reactive test [R-0009, R-0010]: the roll
+    // cites rule.test/test and never the reactive-test rule.
+    expect(entry?.canonRefs).toContain(TEST_RULE);
+    expect(entry?.canonRefs).not.toContain(REACTIVE_TEST);
+
+    // 12-16 on a medium test: "Success with a consequence" — a directive,
+    // never a state change. The engine narrates nothing.
+    const { entry: directive, outcome } = outcomeReceipt(result);
+    expect(directive?.kind).toBe('table-directive');
+    expect(directive?.canonRefs).toContain(TEST_OUTCOME_CANON.testDifficulty);
+    expect(outcome).toMatchObject({
+      rollerId: 'hero',
+      difficulty: 'medium',
+      tier: 2,
+      outcome: 'success-with-consequence',
+      label: TEST_OUTCOME_LABEL['success-with-consequence'],
+      success: true,
+    });
+    expect(result.state.participants.hero?.stamina).toEqual(
+      onHeroTurn().participants.hero?.stamina,
+    );
+    expect(result.log.some((item) => item.kind === 'warning')).toBe(false);
+
+    // A test is a power roll [R-0006]: the roll occurrence derives with no
+    // resolution-stack entry, from the SAME claim key the reactive path emits.
+    const occurrences = deriveOccurrences(result.log, { intentId: 'x', round: 1 });
+    expect(occurrences).toContainEqual(
+      expect.objectContaining({ kind: 'roll-made', actorId: 'hero', resolutionId: null, tier: 2 }),
+    );
+  });
+
+  it("the printed cost is the DISPATCH's — a main action or a free maneuver, by the Director's call", () => {
+    // "Complex or time-consuming tests might require a main action if made
+    // in combat" — the group directory's default is overridden, and the
+    // receipt records where the effective cost came from.
+    const main = dispatchChecked(onHeroTurn(), madeTest({ actionCost: 'main-action' }));
+    expect(main.state.participants.hero?.actionBudget['main-action']).toEqual({
+      used: 1,
+      granted: 0,
+    });
+    expect(main.state.participants.hero?.actionBudget.maneuver).toBeUndefined();
+    const receipt = main.log.find((item) => item.data.commonActionResolution !== undefined)?.data
+      .commonActionResolution as { commonAction: Record<string, unknown> };
+    expect(receipt.commonAction).toMatchObject({
+      actionCost: 'main-action',
+      actionCostSource: 'dispatch',
+      actionCostGroupDefault: 'maneuver',
+    });
+    // "Other tests that take no time at all … are usually free maneuvers
+    // in combat" — no budget counter moves.
+    const free = dispatchChecked(onHeroTurn(), madeTest({ actionCost: 'free-maneuver' }));
+    expect(free.state.participants.hero?.actionBudget.maneuver).toBeUndefined();
+    expect(free.state.participants.hero?.actionBudget['main-action']).toBeUndefined();
+    expect(free.log.some((item) => item.kind === 'warning')).toBe(false);
+  });
+
+  it('a secret difficulty reports the tier and leaves the outcome to the Director', () => {
+    // "The Director can also keep a test's difficulty secret until after the
+    // player rolls the test" — the engine reads no table cell.
+    const result = dispatchChecked(onHeroTurn(), madeTest({}, { difficulty: null }));
+    const { entry, outcome } = outcomeReceipt(result);
+    expect(entry?.kind).toBe('table-directive');
+    expect(entry?.message).toContain('Test Difficulty Outcomes Table');
+    expect(outcome).toMatchObject({ difficulty: null, tier: 2, outcome: null, label: null });
+  });
+
+  it('a natural 19 or 20 floors the outcome at "Success with a reward" even on a hard test', () => {
+    const result = dispatchChecked(
+      onHeroTurn(),
+      madeTest({}, { difficulty: 'hard', dice: [10, 9] }),
+    );
+    const { entry, outcome } = outcomeReceipt(result);
+    expect(outcome).toMatchObject({
+      difficulty: 'hard',
+      naturalTopEnd: true,
+      outcome: 'success-with-reward',
+      success: true,
+    });
+    expect(entry?.canonRefs).toContain(TEST_OUTCOME_CANON.natural1920);
+    // …and the roll's own critical-success receipt still fires, from the
+    // one home, with the table's own label.
+    const crit = result.log.find(
+      (item) => (item.data.testCriticalSuccess as { rollerId?: string })?.rollerId === 'hero',
+    );
+    expect(crit?.message).toContain(TEST_OUTCOME_LABEL['success-with-reward'].toLowerCase());
+    // Hard at 12-16 without the natural: "Failure".
+    const plain = dispatchChecked(onHeroTurn(), madeTest({}, { difficulty: 'hard', dice: [8, 6] }));
+    expect(outcomeReceipt(plain).outcome).toMatchObject({ outcome: 'failure', success: false });
+  });
+
+  it('the +2 skill bonus is an asserted attributed modifier, never an engine constant', () => {
+    // "If the Director agrees the skill applies, the hero gains a +2 bonus
+    // to the roll" — the engine has no skill model; the Director asserts it.
+    const without = dispatchChecked(onHeroTurn(), madeTest({}, { dice: [5, 5] }));
+    expect(rollReceipt(without).roll.resolution.tier).toBe(1);
+    const withSkill = dispatchChecked(
+      onHeroTurn(),
+      madeTest(
+        {},
+        { dice: [5, 5], bonuses: [{ value: 2, reason: 'Director: the Alchemy skill applies' }] },
+      ),
+    );
+    const { roll } = rollReceipt(withSkill);
+    expect(roll.resolution.bonusTotal).toBe(2);
+    expect(roll.resolution.total).toBe(12);
+    expect(roll.resolution.tier).toBe(2);
+  });
+
+  it('consumes a pending "next power roll" grant and leaves a "next strike" grant dormant [R-0013]', () => {
+    const state = onHeroTurn();
+    const granted = dispatchChecked(
+      dispatchChecked(state, {
+        intentId: nextId('grant'),
+        kind: 'add-grant',
+        actor: { kind: 'director' },
+        payload: {
+          target: 'hero',
+          grant: {
+            kind: 'next-roll',
+            polarity: 'edge',
+            scope: 'power-roll',
+            direction: 'outbound',
+            source: { participantId: 'ally' },
+            window: null,
+          },
+        },
+      } as Intent).state,
+      {
+        intentId: nextId('grant'),
+        kind: 'add-grant',
+        actor: { kind: 'director' },
+        payload: {
+          target: 'hero',
+          grant: {
+            kind: 'next-roll',
+            polarity: 'bane',
+            scope: 'strike',
+            direction: 'outbound',
+            source: { participantId: 'warrior' },
+            window: null,
+          },
+        },
+      } as Intent,
+    ).state;
+    expect(granted.participants.hero?.grants).toHaveLength(2);
+    // 5+5 = 10 → tier 1 bare; one edge → 12 → tier 2. The strike-scoped
+    // bane neither modifies nor is spent.
+    const result = dispatchChecked(granted, madeTest({}, { dice: [5, 5] }));
+    const { roll } = rollReceipt(result);
+    expect(roll.resolution.tier).toBe(2);
+    expect(
+      result.state.participants.hero?.grants.map(
+        (grant) => grant.kind === 'next-roll' && grant.scope,
+      ),
+    ).toEqual(['strike']);
+  });
+
+  it('refuses when no test is named — the engine never chooses the characteristic', () => {
+    // "asks the hero's player to make a power roll using an appropriate
+    // characteristic" — the Director's, and a dispatch without one has not
+    // said what to roll. Refused BEFORE the debit.
+    const state = onHeroTurn();
+    const result = dispatchChecked(state, useCommonAction('hero', MOA));
+    expect(result.log.map((item) => item.kind)).toEqual(['refusal']);
+    expect(result.log[0]?.canonRefs).toContain(TEST_RULE);
+    expect(result.state).toEqual(state);
+  });
+
+  it('refuses an actor with no recorded stats — there is no score to roll against', () => {
+    const state = initialEncounterState([
+      { id: 'ghost', kind: 'hero' },
+      { id: 'hero', kind: 'hero', stats: GOBLIN_WARRIOR_STATS },
+    ]);
+    const result = dispatchChecked(
+      state,
+      useCommonAction('ghost', MOA, {
+        ordinaryTest: { characteristic: 'might', difficulty: 'easy', dice: [3, 3] },
+      }),
+    );
+    expect(result.log.map((item) => item.kind)).toEqual(['refusal']);
+    expect(result.state).toEqual(state);
+  });
+
+  it("rejects test inputs on a resolution that is not an ordinary test — and a made test's targets", () => {
+    const state = onHeroTurn();
+    expect(() =>
+      applyIntent(
+        state,
+        useCommonAction('hero', HEAL, {
+          targets: ['ally'],
+          recoverySpends: { ally: true },
+          ordinaryTest: { characteristic: 'reason', difficulty: 'easy' },
+        }),
+        { random: createSeededRandomSource(1) },
+      ),
+    ).toThrow(/ordinaryTest applies only to ordinary-test resolutions/);
+    // The roller of a made test is the actor; it names no target.
+    expect(() =>
+      applyIntent(state, madeTest({ targets: ['ally'] }), { random: createSeededRandomSource(1) }),
+    ).toThrow(/an ordinary test names no target/);
+  });
+
+  it('assist: the assister rolls their OWN test and the printed bullet is quoted for the assisted creature', () => {
+    // "When you attempt to assist another creature, make a test using the
+    // skill you choose, and using a characteristic chosen by the Director"
+    // — the assister's roll, through the same one home. 12-16: "Your help
+    // grants the other creature an edge on their test."
+    const state = onHeroTurn();
+    const result = dispatchChecked(
+      state,
+      useCommonAction('hero', MOA, {
+        alternative: 'assist',
+        targets: ['ally'],
+        ordinaryTest: { characteristic: 'presence', difficulty: null, dice: [7, 6] },
+      }),
+    );
+    // "Assisting a test is also a maneuver in combat" — the assister's.
+    expect(result.state.participants.hero?.actionBudget.maneuver).toEqual({ used: 1, granted: 0 });
+    expect(result.state.participants.ally?.actionBudget).toEqual({});
+    const { roll } = rollReceipt(result);
+    expect(roll.rollerId).toBe('hero');
+    expect(roll.resolution.tier).toBe(2); // 7+6−1 = 12
+
+    const assist = result.log.find((item) => item.data.assistOutcome !== undefined);
+    expect(assist?.kind).toBe('table-directive');
+    expect(assist?.canonRefs).toContain(ASSIST_A_TEST);
+    expect(assist?.data.assistOutcome).toMatchObject({
+      rollerId: 'hero',
+      assistedId: 'ally',
+      tier: 2,
+      polarity: 'edge',
+      sourceText: 'Your help grants the other creature an edge on their test.',
+      grantPlaced: false,
+    });
+    // REPORTED, not placed: the printed binding is "the test you're
+    // assisting" and no grant scope expresses a named test yet (S7, after
+    // W0-d). The assisted creature's grants are untouched.
+    expect(result.state.participants.ally?.grants).toEqual([]);
+    // The three printed provisos are surfaced on this branch, unknowable to
+    // the engine (no skill model), never read as false.
+    const proviso = result.log.find((item) => item.data.commonActionEligibility !== undefined);
+    expect(proviso?.kind).toBe('table-directive');
+    expect(proviso?.message).toContain('provided you have a skill that applies to the test');
+    expect(result.log.some((item) => item.kind === 'warning')).toBe(false);
+  });
+
+  it('assist maps every printed tier to its polarity', () => {
+    const at = (dice: [number, number]) =>
+      dispatchChecked(
+        onHeroTurn(),
+        useCommonAction('hero', MOA, {
+          alternative: 'assist',
+          targets: ['ally'],
+          ordinaryTest: { characteristic: 'reason', difficulty: null, dice },
+        }),
+      ).log.find((item) => item.data.assistOutcome !== undefined)?.data.assistOutcome as {
+        tier: number;
+        polarity: string;
+      };
+    // ≤11: "The creature takes a bane on their test."
+    expect(at([2, 3])).toMatchObject({ tier: 1, polarity: 'bane' });
+    // 17+: "Your help gives the other creature a double edge on their test."
+    expect(at([9, 9])).toMatchObject({ tier: 3, polarity: 'double-edge' });
+  });
+
+  it('assist with a difficulty supplied reports both readings and names the open ruling', () => {
+    // §Assist a Test prints a bare tier table with no difficulty column;
+    // whether difficulty ALSO applies is design §6.11 S4. The engine does
+    // not decide it: both readings reach the table, flagged.
+    const result = dispatchChecked(
+      onHeroTurn(),
+      useCommonAction('hero', MOA, {
+        alternative: 'assist',
+        targets: ['ally'],
+        ordinaryTest: { characteristic: 'reason', difficulty: 'hard', dice: [6, 6] },
+      }),
+    );
+    expect(result.log.find((item) => item.data.assistOutcome !== undefined)).toBeDefined();
+    const { entry, outcome } = outcomeReceipt(result);
+    expect(entry?.message).toContain('open ruling');
+    expect(outcome).toMatchObject({
+      difficulty: 'hard',
+      outcome: 'failure',
+      openRuling: expect.any(String),
+    });
+  });
+
+  it('assist names exactly one OTHER creature, and the provisos gate binds that branch only', () => {
+    const state = onHeroTurn();
+    const assist = (targets: string[]) =>
+      useCommonAction('hero', MOA, {
+        alternative: 'assist',
+        targets,
+        ordinaryTest: { characteristic: 'reason', difficulty: null, dice: [6, 6] },
+      });
+    expect(() => applyIntent(state, assist([]), { random: createSeededRandomSource(1) })).toThrow(
+      /names exactly one other creature/,
+    );
+    // "assist ANOTHER creature" — self-assist is incoherent, not a warning.
+    expect(() =>
+      applyIntent(state, assist(['hero']), { random: createSeededRandomSource(1) }),
+    ).toThrow(/names exactly one other creature/);
+    // A made test on the primary branch surfaces no assist proviso.
+    const made = dispatchChecked(state, madeTest());
+    expect(made.log.some((item) => item.data.commonActionEligibility !== undefined)).toBe(false);
   });
 });
