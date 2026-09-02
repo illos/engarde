@@ -27,13 +27,35 @@ non-verbatim evidence; the user rules; the settle step records.
 | 3. cards | deterministic | write `silences.json` (+ `pnpm rulings:sources`) then `pnpm rulings:deck prep <deck>` | `cards/<qid>.json`, self-contained for the judge |
 | 4. answer | one agent per card | workflow `mode: "verify"` | proposed ruling, basis, verbatim evidence, alternatives, collapsed sub-questions, existing ruling ids |
 | 5. refute | N skeptics per card | same run | findings: pin-answers-it / engine-knows-it / already-ruled / fabricated-quote / invented-rule / wrong-basis / not-one-ruling |
+| 5b. recut | one agent per REFUTED card | workflow `mode: "recut"` | only genuine book silences / two-reading ambiguities survive as new single-decision questions; everything else lands in `settled-elsewhere.json` with its proof (ruling id, DEC/CONV id, printed quote, or engine file). The residue becomes deck `<name>b` and goes back through 3–5. Loop until the skeptics stop refuting. |
 | 6. deck | deterministic | `pnpm rulings:deck ingest <deck> <workflow-output.json>` then `pnpm rulings:deck build <deck> --title …` | `verify_quotes` → `build_ruling_set` → `review.html` |
 | 7. rule | the user | tailscale link to `review.html` | exported `rulings-<docKey>.json` blob |
 | 8. settle | deterministic | `pnpm rulings:settle <blob> <review-set> <sources> <rulings.json> <draft.md> --deck … --next-id R-00NN` | `rulings.json` (cardHash per verdict) + a `canon-rulings.md` draft the Lead places |
 
-Stage 6 renders every card, refuted or not: a refutation is shown on the card
-as the skeptic's problem so the user sees why the Lead doubts it. A fabricated
-quote or an unresolved finding join blocks settlement, never rendering.
+Stage 6 renders every card, refuted or not, with the skeptic's objections on
+the card — but a **refuted card is not handed to the user to rule on**. It is
+recut (5b) and only its residue is. The rendered refuted deck is the audit
+trail. A fabricated quote or an unresolved finding join blocks settlement,
+never rendering.
+
+## First run (2026-09-02) — what the loop measured
+
+- **Deck 1** = the eight drafted effect-prose docket batches (R-0046–R-0053).
+  All 159 quoted fragments verified byte-for-byte; **all 8 cards refuted** —
+  every one bundled engine-design choices (the Lead's under CONV-0007) with
+  points already ruled (R-0011/28/30/32/40/44, DEC-0019) and several decisions
+  that would get different verdicts. Recut → **14 residue questions**, 116
+  topics settled elsewhere with proof. The docket was not Gate-3 material.
+- **Deck 2** = `combat` chapter, 30 engine rows not yet carried by a prior
+  deck (48 of 78 were). 3 mining agents → 20 candidates → 18 cards → **15
+  refuted, 3 stand** (critical-hit action conversion, opportunity-attack bane
+  test net-vs-raw, falling prone-vs-effective-height). Refutations were mostly
+  `pin-answers-it` and `wrong-basis` (engine-design labelled derived).
+- The skeptic stage is where the value is: without it both decks would have
+  cost the user ~26 verdicts on questions the book or the project already
+  answers. The merge stage dropped nothing; it needs the same strictness.
+- Note for settling: the engine reserves **R-0046** for the Summoner Eidos
+  residue (`packages/engine/src/schemas.ts`); decks number from R-0047.
 
 ## Invariants
 
