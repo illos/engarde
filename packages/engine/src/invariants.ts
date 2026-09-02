@@ -1422,7 +1422,7 @@ export function checkInvariants(
     if (intent.payload.effect.resolution.kind === 'test' && !refused) {
       const rollReceipts = result.log.filter((entry) => entry.data.testRoll !== undefined);
       const rolledTargets = rollReceipts.map(
-        (entry) => (entry.data.testRoll as { targetId?: unknown }).targetId,
+        (entry) => (entry.data.testRoll as { rollerId?: unknown }).rollerId,
       );
       if (JSON.stringify(rolledTargets) !== JSON.stringify(intent.payload.targets)) {
         violations.push({

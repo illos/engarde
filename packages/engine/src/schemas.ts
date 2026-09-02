@@ -1420,6 +1420,34 @@ export const TestCharacteristicSchema = z.enum(TEST_CHARACTERISTICS);
 export type TestCharacteristic = z.infer<typeof TestCharacteristicSchema>;
 
 /**
+ * The three printed test difficulties — "easy, medium, or hard"
+ * [rule.test/test-difficulty]. A difficulty is a Director's choice that
+ * rides the dispatch; the engine never selects one. Its ONLY mechanical
+ * content is the outcome-label mapping in `test-outcome.ts` [R-0008: no
+ * DC, no roll modifier].
+ */
+export const TEST_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
+export const TestDifficultySchema = z.enum(TEST_DIFFICULTIES);
+export type TestDifficulty = z.infer<typeof TestDifficultySchema>;
+
+/**
+ * The five printed cells of the Test Difficulty Outcomes Table
+ * [rule.test/test-difficulty], as closed identifiers. The printed labels
+ * they stand for live in `TEST_OUTCOME_LABEL` (one home), and the
+ * success/failure families are `isSuccess` / `isFailure` — both are
+ * printed definitions, not conveniences.
+ */
+export const TEST_OUTCOMES = [
+  'failure-with-consequence',
+  'failure',
+  'success-with-consequence',
+  'success',
+  'success-with-reward',
+] as const;
+export const TestOutcomeSchema = z.enum(TEST_OUTCOMES);
+export type TestOutcome = z.infer<typeof TestOutcomeSchema>;
+
+/**
  * One attached tier bullet of a characteristic test (R-0011): automatic when
  * the certified tier grammar reads the whole payload, verbatim otherwise.
  * Both retain the exact bullet line for receipts; nothing is paraphrased.

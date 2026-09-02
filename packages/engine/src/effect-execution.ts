@@ -25,28 +25,22 @@ import {
   withParticipant,
 } from './damage.js';
 import type { RandomSource } from './determinism.js';
-import {
-  GRANT_CANON,
-  addGrant,
-  grantConsumedByRoll,
-  grantContribution,
-  splitGrants,
-} from './grant-lifecycle.js';
+import { GRANT_CANON, addGrant } from './grant-lifecycle.js';
 import { HEALTH_CANON, UNCONSCIOUS_CONDITION_ID, conditionRemovalBlocker } from './health.js';
 import { isAreaKeyworded } from './keywords.js';
 import { POTENCY_CANON, resolvePotency } from './potency.js';
-import { POWER_ROLL_CANON, POWER_ROLL_DIE, resolvePowerRoll } from './power-roll.js';
+import { POWER_ROLL_CANON } from './power-roll.js';
 import type {
   ActionCost,
   EffectResolution,
   EncounterState,
   LogEntry,
-  NextRollGrant,
   ParsedIntent,
   ParticipantState,
   TestTier,
 } from './schemas.js';
 import { nonrollingAbilityApplicationClaim } from './schemas.js';
+import { rollTest } from './test-roll.js';
 
 /** Canon grounding for recorded terrain facts [R-0022]. */
 export const TERRAIN_CANON = {
@@ -1176,14 +1170,6 @@ export function executeResolutionDispatch(
 
 type TestResolution = Extract<UseEffectIntent['payload']['effect']['resolution'], { kind: 'test' }>;
 
-const CHARACTERISTIC_LABEL: Record<TestResolution['characteristic'], string> = {
-  might: 'Might',
-  agility: 'Agility',
-  reason: 'Reason',
-  intuition: 'Intuition',
-  presence: 'Presence',
-};
-
 /**
  * Characteristic-test execution [R-0006..R-0011]: each creature target rolls
  * their own independent test through the power-roll core; each object target
@@ -1205,116 +1191,31 @@ function executeTest(
   let nextState = state;
 
   for (const targetId of targets) {
-    const target = nextState.participants[targetId];
-    if (!target?.stats) continue; // presence + stats proven by the refusal gates
-    const rollInput = testRolls[targetId];
-    const dice: [number, number] = rollInput?.dice ?? [
-      random.roll(POWER_ROLL_DIE),
-      random.roll(POWER_ROLL_DIE),
-    ];
-    const score = target.stats.characteristics[resolution.characteristic];
-    // A test is a power roll: the roller's pending outbound power-roll-scoped
-    // grants are consumed by it and contribute to its modifier pool; strike-
-    // scoped grants sit dormant across tests [R-0013, R-0015].
-    const split = splitGrants(
-      target,
-      (grant) =>
-        grant.kind === 'next-roll' &&
-        grantConsumedByRoll(
-          grant,
-          { kind: 'test', isStrike: false },
-          { attackerId: targetId, targetId: null },
-        ) &&
-        grant.direction === 'outbound',
+    // The roll body is the ONE shared test roll [S9]; this caller's reading
+    // is the statblock-forced one, so the roll entry cites reactive-test
+    // (skills prohibited, assist unavailable [R-0009, R-0010]).
+    const rolled = rollTest(
+      nextState,
+      {
+        rollerId: targetId,
+        characteristic: resolution.characteristic,
+        input: testRolls[targetId],
+        baseRefs: bindingRefs(binding),
+        rollRefs: [TEST_CANON.test, TEST_CANON.reactiveTest, POWER_ROLL_CANON.powerRoll],
+      },
+      context,
+      random,
     );
-    const remaining = split.remaining;
-    const consumed = split.consumed.filter(
-      (grant): grant is NextRollGrant => grant.kind === 'next-roll',
-    );
-    let grantEdges = 0;
-    let grantBanes = 0;
-    for (const grant of consumed) {
-      const contribution = grantContribution(grant.polarity);
-      grantEdges += contribution.edges;
-      grantBanes += contribution.banes;
-    }
-    if (consumed.length > 0) {
-      nextState = withParticipant(nextState, { ...target, grants: remaining });
-      log.push(
-        entry(
-          context,
-          'mutation',
-          `${targetId}'s pending next-roll modifiers apply to this test and are spent (${consumed.map((grant) => grant.polarity).join(', ')})`,
-          bindingRefs(binding, [GRANT_CANON.powerRoll]),
-          {
-            removedGrantIds: consumed.map((grant) => grant.grantId),
-            grantsConsumed: consumed.map((grant) => ({
-              grantId: grant.grantId,
-              holderId: targetId,
-              direction: grant.direction,
-              polarity: grant.polarity,
-              contribution: grantContribution(grant.polarity),
-            })),
-          },
-        ),
-      );
-    }
-    const effectiveEdges = (rollInput?.edges ?? 0) + grantEdges;
-    const effectiveBanes = (rollInput?.banes ?? 0) + grantBanes;
-    const rolled = resolvePowerRoll({
-      dice,
-      characteristicValue: score,
-      bonuses: rollInput?.bonuses ?? [],
-      penalties: rollInput?.penalties ?? [],
-      edges: effectiveEdges,
-      banes: effectiveBanes,
-      automaticOutcomes: [],
-    });
-    log.push(
-      entry(
-        context,
-        'informational',
-        `${targetId} makes a ${CHARACTERISTIC_LABEL[resolution.characteristic]} test: ${dice[0]}+${dice[1]}${score >= 0 ? '+' : ''}${score} → total ${rolled.total}, tier ${rolled.tier}`,
-        bindingRefs(binding, [
-          TEST_CANON.test,
-          TEST_CANON.reactiveTest,
-          POWER_ROLL_CANON.powerRoll,
-        ]),
-        {
-          testRoll: {
-            targetId,
-            characteristic: resolution.characteristic,
-            dice,
-            diceAsserted: rollInput?.dice !== undefined,
-            characteristicValue: score,
-            edges: effectiveEdges,
-            banes: effectiveBanes,
-            resolution: rolled,
-            testCriticalSuccess: rolled.naturalTopEnd,
-          },
-        },
-      ),
-    );
-    if (rolled.naturalTopEnd) {
-      // "you score a critical success. This critical success automatically
-      // lets you succeed on the task with a reward" [rule.dice/natural-19-20].
-      log.push(
-        entry(
-          context,
-          'informational',
-          `${targetId} scores a critical success on the test (natural ${rolled.natural}) — success with a reward`,
-          bindingRefs(binding, [POWER_ROLL_CANON.natural1920, POWER_ROLL_CANON.naturalRoll]),
-          { testCriticalSuccess: { targetId, natural: rolled.natural } },
-        ),
-      );
-    }
+    if (rolled === null) continue; // presence + stats proven by the refusal gates
+    nextState = rolled.state;
+    log.push(...rolled.log);
     const applied = applyTestTier(
       nextState,
       log,
       context,
       dispatch,
-      resolution.tiers[`tier${rolled.tier}`],
-      rolled.tier,
+      resolution.tiers[`tier${rolled.resolution.tier}`],
+      rolled.resolution.tier,
       targetId,
       actorId,
       knockOut,
