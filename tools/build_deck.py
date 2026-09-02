@@ -22,7 +22,7 @@ import os
 import subprocess
 import sys
 
-from extract_sources import load_json, write_json_atomic
+from extract_sources import bundle_paths, load_json, write_json_atomic
 
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 EMPTY_SAFETY = {"schema": "engarde-ruling-dispositions-v1", "dispositions": [], "findingLinks": []}
@@ -135,11 +135,19 @@ def run(cmd):
     return subprocess.run(cmd, cwd=TOOLS).returncode
 
 
-def build(deck_dir, title):
+def build(deck_dir, title, manifest_path=None):
     deck = os.path.abspath(deck_dir)
     paths = {name: os.path.join(deck, f"{name}.json") for name in (
         "answers", "silences", "sources", "ruling-safety", "quote-quarantine", "review-set", "ledger")}
-    quote_rc = run([sys.executable, os.path.join(TOOLS, "verify_quotes.py"), paths["answers"], paths["sources"]])
+    # Quotes may cite any pinned artifact, not only the card's own sources: verify
+    # against the deck sources plus every definitive bundle the accepted manifest lists.
+    # Only the proposed answers carry evidence; skeptic findings are prose and are not claims.
+    answers_only = os.path.join(deck, "answers.claims.json")
+    write_json_atomic(answers_only, {"answers": load_json(paths["answers"])["answers"]})
+    corpora = [paths["sources"]]
+    if manifest_path and os.path.exists(manifest_path):
+        corpora += bundle_paths(load_json(manifest_path), manifest_path)
+    quote_rc = run([sys.executable, os.path.join(TOOLS, "verify_quotes.py"), answers_only, *corpora])
     join_rc = run([
         sys.executable, os.path.join(TOOLS, "build_ruling_set.py"),
         paths["answers"], paths["silences"], paths["ruling-safety"],
@@ -174,6 +182,7 @@ def main(argv=None):
     p_prep = sub.add_parser("prep"); p_prep.add_argument("deck_dir")
     p_ingest = sub.add_parser("ingest"); p_ingest.add_argument("deck_dir"); p_ingest.add_argument("workflow_output")
     p_build = sub.add_parser("build"); p_build.add_argument("deck_dir"); p_build.add_argument("--title", default="Canon rulings")
+    p_build.add_argument("--manifest", default=os.path.join(TOOLS, "..", ".artifacts/canon/campaign/accepted/final-campaign-manifest.json"))
     args = parser.parse_args(argv)
     try:
         if args.command == "prep":
@@ -184,7 +193,7 @@ def main(argv=None):
             payload = ingest(args.deck_dir, load_json(args.workflow_output))
             print(f"wrote {args.deck_dir}/answers.json  answers={len(payload['answers'])}  findings={len(payload['findings'])}")
             return 0
-        return build(args.deck_dir, args.title)
+        return build(args.deck_dir, args.title, args.manifest)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2

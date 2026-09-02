@@ -199,6 +199,12 @@ pre.src{margin:0;padding:15px 17px;white-space:pre-wrap;word-wrap:break-word;
 .basis.needs-user{background:#4a2f26;color:#e8b39f}
 .verdicts{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}
 .subq ul{margin:0;padding:10px 13px 10px 30px;font:14.5px/1.5 ui-sans-serif,system-ui;color:#d8d0c4}
+.tag.refuted{border-color:var(--no);color:#e8a0a0}
+.ref{background:#2a1c1a;border:1px solid #5a3532;border-left:4px solid var(--no);border-radius:9px;padding:15px 17px;margin:14px 0}
+.ref .lbl{font:11px ui-monospace,Menlo,monospace;color:#e8a0a0;text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px}
+.ref ul{margin:0;padding-left:20px;font:14.5px/1.55 ui-sans-serif,system-ui;color:#e6d3cf}
+.ref li{margin:6px 0}
+.cons ul{margin:4px 0 0;padding-left:20px}
 .subq li{margin:4px 0}
 .v{border-radius:7px;padding:8px 14px;border:1px solid var(--line);background:#241f1b;font-size:14px}
 .v.sel[data-v=yes]{background:var(--ok);border-color:var(--ok);color:#0d0d0d;font-weight:600}
@@ -284,6 +290,7 @@ function render() {
     if (q.tags) m.appendChild(el('span', 'tag', escape_(q.tags)));
     if (q.gates) m.appendChild(el('span', 'tag', 'gates ' + escape_(q.gates)));
     m.appendChild(el('span', 'tag', escape_(q.verdictFromCorpus || 'unresolved')));
+    if (q.refuted) m.appendChild(el('span', 'tag refuted', 'SKEPTIC REFUTED — ' + (q.findings || []).length + ' objection' + ((q.findings || []).length === 1 ? '' : 's')));
     c.appendChild(m);
     (q.sources || []).forEach((s, j) => {
       const d = el('details'); if (j === 0) d.open = true;
@@ -299,7 +306,26 @@ function render() {
       if (q.reasoning) a.appendChild(el('p', 'why', escape_(q.reasoning)));
       if (q.evidence) a.appendChild(el('p', 'ev', escape_(q.evidence)));
       if (q.consequenceIfWrong) a.appendChild(el('div', 'cons', 'If wrong: ' + escape_(q.consequenceIfWrong)));
+      if (Array.isArray(q.alternatives) && q.alternatives.length) {
+        const alt = el('div', 'cons', 'Other defensible readings:');
+        const ul = el('ul'); q.alternatives.forEach(t => ul.appendChild(el('li', null, escape_(t)))); alt.appendChild(ul); a.appendChild(alt);
+      }
       c.appendChild(a);
+    }
+    if (q.refuted && Array.isArray(q.findings) && q.findings.length) {
+      const r = el('div', 'ref');
+      r.appendChild(el('div', 'lbl', 'Skeptic objections — why the Lead doubts this card'));
+      const ul = el('ul');
+      q.findings.forEach(f => ul.appendChild(el('li', null, escape_(f.problem))));
+      r.appendChild(ul);
+      c.appendChild(r);
+    }
+    if (Array.isArray(q.collapsedSubQuestions) && q.collapsedSubQuestions.length) {
+      const d = el('details', 'subq');
+      d.appendChild(el('summary', null, 'Already answered by the book or an existing ruling — ' + q.collapsedSubQuestions.length + ' (not for you to rule)'));
+      const ul = el('ul');
+      q.collapsedSubQuestions.forEach(x => ul.appendChild(el('li', null, '<b>' + escape_(x.subQuestion) + '</b> — ' + escape_(x.why))));
+      d.appendChild(ul); c.appendChild(d);
     }
     const vs = el('div', 'verdicts');
     (q.proposedAnswer

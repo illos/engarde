@@ -7,12 +7,14 @@ export const meta = {
     { title: 'Merge', detail: 'one agent collapses duplicates into one-ruling groups' },
     { title: 'Answer', detail: 'one agent per card proposes a ruling with verbatim evidence' },
     { title: 'Refute', detail: 'one skeptic per card tries to kill the question or the answer' },
+    { title: 'Recut', detail: 'one agent per refuted card extracts only the genuinely open residue as new one-decision questions' },
   ],
 }
 
 // ---- args ----------------------------------------------------------------
 // args = {
-//   mode: 'verify' | 'mine',
+//   mode: 'verify' | 'mine' | 'recut',
+//   recut: [{qid, group, cardPath, answersPath}]  (recut mode: refuted cards + the deck's answers.json)
 //   deckDir: absolute path of the deck directory (cards/<qid>.json exist for verify),
 //   repoRoot: absolute path of the engarde checkout,
 //   cards: [{qid, group, cardPath, question?}],  (verify mode; question may be omitted — agents read the card file)
@@ -221,6 +223,54 @@ Rules:
 ${PRIME}`
 }
 
+
+const RECUT_SCHEMA = {
+  type: 'object',
+  required: ['residue', 'settledElsewhere'],
+  properties: {
+    residue: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['question', 'sourceArtifactIds', 'group', 'kind', 'whyOpen', 'pinChecked', 'engineChecked'],
+        properties: {
+          question: { type: 'string', description: 'ONE decision, written for a judge who did none of the work: the decision first, terms defined, no project shorthand.' },
+          sourceArtifactIds: { type: 'array', items: { type: 'string' }, description: 'Pinned artifact ids whose text raises it. Only ids you read.' },
+          group: { type: 'string' },
+          kind: { type: 'string', enum: ['silence', 'ambiguity'], description: 'Only genuine book silences or two-reading ambiguities survive a recut. Engine-design choices are the Lead\'s (CONV-0007) and table facts are DEC-0011; do not emit them.' },
+          whyOpen: { type: 'string' },
+          pinChecked: { type: 'string' },
+          engineChecked: { type: 'string' },
+          candidateDefault: { type: 'string' },
+        },
+      },
+    },
+    settledElsewhere: { type: 'array', items: { type: 'object', required: ['topic', 'settledBy'], properties: { topic: { type: 'string' }, settledBy: { type: 'string', description: 'Ruling id, DEC/CONV id, printed quote, or engine file:function that settles it.' } } }, description: 'Everything from the refuted card that does NOT need the user, with what settles it.' },
+  },
+}
+
+function recutPrompt(item) {
+  return `A proposed Gate-3 ruling card for the Draw Steel engine "engarde" was REFUTED by a skeptic. Your job is
+to salvage only what genuinely needs the user's verdict, as new single-decision questions, and to
+account for everything else.
+
+Read the card file ${item.cardPath} (question, sub-questions, VERBATIM pinned text).
+Read ${item.answersPath}: the entry in "answers" with qid ${item.qid} is the refuted proposal; the
+entries in "findings" with qid ${item.qid} are the skeptic's objections; "skepticSummaries" has the
+skeptic's summary. Take the objections seriously — they were checked against the pin and the engine.
+
+Rules for what survives:
+- Only a genuine book SILENCE or a two-reading AMBIGUITY about what the rules mean. Engine-design
+  and data-model choices belong to the Lead (CONV-0007) — list them under settledElsewhere as
+  "engine-design (Lead)". Spatial/table facts are DEC-0011 — settledElsewhere.
+- Anything the pin answers, an existing ruling (${REPO}/docs/canon-rulings.md) settles, or the engine
+  already implements (${REPO}/packages/engine/src) — settledElsewhere with the proof.
+- One decision per question. If two sub-questions would plausibly get different verdicts, they are
+  two questions.
+- Fewer is better. Zero residue is a legitimate answer.
+${PRIME}`
+}
+
 // ---- run -----------------------------------------------------------------
 let cards = args.cards || []
 let mined = null
@@ -247,6 +297,23 @@ if (args.mode === 'mine') {
   // Mining stops here: the Lead materializes cards/<qid>.json deterministically
   // (qid = sha256(question)[:12]) and re-invokes in verify mode.
   return { mode: 'mine', mined }
+}
+
+
+if (args.mode === 'recut') {
+  phase('Recut')
+  const items = args.recut || []
+  log(`recutting ${items.length} refuted cards`)
+  const results = await parallel(items.map(it => () =>
+    agent(recutPrompt(it), { label: `recut:${it.qid}`, phase: 'Recut', schema: RECUT_SCHEMA })))
+  const residue = results.filter(Boolean).flatMap((r, i) =>
+    r.residue.map(q => Object.assign({ fromCard: items[i].qid }, q)))
+  const settled = results.filter(Boolean).flatMap((r, i) =>
+    r.settledElsewhere.map(x => Object.assign({ fromCard: items[i].qid }, x)))
+  const dead = items.filter((_, i) => !results[i]).map(it => it.qid)
+  if (dead.length) log(`WARNING: ${dead.length} recut agent(s) returned nothing: ${dead.join(', ')}`)
+  log(`residue ${residue.length} questions; ${settled.length} topics settled elsewhere`)
+  return { mode: 'recut', residue, settledElsewhere: settled, dead }
 }
 
 phase('Answer')
