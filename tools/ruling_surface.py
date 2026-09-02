@@ -198,6 +198,8 @@ pre.src{margin:0;padding:15px 17px;white-space:pre-wrap;word-wrap:break-word;
 .basis.engine-design{background:#26384a;color:#9fc8e8}
 .basis.needs-user{background:#4a2f26;color:#e8b39f}
 .verdicts{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}
+.subq ul{margin:0;padding:10px 13px 10px 30px;font:14.5px/1.5 ui-sans-serif,system-ui;color:#d8d0c4}
+.subq li{margin:4px 0}
 .v{border-radius:7px;padding:8px 14px;border:1px solid var(--line);background:#241f1b;font-size:14px}
 .v.sel[data-v=yes]{background:var(--ok);border-color:var(--ok);color:#0d0d0d;font-weight:600}
 .v.sel[data-v=no]{background:var(--no);border-color:var(--no);color:#0d0d0d;font-weight:600}
@@ -270,6 +272,13 @@ function render() {
     const c = el('article', 'card' + (st.verdict ? ' done' : '') + (i === cur ? ' cur' : ''));
     c.id = 'c' + q.qid;
     c.appendChild(el('p', 'q', escape_(q.question.replace(/\s*\[[^\]]*\]\s*$/, ''))));
+    if (Array.isArray(q.subQuestions) && q.subQuestions.length) {
+      const sq = el('details', 'subq'); sq.open = true;
+      sq.appendChild(el('summary', null, 'What this one ruling settles — ' + q.subQuestions.length + ' printed cases'));
+      const ul = el('ul');
+      q.subQuestions.forEach(t => ul.appendChild(el('li', null, escape_(t))));
+      sq.appendChild(ul); c.appendChild(sq);
+    }
     const m = el('div', 'meta');
     if (q.oneRuling) m.appendChild(el('span', 'tag one', 'ONE RULING — settles several'));
     if (q.tags) m.appendChild(el('span', 'tag', escape_(q.tags)));

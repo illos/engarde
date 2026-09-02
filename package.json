@@ -23,7 +23,11 @@
     "character-builder:join": "python3 tools/character_builder_join.py",
     "corpus-map:build": "python3 tools/build_corpus_map.py .artifacts/canon/corpus-map",
     "corpus:certify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts",
-    "corpus:verify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts --verify"
+    "corpus:verify": "pnpm --filter @engarde/canon exec tsx scripts/corpus-certify.ts --verify",
+    "rulings:sources": "python3 tools/extract_sources.py .artifacts/canon/campaign/accepted/final-campaign-manifest.json",
+    "rulings:mine": "python3 tools/mine_manifest.py .artifacts/canon/corpus-map/corpus-map.json .artifacts/canon/campaign/accepted/final-campaign-manifest.json",
+    "rulings:deck": "python3 tools/build_deck.py",
+    "rulings:settle": "python3 tools/settle_rulings.py"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
