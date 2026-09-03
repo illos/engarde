@@ -283,8 +283,13 @@ function fmtPara(t) {
   if ((h.match(/\(\d\)/g) || []).length >= 2) h = h.replace(/\s+\((\d)\)\s+/g, '<br>($1) ');
   return h;
 }
+// Labels the agents often run on mid-paragraph; break before them so each starts a paragraph.
+const INLINE_LEADS = /\s+(?=(?:Terms|Reading [A-Z](?: \([^)]*\))?|Candidate default|Alternative|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Corollary|Bookkeeping note(?: for the judge)?|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?)\s*[:—-]\s)/g;
+const splitLeads = t => (t || '').replace(/^DECISION:\s*/, '').replace(INLINE_LEADS, '\n\n');
+const cap = h => h.replace(/^(<[^>]+>)*([a-z])/, (m, tag, ch) => (tag || '') + ch.toUpperCase());
 function fmt(text, cls) {
   const wrap = document.createElement('div'); if (cls) wrap.className = cls;
+  text = splitLeads(text);
   const paras = (text || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
   const lines = paras.length === 1 ? paras[0].split(/\n/).map(x => x.trim()).filter(Boolean) : paras;
   lines.forEach(x => { const p = document.createElement('p'); p.innerHTML = fmtPara(x); wrap.appendChild(p); });
@@ -320,9 +325,9 @@ function render() {
     const c = el('article', 'card' + (st.verdict ? ' done' : '') + (i === cur ? ' cur' : ''));
     c.id = 'c' + q.qid;
     {
-      const qtext = q.question.replace(/\s*\[[^\]]*\]\s*$/, '');
+      const qtext = splitLeads(q.question.replace(/\s*\[[^\]]*\]\s*$/, ''));
       const parts = qtext.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
-      const head = el('p', 'q'); head.innerHTML = fmtPara(parts[0] || qtext); c.appendChild(head);
+      const head = el('p', 'q'); head.innerHTML = cap(fmtPara(parts[0] || qtext)); c.appendChild(head);
       if (parts.length > 1) c.appendChild(fmt(parts.slice(1).join('\n\n'), 'qbody'));
     }
     if (Array.isArray(q.subQuestions) && q.subQuestions.length) {
