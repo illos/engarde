@@ -170,6 +170,19 @@ main{max-width:900px;margin:0 auto;padding:20px 20px 40px}
 .card.done{border-left-color:var(--ok);opacity:.62}
 .card.cur{border-left-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .q{font:500 19px/1.45 ui-sans-serif,system-ui;margin:0 0 12px}
+.qbody p,.txt p,.why p,.cons p,.subq p{margin:0 0 10px;font:15.5px/1.6 ui-sans-serif,system-ui}
+.qbody{color:#d8d0c4;margin:0 0 6px}
+b.lead{color:var(--accent);font-weight:600}
+.ans .txt p{font-size:16.5px;color:var(--ink)}
+.ans details.why{margin:10px 0 0;border:1px solid #3c4a30;border-radius:8px}
+.ans details.why>summary{padding:8px 12px;background:#1a2016;cursor:pointer;font:12px ui-monospace,Menlo,monospace;color:#8fbf95}
+.ans details.why>div{padding:10px 14px 2px}
+.ans .why p{color:#b9c9ac}
+ul.ev{margin:4px 0 8px;padding-left:18px;font:14px/1.55 ui-serif,Georgia,serif;color:#cfd8c4}
+ul.ev li{margin:4px 0}
+ul.ev .src{font:11px ui-monospace,Menlo,monospace;color:var(--dim);display:block}
+.ans .cons{margin-top:10px}
+.ans .cons p{color:var(--dim);font-size:14px}
 .meta{font:12px ui-monospace,Menlo,monospace;color:var(--dim);margin-bottom:14px;
   display:flex;gap:12px;flex-wrap:wrap}
 .tag{background:#241f1b;border:1px solid var(--line);border-radius:5px;padding:2px 7px}
@@ -198,6 +211,14 @@ pre.src{margin:0;padding:15px 17px;white-space:pre-wrap;word-wrap:break-word;
 .basis.engine-design{background:#26384a;color:#9fc8e8}
 .basis.needs-user{background:#4a2f26;color:#e8b39f}
 .verdicts{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}
+.subq ul{margin:0;padding:10px 13px 10px 30px;font:14.5px/1.5 ui-sans-serif,system-ui;color:#d8d0c4}
+.tag.refuted{border-color:var(--no);color:#e8a0a0}
+.ref{background:#2a1c1a;border:1px solid #5a3532;border-left:4px solid var(--no);border-radius:9px;padding:15px 17px;margin:14px 0}
+.ref .lbl{font:11px ui-monospace,Menlo,monospace;color:#e8a0a0;text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px}
+.ref ul{margin:0;padding-left:20px;font:14.5px/1.55 ui-sans-serif,system-ui;color:#e6d3cf}
+.ref li{margin:6px 0}
+.cons ul{margin:4px 0 0;padding-left:20px}
+.subq li{margin:4px 0}
 .v{border-radius:7px;padding:8px 14px;border:1px solid var(--line);background:#241f1b;font-size:14px}
 .v.sel[data-v=yes]{background:var(--ok);border-color:var(--ok);color:#0d0d0d;font-weight:600}
 .v.sel[data-v=no]{background:var(--no);border-color:var(--no);color:#0d0d0d;font-weight:600}
@@ -250,6 +271,40 @@ let cur = 0, view = [];
 const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
 const escape_ = s => (s||'').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+// Prose formatter: paragraphs on blank lines, bold lead-in labels, numbered "Inference N"/"Step N"
+// and "(1) … (2) …" runs as list items. Text is escaped first; only our own tags are inserted.
+const LEADS = /^((?:DECISION|RULING(?: \(proposed\))?|Ruling|Terms|Term|Reading [A-Z]|Alternative(?:s)?|Candidate default|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Why this is a two-reading ambiguity|Both readings|Corollary|Bookkeeping note(?: for the judge)?|Existing rulings|Scope|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?|Part \d+|Reading [A-Z] \([^)]*\))\s*[:—-])\s*/;
+function fmtPara(t) {
+  let h = escape_(t.trim());
+  h = h.replace(/^DECISION:\s*/, '');
+  const m = h.match(LEADS);
+  if (m) h = '<b class="lead">' + m[1].replace(/\s*[:—-]$/, '') + '</b> ' + h.slice(m[0].length);
+  // inline (1) (2) (3) runs → line breaks
+  if ((h.match(/\(\d\)/g) || []).length >= 2) h = h.replace(/\s+\((\d)\)\s+/g, '<br>($1) ');
+  return h;
+}
+// Labels the agents often run on mid-paragraph; break before them so each starts a paragraph.
+const INLINE_LEADS = /\s+(?=(?:Terms|Reading [A-Z](?: \([^)]*\))?|Candidate default|Alternative|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Corollary|Bookkeeping note(?: for the judge)?|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?)\s*[:—-]\s)/g;
+const splitLeads = t => (t || '').replace(/^DECISION:\s*/, '').replace(INLINE_LEADS, '\n\n');
+const cap = h => h.replace(/^(<[^>]+>)*([a-z])/, (m, tag, ch) => (tag || '') + ch.toUpperCase());
+function fmt(text, cls) {
+  const wrap = document.createElement('div'); if (cls) wrap.className = cls;
+  text = splitLeads(text);
+  const paras = (text || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  const lines = paras.length === 1 ? paras[0].split(/\n/).map(x => x.trim()).filter(Boolean) : paras;
+  lines.forEach(x => { const p = document.createElement('p'); p.innerHTML = fmtPara(x); wrap.appendChild(p); });
+  return wrap;
+}
+function fmtEvidence(text) {
+  const ul = document.createElement('ul'); ul.className = 'ev';
+  (text || '').split(/\s+·\s+/).map(x => x.trim()).filter(Boolean).forEach(x => {
+    const li = document.createElement('li');
+    const m = x.match(/^([\w.\-]+\/[^:\s]+):\s*(.*)$/s);
+    li.innerHTML = m ? '<span class="src">' + escape_(m[1]) + '</span> ' + escape_(m[2]) : escape_(x);
+    ul.appendChild(li);
+  });
+  return ul;
+}
 
 const groups = [...new Set(DATA.map(q => q.group))];
 const gsel = document.getElementById('grp');
@@ -269,12 +324,25 @@ function render() {
     const st = state[q.qid] || {};
     const c = el('article', 'card' + (st.verdict ? ' done' : '') + (i === cur ? ' cur' : ''));
     c.id = 'c' + q.qid;
-    c.appendChild(el('p', 'q', escape_(q.question.replace(/\s*\[[^\]]*\]\s*$/, ''))));
+    {
+      const qtext = splitLeads(q.question.replace(/\s*\[[^\]]*\]\s*$/, ''));
+      const parts = qtext.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+      const head = el('p', 'q'); head.innerHTML = cap(fmtPara(parts[0] || qtext)); c.appendChild(head);
+      if (parts.length > 1) c.appendChild(fmt(parts.slice(1).join('\n\n'), 'qbody'));
+    }
+    if (Array.isArray(q.subQuestions) && q.subQuestions.length) {
+      const sq = el('details', 'subq'); sq.open = true;
+      sq.appendChild(el('summary', null, 'What this one ruling settles — ' + q.subQuestions.length + ' printed cases'));
+      const ul = el('ul');
+      q.subQuestions.forEach(t => ul.appendChild(el('li', null, escape_(t))));
+      sq.appendChild(ul); c.appendChild(sq);
+    }
     const m = el('div', 'meta');
     if (q.oneRuling) m.appendChild(el('span', 'tag one', 'ONE RULING — settles several'));
     if (q.tags) m.appendChild(el('span', 'tag', escape_(q.tags)));
     if (q.gates) m.appendChild(el('span', 'tag', 'gates ' + escape_(q.gates)));
     m.appendChild(el('span', 'tag', escape_(q.verdictFromCorpus || 'unresolved')));
+    if (q.refuted) m.appendChild(el('span', 'tag refuted', 'SKEPTIC REFUTED — ' + (q.findings || []).length + ' objection' + ((q.findings || []).length === 1 ? '' : 's')));
     c.appendChild(m);
     (q.sources || []).forEach((s, j) => {
       const d = el('details'); if (j === 0) d.open = true;
@@ -286,11 +354,30 @@ function render() {
     if (q.proposedAnswer) {
       const a = el('div', 'ans');
       a.appendChild(el('div', 'lbl', 'Proposed ruling<span class="basis ' + escape_(q.basis) + '">' + escape_(q.basis) + '</span>'));
-      a.appendChild(el('p', 'txt', escape_(q.proposedAnswer)));
-      if (q.reasoning) a.appendChild(el('p', 'why', escape_(q.reasoning)));
-      if (q.evidence) a.appendChild(el('p', 'ev', escape_(q.evidence)));
-      if (q.consequenceIfWrong) a.appendChild(el('div', 'cons', 'If wrong: ' + escape_(q.consequenceIfWrong)));
+      a.appendChild(fmt(q.proposedAnswer, 'txt'));
+      if (q.evidence) { a.appendChild(el('div', 'lbl', 'Printed evidence')); a.appendChild(fmtEvidence(q.evidence)); }
+      if (q.reasoning) { const d = el('details', 'why'); d.appendChild(el('summary', null, 'Why this answer — the reasoning')); d.appendChild(fmt(q.reasoning)); a.appendChild(d); }
+      if (q.consequenceIfWrong) { const d = el('div', 'cons'); d.appendChild(el('b', 'lead', 'If wrong')); d.appendChild(fmt(q.consequenceIfWrong)); a.appendChild(d); }
+      if (Array.isArray(q.alternatives) && q.alternatives.length) {
+        const alt = el('div', 'cons', 'Other defensible readings:');
+        const ul = el('ul'); q.alternatives.forEach(t => ul.appendChild(el('li', null, escape_(t)))); alt.appendChild(ul); a.appendChild(alt);
+      }
       c.appendChild(a);
+    }
+    if (q.refuted && Array.isArray(q.findings) && q.findings.length) {
+      const r = el('div', 'ref');
+      r.appendChild(el('div', 'lbl', 'Skeptic objections — why the Lead doubts this card'));
+      const ul = el('ul');
+      q.findings.forEach(f => ul.appendChild(el('li', null, fmtPara(f.problem))));
+      r.appendChild(ul);
+      c.appendChild(r);
+    }
+    if (Array.isArray(q.collapsedSubQuestions) && q.collapsedSubQuestions.length) {
+      const d = el('details', 'subq');
+      d.appendChild(el('summary', null, 'Already answered by the book or an existing ruling — ' + q.collapsedSubQuestions.length + ' (not for you to rule)'));
+      const ul = el('ul');
+      q.collapsedSubQuestions.forEach(x => ul.appendChild(el('li', null, '<b>' + escape_(x.subQuestion) + '</b><br>' + fmtPara(x.why))));
+      d.appendChild(ul); c.appendChild(d);
     }
     const vs = el('div', 'verdicts');
     (q.proposedAnswer

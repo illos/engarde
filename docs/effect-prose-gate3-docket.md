@@ -1,6 +1,14 @@
 # Effect-prose Gate-3 docket (draft, unapproved)
 
-Status: **source-complete, grouped, not approved** · canon pin
+Status: **superseded as a ruling docket (2026-09-03)** — run through the
+silence-mining ruling-deck loop (`docs/silence-mining.md`) all eight batches
+were refuted by the adversarial pass: each bundled engine-design choices with
+already-ruled points. The recut salvaged 14 single-decision book ambiguities
+(`.artifacts/canon/rulings-decks/deck-01b-effect-prose-residue/`), of which
+four reached the user in deck `rule-these-2026-09-03`; the other 116 topics
+are accounted for in that deck's `settled-elsewhere.json`. The batches below
+remain useful as the map of the audited rows. Originally: source-complete,
+grouped, not approved · canon pin
 `520553438a4e8d199bfaaf676b8aa9bd273f4d61`
 
 The manual Effect audit raised 77 flagged rows carrying 69 unique row-question

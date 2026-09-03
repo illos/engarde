@@ -31,6 +31,8 @@ jobs:
         run: pnpm corpus:verify
       - name: Test
         run: pnpm test
+      - name: Test ruling tools
+        run: pnpm test:tools
       - name: Typecheck
         run: pnpm typecheck
       - name: Lint
