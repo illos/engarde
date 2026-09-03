@@ -130,6 +130,38 @@ def ingest(deck_dir, workflow_output):
     return payload
 
 
+def assemble(out_dir, deck_dirs, title):
+    """Gather every card the skeptics did NOT refute from several built decks into one deck for the user."""
+    review, sources, provenance = [], {}, []
+    seen = set()
+    for deck_dir in deck_dirs:
+        deck = os.path.abspath(deck_dir)
+        rows = load_json(os.path.join(deck, "review-set.json"))
+        deck_sources = {src["id"]: src for src in load_json(os.path.join(deck, "sources.json"))}
+        for row in rows:
+            if row.get("refuted") or row.get("unanswered") or row.get("fabricatedQuote"):
+                continue
+            if row["qid"] in seen:
+                raise ValueError(f"card {row['qid']} appears in more than one deck")
+            seen.add(row["qid"])
+            row = dict(row)
+            row["fromDeck"] = os.path.basename(deck)
+            review.append(row)
+            for sid in row.get("sourceArtifactIds", []):
+                sources.setdefault(sid, deck_sources[sid])
+            provenance.append({"qid": row["qid"], "deck": os.path.basename(deck), "group": row.get("group")})
+    if not review:
+        raise ValueError("no unrefuted cards to assemble")
+    out = os.path.abspath(out_dir)
+    write_json_atomic(os.path.join(out, "review-set.json"), review)
+    write_json_atomic(os.path.join(out, "sources.json"), list(sources.values()))
+    write_json_atomic(os.path.join(out, "provenance.json"), {"schema": "engarde-assembled-deck-v1", "decks": [os.path.abspath(d) for d in deck_dirs], "cards": provenance})
+    rc = run([sys.executable, os.path.join(TOOLS, "ruling_surface.py"),
+              os.path.join(out, "review-set.json"), os.path.join(out, "sources.json"),
+              os.path.join(out, "review.html"), "--title", title])
+    return rc, len(review)
+
+
 def run(cmd):
     print("$", " ".join(cmd), flush=True)
     return subprocess.run(cmd, cwd=TOOLS).returncode
@@ -181,6 +213,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     p_prep = sub.add_parser("prep"); p_prep.add_argument("deck_dir")
     p_ingest = sub.add_parser("ingest"); p_ingest.add_argument("deck_dir"); p_ingest.add_argument("workflow_output")
+    p_asm = sub.add_parser("assemble"); p_asm.add_argument("out_dir"); p_asm.add_argument("deck_dirs", nargs="+"); p_asm.add_argument("--title", default="Canon rulings")
     p_build = sub.add_parser("build"); p_build.add_argument("deck_dir"); p_build.add_argument("--title", default="Canon rulings")
     p_build.add_argument("--manifest", default=os.path.join(TOOLS, "..", ".artifacts/canon/campaign/accepted/final-campaign-manifest.json"))
     args = parser.parse_args(argv)
@@ -193,6 +226,10 @@ def main(argv=None):
             payload = ingest(args.deck_dir, load_json(args.workflow_output))
             print(f"wrote {args.deck_dir}/answers.json  answers={len(payload['answers'])}  findings={len(payload['findings'])}")
             return 0
+        if args.command == "assemble":
+            rc, count = assemble(args.out_dir, args.deck_dirs, args.title)
+            print(f"assembled {count} unrefuted cards into {args.out_dir}")
+            return rc
         return build(args.deck_dir, args.title, args.manifest)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(f"ERROR: {error}", file=sys.stderr)

@@ -241,3 +241,26 @@ class DeckAndSettleTests(Fixture):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AssembleTests(Fixture):
+    def test_assemble_keeps_only_unrefuted_cards(self):
+        deck = self.root / "deck"
+        q1, q2 = "Open question one?", "Refuted question two?"
+        self.write_json("deck/silences.json", [
+            {"group": "G", "question": q1, "sourceArtifactIds": ["mcdm.heroes.v1/condition/alpha"]},
+            {"group": "G", "question": q2, "sourceArtifactIds": ["mcdm.heroes.v1/condition/beta"]},
+        ])
+        self.write_json("deck/sources.json", extract_sources.extract(str(self.manifest), ["mcdm.heroes.v1/condition/alpha", "mcdm.heroes.v1/condition/beta"]))
+        build_deck.prep(str(deck))
+        qid1, qid2 = build_deck.stable_qid(q1), build_deck.stable_qid(q2)
+        answer = lambda qid, q: {"qid": qid, "question": q, "answer": "A.", "basis": "derived", "evidence": "", "reasoning": "r", "confidence": "low", "consequenceIfWrong": "c", "alternatives": []}
+        build_deck.ingest(str(deck), {"mode": "verify", "answers": [answer(qid1, q1), answer(qid2, q2)],
+                                      "findings": [{"qid": qid2, "kind": "pin-answers-it", "skeptic": 1, "problem": "printed", "correctedBasis": "printed"}]})
+        build_deck.build(str(deck), "t")
+        rc, count = build_deck.assemble(str(self.root / "final"), [str(deck)], "Final")
+        self.assertEqual((rc, count), (0, 1))
+        final = json.loads((self.root / "final" / "review-set.json").read_text())
+        self.assertEqual(final[0]["qid"], qid1)
+        self.assertEqual(final[0]["fromDeck"], "deck")
+        self.assertEqual([s["id"] for s in json.loads((self.root / "final" / "sources.json").read_text())], ["mcdm.heroes.v1/condition/alpha"])
