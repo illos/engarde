@@ -1397,7 +1397,8 @@ landing outcome) and per-monster overrides such as "always lands on their
 feet", which stay as printed. Note: the card's own candidate default was the
 opposite reading (actual distance governs prone); the proposal reversed it on
 the Bounder feature, which is the book's own statement of what effective
-height governs, and the user accepted the proposal.
+height governs, and the user accepted the proposal — and confirmed in
+chat the same day: "yes, I meant effective height."
 
 **Evidence (verbatim):** "When a creature falls 2 or more squares and lands on the ground, they take 2
 damage for each square they fall (to a maximum of 50 damage) and land prone. A
