@@ -321,7 +321,21 @@ if (args.mode === 'recut') {
   const dead = items.filter((_, i) => !results[i]).map(it => it.qid)
   if (dead.length) log(`WARNING: ${dead.length} recut agent(s) returned nothing: ${dead.join(', ')}`)
   log(`residue ${residue.length} questions; ${settled.length} topics settled elsewhere`)
-  return { mode: 'recut', residue, settledElsewhere: settled, dead }
+  // Sibling refuted cards routinely yield the same residue question twice (first run: 2 of 8
+  // deck-2b cards were duplicates). One merge pass dedupes and re-applies the skeptic checks.
+  let finalResidue = residue, mergeDropped = []
+  if (residue.length > 1) {
+    phase('Merge')
+    const merged = await agent(mergePrompt(residue), { label: 'merge:residue', phase: 'Merge', schema: MERGE_SCHEMA })
+    if (merged) {
+      finalResidue = merged.cards.map(c => Object.assign({}, c, {
+        fromCard: (residue.find(r => c.subQuestions.includes(r.question) || r.question === c.question) || {}).fromCard,
+      }))
+      mergeDropped = merged.dropped
+      log(`residue merged: ${residue.length} → ${finalResidue.length} cards, ${mergeDropped.length} dropped`)
+    }
+  }
+  return { mode: 'recut', residue: finalResidue, rawResidue: residue, settledElsewhere: settled, mergeDropped, dead }
 }
 
 phase('Answer')

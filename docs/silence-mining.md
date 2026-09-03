@@ -1,4 +1,11 @@
-# Silence mining → Gate-3 ruling decks
+# Mine — silence mining → Gate-3 ruling decks
+
+> One of the three named pipelines (brain GLOSS-0001/2/3): **Compile** (corpus →
+> grammar → engine; owns parsed ratio), **Mine** (this document: text → open
+> question → user verdict → ruling; owns rulings settled and the ruling
+> backlog), **Build** (ruling → one engine home → certified; owns coverage —
+> the bottleneck). Feeding Mine lengthens Build's backlog; only Build raises
+> coverage. "R-0048 is out of Mine and waiting on Build."
 
 Status: first run 2026-09-02 (deck-01 = the effect-prose docket, deck-02 = the
 `combat` chapter pilot). Tools in `tools/`, workflow in
@@ -24,12 +31,12 @@ non-verbatim evidence; the user rules; the settle step records.
 | 0. work list | deterministic | `pnpm rulings:mine <out> --chapter combat [--exclude prior/sources.json]` | `mine/worklist.json` + per-batch verbatim sources (corpus map = navigation only, DEC-0013; `criticalPath` ignored — the field is corrupted) |
 | 1. mine | one agent per batch | workflow `mode: "mine"` | candidate silences with `pinChecked` / `engineChecked` receipts; CONV-0004 collapses costless "can"s; spatial → `table-fact` (DEC-0011) |
 | 2. merge | one agent | same run | one-ruling cards + `dropped` (with proof) |
-| 3. cards | deterministic | write `silences.json` (+ `pnpm rulings:sources`) then `pnpm rulings:deck prep <deck>` | `cards/<qid>.json`, self-contained for the judge |
+| 3. cards | deterministic | `pnpm rulings:deck from-mine <deck> <mine-output.json>` (or `from-recut <deck> <from-deck> <recut-output.json>`), then `pnpm rulings:deck prep <deck>` | `cards/<qid>.json`, self-contained for the judge |
 | 4. answer | one agent per card | workflow `mode: "verify"` | proposed ruling, basis, verbatim evidence, alternatives, collapsed sub-questions, existing ruling ids |
 | 5. refute | N skeptics per card | same run | findings: pin-answers-it / engine-knows-it / already-ruled / fabricated-quote / invented-rule / wrong-basis / not-one-ruling |
-| 5b. recut | one agent per REFUTED card | workflow `mode: "recut"` | only genuine book silences / two-reading ambiguities survive as new single-decision questions; everything else lands in `settled-elsewhere.json` with its proof (ruling id, DEC/CONV id, printed quote, or engine file). The residue becomes deck `<name>b` and goes back through 3–5. Loop until the skeptics stop refuting. |
+| 5b. recut | one agent per REFUTED card, then one merge agent | workflow `mode: "recut"` | only genuine book silences / two-reading ambiguities survive as new single-decision questions; everything else lands in `settled-elsewhere.json` with its proof (ruling id, DEC/CONV id, printed quote, or engine file). The residue becomes deck `<name>b` and goes back through 3–5. Loop until the skeptics stop refuting. |
 | 6. deck | deterministic | `pnpm rulings:deck ingest <deck> <workflow-output.json>` then `pnpm rulings:deck build <deck> --title …` | `verify_quotes` → `build_ruling_set` → `review.html` |
-| 7. rule | the user | tailscale link to `review.html` | exported `rulings-<docKey>.json` blob |
+| 7. rule | the user | tailscale link to `review.html` (`pnpm rulings:deck index <decks-root>` refreshes the root page) | exported `rulings-<docKey>.json` blob |
 | 8. settle | deterministic | `pnpm rulings:settle <blob> <review-set> <sources> <rulings.json> <draft.md> --deck … --next-id R-00NN` | `rulings.json` (cardHash per verdict) + a `canon-rulings.md` draft the Lead places |
 
 Stage 6 renders every card, refuted or not, with the skeptic's objections on

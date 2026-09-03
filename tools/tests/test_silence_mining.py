@@ -264,3 +264,32 @@ class AssembleTests(Fixture):
         self.assertEqual(final[0]["qid"], qid1)
         self.assertEqual(final[0]["fromDeck"], "deck")
         self.assertEqual([s["id"] for s in json.loads((self.root / "final" / "sources.json").read_text())], ["mcdm.heroes.v1/condition/alpha"])
+
+
+class FromWorkflowTests(Fixture):
+    def test_from_mine_and_from_recut_materialize_decks(self):
+        mine_out = {"summary": "x", "result": {"mode": "mine", "mined": {"raw": [1], "examined": ["a"], "deadBatches": [], "merged": {
+            "cards": [{"question": "Open Q?", "group": "G", "sourceArtifactIds": ["mcdm.heroes.v1/condition/alpha", "mcdm.heroes.v1/condition/alpha"], "subQuestions": ["s1"], "oneRuling": True, "kind": "ambiguity"}],
+            "dropped": [{"question": "dead", "why": "pin"}]}}}}
+        deck = self.root / "mined"
+        n, m = build_deck.from_mine(str(deck), mine_out, str(self.manifest))
+        self.assertEqual((n, m), (1, 1))
+        sil = json.loads((deck / "silences.json").read_text())
+        self.assertEqual(sil[0]["sourceArtifactIds"], ["mcdm.heroes.v1/condition/alpha"])
+        self.assertEqual(json.loads((deck / "mine" / "dropped.json").read_text())["dropped"][0]["why"], "pin")
+        recut_out = {"mode": "recut", "residue": [{"question": "Residue Q?", "group": "G (refuted card abc)", "sourceArtifactIds": ["mcdm.heroes.v1/condition/beta"], "kind": "silence", "fromCard": "abc"}],
+                     "settledElsewhere": [{"topic": "t", "settledBy": "R-0001", "fromCard": "abc"}], "mergeDropped": []}
+        deck2 = self.root / "residue"
+        n, m = build_deck.from_recut(str(deck2), str(deck), recut_out, str(self.manifest))
+        self.assertEqual((n, m), (1, 1))
+        sil2 = json.loads((deck2 / "silences.json").read_text())
+        self.assertEqual(sil2[0]["group"], "G")
+        self.assertEqual(sil2[0]["recutFrom"], "abc")
+        self.assertEqual(json.loads((deck2 / "settled-elsewhere.json").read_text())["count"], 1)
+
+    def test_from_recut_with_no_residue_writes_only_settled(self):
+        deck = self.root / "residue"
+        n, m = build_deck.from_recut(str(deck), "/x/deck-01", {"mode": "recut", "residue": [], "settledElsewhere": []}, str(self.manifest))
+        self.assertEqual((n, m), (0, 0))
+        self.assertTrue((deck / "settled-elsewhere.json").exists())
+        self.assertFalse((deck / "silences.json").exists())
