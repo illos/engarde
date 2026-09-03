@@ -170,6 +170,19 @@ main{max-width:900px;margin:0 auto;padding:20px 20px 40px}
 .card.done{border-left-color:var(--ok);opacity:.62}
 .card.cur{border-left-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .q{font:500 19px/1.45 ui-sans-serif,system-ui;margin:0 0 12px}
+.qbody p,.txt p,.why p,.cons p,.subq p{margin:0 0 10px;font:15.5px/1.6 ui-sans-serif,system-ui}
+.qbody{color:#d8d0c4;margin:0 0 6px}
+b.lead{color:var(--accent);font-weight:600}
+.ans .txt p{font-size:16.5px;color:var(--ink)}
+.ans details.why{margin:10px 0 0;border:1px solid #3c4a30;border-radius:8px}
+.ans details.why>summary{padding:8px 12px;background:#1a2016;cursor:pointer;font:12px ui-monospace,Menlo,monospace;color:#8fbf95}
+.ans details.why>div{padding:10px 14px 2px}
+.ans .why p{color:#b9c9ac}
+ul.ev{margin:4px 0 8px;padding-left:18px;font:14px/1.55 ui-serif,Georgia,serif;color:#cfd8c4}
+ul.ev li{margin:4px 0}
+ul.ev .src{font:11px ui-monospace,Menlo,monospace;color:var(--dim);display:block}
+.ans .cons{margin-top:10px}
+.ans .cons p{color:var(--dim);font-size:14px}
 .meta{font:12px ui-monospace,Menlo,monospace;color:var(--dim);margin-bottom:14px;
   display:flex;gap:12px;flex-wrap:wrap}
 .tag{background:#241f1b;border:1px solid var(--line);border-radius:5px;padding:2px 7px}
@@ -258,6 +271,35 @@ let cur = 0, view = [];
 const save = () => localStorage.setItem(KEY, JSON.stringify(state));
 const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
 const escape_ = s => (s||'').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+// Prose formatter: paragraphs on blank lines, bold lead-in labels, numbered "Inference N"/"Step N"
+// and "(1) … (2) …" runs as list items. Text is escaped first; only our own tags are inserted.
+const LEADS = /^((?:DECISION|RULING(?: \(proposed\))?|Ruling|Terms|Term|Reading [A-Z]|Alternative(?:s)?|Candidate default|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Why this is a two-reading ambiguity|Both readings|Corollary|Bookkeeping note(?: for the judge)?|Existing rulings|Scope|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?|Part \d+|Reading [A-Z] \([^)]*\))\s*[:—-])\s*/;
+function fmtPara(t) {
+  let h = escape_(t.trim());
+  h = h.replace(/^DECISION:\s*/, '');
+  const m = h.match(LEADS);
+  if (m) h = '<b class="lead">' + m[1].replace(/\s*[:—-]$/, '') + '</b> ' + h.slice(m[0].length);
+  // inline (1) (2) (3) runs → line breaks
+  if ((h.match(/\(\d\)/g) || []).length >= 2) h = h.replace(/\s+\((\d)\)\s+/g, '<br>($1) ');
+  return h;
+}
+function fmt(text, cls) {
+  const wrap = document.createElement('div'); if (cls) wrap.className = cls;
+  const paras = (text || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+  const lines = paras.length === 1 ? paras[0].split(/\n/).map(x => x.trim()).filter(Boolean) : paras;
+  lines.forEach(x => { const p = document.createElement('p'); p.innerHTML = fmtPara(x); wrap.appendChild(p); });
+  return wrap;
+}
+function fmtEvidence(text) {
+  const ul = document.createElement('ul'); ul.className = 'ev';
+  (text || '').split(/\s+·\s+/).map(x => x.trim()).filter(Boolean).forEach(x => {
+    const li = document.createElement('li');
+    const m = x.match(/^([\w.\-]+\/[^:\s]+):\s*(.*)$/s);
+    li.innerHTML = m ? '<span class="src">' + escape_(m[1]) + '</span> ' + escape_(m[2]) : escape_(x);
+    ul.appendChild(li);
+  });
+  return ul;
+}
 
 const groups = [...new Set(DATA.map(q => q.group))];
 const gsel = document.getElementById('grp');
@@ -277,7 +319,12 @@ function render() {
     const st = state[q.qid] || {};
     const c = el('article', 'card' + (st.verdict ? ' done' : '') + (i === cur ? ' cur' : ''));
     c.id = 'c' + q.qid;
-    c.appendChild(el('p', 'q', escape_(q.question.replace(/\s*\[[^\]]*\]\s*$/, ''))));
+    {
+      const qtext = q.question.replace(/\s*\[[^\]]*\]\s*$/, '');
+      const parts = qtext.split(/\n\s*\n/).map(x => x.trim()).filter(Boolean);
+      const head = el('p', 'q'); head.innerHTML = fmtPara(parts[0] || qtext); c.appendChild(head);
+      if (parts.length > 1) c.appendChild(fmt(parts.slice(1).join('\n\n'), 'qbody'));
+    }
     if (Array.isArray(q.subQuestions) && q.subQuestions.length) {
       const sq = el('details', 'subq'); sq.open = true;
       sq.appendChild(el('summary', null, 'What this one ruling settles — ' + q.subQuestions.length + ' printed cases'));
@@ -302,10 +349,10 @@ function render() {
     if (q.proposedAnswer) {
       const a = el('div', 'ans');
       a.appendChild(el('div', 'lbl', 'Proposed ruling<span class="basis ' + escape_(q.basis) + '">' + escape_(q.basis) + '</span>'));
-      a.appendChild(el('p', 'txt', escape_(q.proposedAnswer)));
-      if (q.reasoning) a.appendChild(el('p', 'why', escape_(q.reasoning)));
-      if (q.evidence) a.appendChild(el('p', 'ev', escape_(q.evidence)));
-      if (q.consequenceIfWrong) a.appendChild(el('div', 'cons', 'If wrong: ' + escape_(q.consequenceIfWrong)));
+      a.appendChild(fmt(q.proposedAnswer, 'txt'));
+      if (q.evidence) { a.appendChild(el('div', 'lbl', 'Printed evidence')); a.appendChild(fmtEvidence(q.evidence)); }
+      if (q.reasoning) { const d = el('details', 'why'); d.appendChild(el('summary', null, 'Why this answer — the reasoning')); d.appendChild(fmt(q.reasoning)); a.appendChild(d); }
+      if (q.consequenceIfWrong) { const d = el('div', 'cons'); d.appendChild(el('b', 'lead', 'If wrong')); d.appendChild(fmt(q.consequenceIfWrong)); a.appendChild(d); }
       if (Array.isArray(q.alternatives) && q.alternatives.length) {
         const alt = el('div', 'cons', 'Other defensible readings:');
         const ul = el('ul'); q.alternatives.forEach(t => ul.appendChild(el('li', null, escape_(t)))); alt.appendChild(ul); a.appendChild(alt);
@@ -316,7 +363,7 @@ function render() {
       const r = el('div', 'ref');
       r.appendChild(el('div', 'lbl', 'Skeptic objections — why the Lead doubts this card'));
       const ul = el('ul');
-      q.findings.forEach(f => ul.appendChild(el('li', null, escape_(f.problem))));
+      q.findings.forEach(f => ul.appendChild(el('li', null, fmtPara(f.problem))));
       r.appendChild(ul);
       c.appendChild(r);
     }
@@ -324,7 +371,7 @@ function render() {
       const d = el('details', 'subq');
       d.appendChild(el('summary', null, 'Already answered by the book or an existing ruling — ' + q.collapsedSubQuestions.length + ' (not for you to rule)'));
       const ul = el('ul');
-      q.collapsedSubQuestions.forEach(x => ul.appendChild(el('li', null, '<b>' + escape_(x.subQuestion) + '</b> — ' + escape_(x.why))));
+      q.collapsedSubQuestions.forEach(x => ul.appendChild(el('li', null, '<b>' + escape_(x.subQuestion) + '</b><br>' + fmtPara(x.why))));
       d.appendChild(ul); c.appendChild(d);
     }
     const vs = el('div', 'verdicts');
