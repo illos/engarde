@@ -51,6 +51,10 @@ never rendering.
   refuted, 3 stand** (critical-hit action conversion, opportunity-attack bane
   test net-vs-raw, falling prone-vs-effective-height). Refutations were mostly
   `pin-answers-it` and `wrong-basis` (engine-design labelled derived).
+- **Settled 2026-09-03:** the assembled deck `rule-these-2026-09-03` (8
+  cards: deck 2 ×3, deck 2b ×1, deck 1b ×4) came back **8/8 accepted** as
+  **R-0047–R-0054** (`docs/canon-rulings.md`), one with a user note
+  (R-0052). Blob docKey `d81d9a63c309e0ab`; card hashes recorded per entry.
 - The skeptic stage is where the value is: without it both decks would have
   cost the user ~26 verdicts on questions the book or the project already
   answers. The merge stage dropped nothing; it needs the same strictness.

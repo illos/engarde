@@ -1286,3 +1286,442 @@ R-0030 warn machinery and is escape-flag-ready.
 
 **Gate 3:** accepted via the reaction-effect-gate3 card surface (cardHash
 5b96d759 verified), 2026-08-29.
+
+
+<!-- R-0047..R-0054: settled from deck rule-these-2026-09-03 (silence-mining loop, DEC-0021). Evidence strings are copied from the quote-verified card payloads; card hashes bind each verdict to the exact card the user saw. -->
+
+## R-0047 — A critical hit's extra main action converts like any main action, and keeps its off-turn / dazed permissions (approved 2026-09-03)
+
+**Question:** May the additional main action granted by a critical hit be converted into a
+maneuver or a move action, including when spent off-turn — or does the
+conversion rule reach only the turn's own main action?
+
+**Ruling:** The additional main action a creature gains from a critical hit may be turned
+into a maneuver or a move action exactly as the creature's own main action may
+be, including when the granted action is taken off-turn or while dazed. The
+permissions printed on the critical-hit grant travel with the action through
+the conversion: the maneuver or move action the creature ends up taking is
+off-turn-permitted and dazed-permitted to the same degree the granted main
+action was. The conversion produces a normal receipt citing the turn rule and
+the critical-hit rule, and no warning.
+
+**Evidence (verbatim):** "You can also turn your main action into a move action or a maneuver, so that
+your turn can alternatively consist of two move actions and a maneuver, or two
+maneuvers and a move action." [mcdm.heroes.v1/rule.combat/turn] · "gets to
+take a main action, a maneuver, and a move action on their turn"
+[mcdm.heroes.v1/rule.combat/turn] · "A critical hit allows you to immediately
+take an additional main action after resolving the power roll, whether or not
+it's your turn and even if you are dazed"
+[mcdm.heroes.v1/rule.combat/critical-hit] · "you can score a critical hit with
+a main action you use off your turn" [mcdm.heroes.v1/rule.combat/critical-hit]
+
+**Engine consequence:** the `convert-action` handler must record the converted capacity as an action
+grant that inherits the escape flags of the grant it consumed. Today it
+records a bare "+1 granted" count on the maneuver/move cell, so the follow-on
+off-turn maneuver or move would still trip the off-turn warning even though
+the conversion step itself was silent.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash b7fd206fb15a verified), 2026-09-03. Basis
+`engine-design`; sources mcdm.heroes.v1/rule.combat/critical-hit,
+mcdm.heroes.v1/rule.combat/turn.
+
+## R-0048 — The opportunity-attack bane disqualifier is tested on the NET result after edges and banes cancel (approved 2026-09-03)
+
+**Question:** For the opportunity-attack disqualifier ('has a bane or double bane on the
+power roll against the enemy'), is the test evaluated on the NET result after
+edges and banes cancel (so a creature with one edge and one bane may still
+make the opportunity attack), or on the raw presence of any bane (so any bane
+at all forbids it)?
+
+**Ruling:** The disqualifier ("has a bane or double bane on the power roll against the
+enemy") is evaluated after edges and banes have been counted, capped at two
+each, and cancelled against each other — the one arithmetic the engine already
+uses for every roll. A creature whose edges and banes against the moving enemy
+wash to zero (one edge and one bane; a double edge and a double bane) is not
+disqualified and may make the opportunity attack. A creature whose net result
+is one bane or a double bane against that enemy — including a double bane
+against a single edge, which the book rolls "with one bane" — is disqualified.
+
+**Evidence (verbatim):** "If a creature has a bane or double bane on the power roll against the enemy,
+they can't make an opportunity attack."
+[mcdm.heroes.v1/rule.combat/opportunity-attack] · "In general, edges and banes
+cancel each other out, resolving as follows:" [mcdm.heroes.v1/rule.dice/power-
+roll] · "If you have an edge and a bane, or if you have a double edge and a
+double bane, the roll is made as usual without any edges or banes."
+[mcdm.heroes.v1/rule.dice/power-roll] · "If you have a double bane and just
+one edge, the roll is made with one bane, regardless of how many individual
+banes contribute to the double bane." [mcdm.heroes.v1/rule.dice/power-roll] ·
+"If you make a power roll with two or more banes, you have a double bane."
+[mcdm.heroes.v1/rule.dice/bane] · "the creature can take advantage of that
+movement to quickly make a melee free strike against the enemy as a free
+triggered action." [mcdm.heroes.v1/rule.combat/opportunity-attack]
+
+**Engine consequence:** the eligibility check reads the same per-enemy edge/bane pools the strike
+would roll with (per-target, R-0014) and runs them through the existing count
+→ cap → cancel step in `power-roll.ts` — never a second implementation. The
+check is read-only: no granted edge or bane is spent by checking eligibility;
+grants spend only when the strike is rolled (R-0015). Posture is warn-and-
+apply (R-0030): a dispatched opportunity attack under a net bane records a
+rule-violation receipt naming the printed sentence, shows the raw edge pool,
+raw bane pool, and net result, and applies the strike.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash 81c3ee7817fd verified), 2026-09-03. Basis
+`derived`; sources mcdm.heroes.v1/rule.combat/opportunity-attack,
+mcdm.heroes.v1/rule.dice/power-roll, mcdm.heroes.v1/rule.dice/bane,
+mcdm.heroes.v1/rule.dice/edge.
+
+## R-0049 — Falling: effective height governs BOTH damage and landing prone (approved 2026-09-03)
+
+**Question:** When a creature falls 2 or more actual squares but Agility (or landing in deep
+liquid) reduces the EFFECTIVE height below 2 squares, do they still land
+prone? Reading A: prone keys off the actual fall and the reductions change
+only the damage. Reading B: the reductions change the height of the fall
+itself, so a fall whose effective height is under 2 squares deals no damage
+AND does not knock prone.
+
+**Ruling:** The Agility reduction, the deep-liquid reduction, and any other printed
+"effective height" reduction change the height of the fall itself, and the
+whole falling sentence — damage and landing prone — is evaluated against that
+reduced height. A creature whose effective fall height is less than 2 squares
+takes no falling damage and does not land prone. A creature whose effective
+fall height is 2 or more squares takes 2 damage per effective square (to the
+printed maximum of 50) and lands prone. Reductions stack. Worked example: an
+Agility 2 hero who falls 3 squares has an effective height of 1 — no damage,
+not prone; the same hero falling 5 squares has an effective height of 3 — 6
+damage and prone.
+
+Not covered: the separate "Falling Onto Another Creature" paragraph (its own
+landing outcome) and per-monster overrides such as "always lands on their
+feet", which stay as printed. Note: the card's own candidate default was the
+opposite reading (actual distance governs prone); the proposal reversed it on
+the Bounder feature, which is the book's own statement of what effective
+height governs, and the user accepted the proposal.
+
+**Evidence (verbatim):** "When a creature falls 2 or more squares and lands on the ground, they take 2
+damage for each square they fall (to a maximum of 50 damage) and land prone. A
+creature who falls can reduce the effective height of the fall by a number of
+squares equal to their Agility score (to a minimum of 0). Falling into liquid
+that is 1 square or more deep reduces the effective height of a fall by 4
+squares (to a minimum of 0)." [mcdm.heroes.v1/rule.health/falling] ·
+"Additionally, when you fall, you reduce the effective height of your fall by
+a number of squares equal to your jump distance for the purpose of determining
+damage and whether you land prone (see Falling in Chapter 10)."
+[mcdm.heroes.v1/feature.fury.level-5/bounder] · "Additionally, when you fall,
+you reduce the effective height of the fall by 5 squares in addition to any
+other reductions." [mcdm.heroes.v1/feature.null.level-2/inertial-sink] · "The
+target falls into the hole and can't reduce the height of the fall."
+[mcdm.heroes.v1/feature.ability.elementalist.level-1/instantaneous-excavation]
+
+**Engine consequence:** one computation home. `effectiveHeight = max(0, squaresFallen − Agility −
+(deep liquid ? 4 : 0) − other printed reductions)`; landing on the ground with
+`effectiveHeight ≥ 2` applies `2 × effectiveHeight` damage (cap 50) and the
+prone condition; otherwise neither. No Director prompt for the prone decision.
+No falling implementation exists yet.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash c8d8893d16ec verified), 2026-09-03. Basis
+`derived`; sources mcdm.heroes.v1/rule.health/falling.
+
+## R-0050 — Temporary Stamina is a list of grants: the displayed pool is the greatest live grant; displaced grants survive latent and drain together (approved 2026-09-03)
+
+**Question:** When a creature already holds temporary Stamina whose printed lifetime is
+LONGER (for example 13 temporary Stamina that "lasts until the end of their
+next respite") and then gains a LARGER amount with a SHORTER lifetime (for
+example 20 with no printed duration, which disappears at the end of the
+encounter), is the smaller, longer-lived grant GONE the moment it is
+displaced, or does it SURVIVE unseen behind the larger one and become the
+creature's temporary Stamina again when the larger grant is drained by damage
+or expires at the end of the encounter?
+
+**Ruling:** 1. Gaining a larger grant does not erase a smaller grant that is still live.
+   The smaller grant becomes latent: not shown, not counted, no protection
+   while a larger grant is live.
+2. Damage absorbed by temporary Stamina reduces every live grant by the amount
+   absorbed (each grant's remaining amount drops, floor zero); a grant that
+   reaches zero is lost. Because all grants drain together, a latent grant can
+   never provide absorption the larger grant did not already provide — a
+   creature holding 13 and then gaining 20 absorbs at most 20 over the life of
+   those grants, never 33.
+3. A latent grant becomes the creature's temporary Stamina again only when
+   every larger grant has expired by its own lifetime (a default-lifetime 20
+   disappears at the end of the encounter while a respite-lived 13, reduced by
+   whatever damage was absorbed meanwhile, carries on into the next
+   encounter).
+4. A printed effect conditioned on temporary Stamina "from this ability"
+   (Iron's stability increase, Kinetic Shield's bleeding immunity, Vampire
+   Scion's drawback, The Green Defends Its Servants' shield) stays in force as
+   long as that grant's remaining amount is above zero, shown or not. It ends
+   when that grant is drained to zero or expires by its own lifetime. Gaining
+   a bigger buffer from another source does not end it.
+
+**Evidence (verbatim):** "If you have temporary Stamina and then gain more temporary Stamina, you get
+whichever amount of temporary Stamina is greater, rather than adding the two
+pools together. For instance, if an ability grants you 10 temporary Stamina
+when you already have 5, you have 10 temporary Stamina, not 15."
+[mcdm.heroes.v1/rule.health/temporary-stamina] · "Whenever you take damage
+while you have temporary Stamina, the temporary Stamina decreases first, and
+any leftover damage is applied to your Stamina as usual. For instance, if you
+have 10 temporary Stamina and take 16 damage, you lose the temporary Stamina
+and then lose another 6 Stamina." [mcdm.heroes.v1/rule.health/temporary-
+stamina] · "Unless otherwise indicated, temporary Stamina disappears at the
+end of an encounter." [mcdm.heroes.v1/rule.health/temporary-stamina] · "gains
+10 temporary Stamina that lasts until the end of their next respite if it
+isn't lost first" [mcdm.heroes.v1/project/fishing] · "granting each of you
+temporary Stamina equal to 10 + your level that lasts until you finish another
+respite" [mcdm.heroes.v1/feature.censor.level-4/oracular-warning] · "If not
+lost beforehand, this temporary Stamina lasts until the end of your next
+respite." [mcdm.heroes.v1/complication/vampire-scion] · "While you have
+temporary Stamina from this complication, you grow visible fangs"
+[mcdm.heroes.v1/complication/vampire-scion] · "This stability increase lasts
+until the target no longer has temporary Stamina from this ability."
+[mcdm.heroes.v1/feature.ability.talent.level-1/iron] · "While you have
+temporary Stamina from this ability, you can't be made bleeding even while
+dying." [mcdm.heroes.v1/feature.ability.null.level-2/kinetic-shield] · "The
+target gains 30 temporary Stamina that lasts until depleted or until the
+effect ends. If this temporary Stamina disappears, the effect ends and the
+shield explodes, dealing 10 damage to each enemy within 5 squares of the
+target." [mcdm.heroes.v1/feature.ability.elementalist.level-9/the-green-
+defends-its-servants]
+
+**Engine consequence:** temporary Stamina becomes a small list of grants (source, remaining, lifetime)
+with the displayed pool derived as the maximum. The existing max-not-sum gain,
+damage-drains-temporary-first, and end-of-encounter sweep keep their current
+observable behaviour when only default-lifetime grants are in play — an
+extension of R-0021, not a change to it.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash 55cb5d877a40 verified), 2026-09-03. Basis
+`engine-design`; sources mcdm.heroes.v1/rule.health/temporary-stamina,
+mcdm.heroes.v1/project/fishing,
+mcdm.heroes.v1/feature.censor.level-4/oracular-warning,
+mcdm.heroes.v1/feature.ability.talent.level-1/iron,
+mcdm.heroes.v1/complication/vampire-scion.
+
+## R-0051 — Watch Out!'s "the strike has no effect" voids the strike against the mentor only (approved 2026-09-03)
+
+**Question:** for the retainer defender's level-4 triggered action Watch Out!, when the
+printed condition is met, does "the strike has no effect" cancel the whole
+strike for every creature it targeted, or only the strike's result against the
+retainer's mentor? Terms: a retainer is a Director-run companion attached to a
+hero (the "mentor"); a strike is an ability with the Strike keyword that may
+target more than one creature (for example Cold Axe targets two); "result"
+means the rolled damage and tier effects that would land on a given target.
+Printed text, mcdm.monsters.v1/monster.retainer.role-advancement/defender:
+"The retainer's mentor" (the action's only target) · "The target takes damage
+from a strike." (trigger) · "If that moves the mentor out of distance of the
+strike, the strike has no effect." Reading A (literal, whole strike): a
+goblin's two-target strike hits the mentor and a second hero; the retainer
+pushes the mentor out of distance; both the mentor's and the second hero's
+damage are cancelled. Reading B (mentor only): only the mentor's damage and
+effects are cancelled; the second hero, whose distance never changed, takes
+the strike normally. Whether the push actually moved the mentor out of
+distance stays a table-asserted fact (DEC-0011); this decision is only about
+what the cancellation covers.
+
+**Ruling:** When the table asserts that the retainer's push moved the mentor out of the
+strike's distance, the strike's result against the mentor — damage and every
+tier effect that would have landed on the mentor — is voided, and every other
+creature the same strike targeted resolves exactly as rolled. The printed
+condition is a fact about the mentor's position alone, so nothing about the
+other targets changes whichever creature the retainer chose to push. If the
+table asserts the push did not take the mentor out of distance, nothing is
+cancelled and the receipt says so; the push still happened and the retainer's
+triggered action for the round is still spent.
+
+**Evidence (verbatim):** "The retainer's mentor" [mcdm.monsters.v1/monster.retainer.role-
+advancement/defender] · "The target takes damage from a strike."
+[mcdm.monsters.v1/monster.retainer.role-advancement/defender] · "If that moves
+the mentor out of distance of the strike, the strike has no effect."
+[mcdm.monsters.v1/monster.retainer.role-advancement/defender] · "indicates how
+close you need to be to a creature or object to affect that target with the
+ability." [mcdm.heroes.v1/rule.combat/distance] · "deal damage to or impose a
+harmful effect on specific creatures or objects."
+[mcdm.heroes.v1/rule.combat/strike] · "If this movement takes them beyond the
+distance of the triggering ability, the ability has no effect on them."
+[mcdm.monsters.v1/monster.retainer.advancement-features/troll-mercenary] ·
+"you can always move that target fewer squares than the number indicated"
+[mcdm.heroes.v1/movement/forced-movement]
+
+**Engine consequence:** posture only. The "did the push move the mentor out of distance" fact is
+asserted on the dispatch (DEC-0011, R-0040). The engine has no "void one
+target's result" modification yet (its vocabulary is downgrade / tier-adjust /
+potency-adjust / retarget / damage-halve), so the reaction stays on the R-0044
+path until one is built; when added, it removes one named target's result from
+the open resolution at the pre-application point R-0031 uses for damage-
+carrying triggers, and never touches the other targets.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash d3cd25c44d26 verified), 2026-09-03. Basis
+`derived`; sources mcdm.monsters.v1/monster.retainer.role-
+advancement/defender, mcdm.heroes.v1/rule.combat/distance,
+mcdm.heroes.v1/rule.combat/target.
+
+## R-0052 — Bare "at the start of each/every turn" means EVERY turn taken in the encounter, not the holder's own (approved 2026-09-03)
+
+**Question:** When a monster trait says a creature held inside the monster takes damage "at
+the start of each turn" or "at the start of every turn" WITHOUT the usual "of
+their" (the shambling mound's Engulf: 3 poison damage; the kingfissure worm's
+Swallowed: 1d6 acid damage), does that damage happen at the start of EVERY
+creature's turn in the round (so an engulfed hero takes it once per creature
+that acts), or only at the start of the held creature's OWN turn (once per
+round)?
+
+**Ruling:** In the shambling mound's Engulf and the kingfissure worm's Swallowed, "at the
+start of each turn" and "at the start of every turn" — without "of their" —
+mean the start of every turn taken in the encounter, any creature's turn,
+including each of the solo monster's own two turns. An engulfed or swallowed
+creature takes the damage once per turn that starts while it is held, several
+times per round. The book's own usage anchors it: wherever it means the
+affected creature's own turn it writes "each of their turns" (70 rows,
+including a sentence in the same exploding-mill-wheel ability), and it uses
+the bare form only where the subject has no turn of its own — the mill wheel
+rolls "at the start of every turn thereafter"; the Rapid Repeating ram resets
+"at the start of each turn", explicitly contrasted with the cheaper Repeating
+upgrade's "start of each round".
+
+**User note (2026-09-03):** "Yes, these effects happen at the start of every
+turn in the encounter. The developers of Draw Steel have talked about this a
+little bit in live streams, that they hope to use this type of mechanic more
+often, but the game was wrapping up development by the time they started
+really keying off of it so it only shows up in a couple of places. We can
+probably expect to see more abilities like this in future content."
+
+**Evidence (verbatim):** "takes 3 poison damage at the start of each turn, and can't take damage from
+abilities used from outside the sack" [mcdm.monsters.v1/monster.shambling-
+mound.statblock/shambling-mound] · "The shambling mound regrows a destroyed
+sack at the start of their next turn." [mcdm.monsters.v1/monster.shambling-
+mound.statblock/shambling-mound] · "The shambling mound can take two turns
+each round. They can't take turns consecutively."
+[mcdm.monsters.v1/monster.shambling-mound.statblock/shambling-mound] · "takes
+1d6 acid damage at the start of every turn"
+[mcdm.monsters.v1/monster.kingfissure-worm.statblock/kingfissure-worm] · "When
+this ability is used and at the start of every turn thereafter, the exploding
+mill wheel rolls, moving 2 squares in a straight line."
+[mcdm.monsters.v1/dynamic-terrain.siege-engines/exploding-mill-wheel] · "A
+burning creature takes 1d6 fire damage at the start of each of their turns. A
+burning object takes 1d6 fire damage at the end of each round."
+[mcdm.monsters.v1/dynamic-terrain.siege-engines/exploding-mill-wheel] · "The
+ram automatically resets at the start of each round."
+[mcdm.monsters.v1/dynamic-terrain.mechanisms/ram] · "The ram automatically
+resets at the start of each turn." [mcdm.monsters.v1/dynamic-
+terrain.mechanisms/ram]
+
+**Engine consequence:** no new machinery. The engine already fires a start-of-turn boundary on every
+`start-turn` dispatch carrying the acting participant ids (`boundary-
+sweeps.ts` StartOfTurnBoundary). A recurring start-of-turn damage effect is
+one attributed effect instance with a tick-scope value: `own-turn` (the 70
+"each of their turns" rows) or `any-turn` (these two monster rows plus the two
+dynamic-terrain rows). Each tick writes its own receipt line naming the trait,
+the turn that started, and the damage. Expect more `any-turn` carriers in
+future content.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash bb652a8c57c7 verified), 2026-09-03. Basis
+`derived`; sources mcdm.monsters.v1/monster.shambling-
+mound.statblock/shambling-mound, mcdm.monsters.v1/monster.kingfissure-
+worm.statblock/kingfissure-worm, mcdm.monsters.v1/dynamic-terrain.siege-
+engines/exploding-mill-wheel, mcdm.monsters.v1/dynamic-terrain.mechanisms/ram.
+
+## R-0053 — The Green Defends Its Servants explodes only on depletion, never on expiry (approved 2026-09-03)
+
+**Question:** For the elementalist's The Green Defends Its Servants, which gives a target 30
+temporary Stamina and says the shield explodes for 10 damage to each enemy
+within 5 squares "if this temporary Stamina disappears": does the explosion
+happen ONLY when the temporary Stamina is used up by damage, or ALSO when the
+shield's own duration runs out (the end of the elementalist's next turn, or
+with Persistent 2 the start of their next turn) and the leftover temporary
+Stamina goes away with it?
+
+**Ruling:** The shield explodes only when damage taken while the shield is active reduces
+the target's temporary Stamina from this ability to 0. When the shield's own
+duration runs out — the end of the elementalist's next turn; with Persistent
+2, the start of the elementalist's next turn or the moment the elementalist
+stops maintaining it; or the end of the encounter — the leftover temporary
+Stamina lapses and nothing explodes. Order on the depleting hit: the damage is
+applied as one instance (temporary Stamina decreases first, leftover goes to
+Stamina), then the shield effect ends, then the explosion deals 10 damage to
+each enemy within 5 squares of the target. Gaining other temporary Stamina
+never makes "this temporary Stamina" disappear (R-0021, R-0050), so it never
+triggers the explosion.
+
+**Evidence (verbatim):** "You conjure an elemental shield that protects the target until the end of
+your next turn." [mcdm.heroes.v1/feature.ability.elementalist.level-9/the-
+green-defends-its-servants] · "The target gains 30 temporary Stamina that
+lasts until depleted or until the effect ends. If this temporary Stamina
+disappears, the effect ends and the shield explodes, dealing 10 damage to each
+enemy within 5 squares of the target."
+[mcdm.heroes.v1/feature.ability.elementalist.level-9/the-green-defends-its-
+servants] · "Persistent 2: The effect lasts until the start of your next
+turn." [mcdm.heroes.v1/feature.ability.elementalist.level-9/the-green-defends-
+its-servants] · "A luminous green shield shows its true beauty the more it
+cracks." [mcdm.heroes.v1/feature.ability.elementalist.level-9/the-green-
+defends-its-servants] · "Whenever you take damage while you have temporary
+Stamina, the temporary Stamina decreases first, and any leftover damage is
+applied to your Stamina as usual." [mcdm.heroes.v1/rule.health/temporary-
+stamina] · "Unless otherwise indicated, temporary Stamina disappears at the
+end of an encounter." [mcdm.heroes.v1/rule.health/temporary-stamina] · "You
+can stop maintaining an ability at any time (no action required)."
+[mcdm.heroes.v1/feature.elementalist.level-1/persistent-magic] · "All your
+active persistent abilities end at the end of the encounter."
+[mcdm.heroes.v1/feature.elementalist.level-1/persistent-magic]
+
+**Engine consequence:** a depletion-triggered effect on a grant, not an expiry-triggered one; rides
+R-0050's per-grant lifetime once built.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash 43176e0dbd9b verified), 2026-09-03. Basis
+`derived`; sources mcdm.heroes.v1/feature.ability.elementalist.level-9/the-
+green-defends-its-servants.
+
+## R-0054 — "Each time this ability is used" adjusts the NEXT use; the first use delivers the printed amount (approved 2026-09-03)
+
+**Question:** When a monster ability prints a fixed amount and then says that amount changes
+"each time" the ability is used, does the very first use deliver the printed
+amount, with the change applying only from the second use onward? Concretely:
+the Multivok Chief's Quick Shield triggered action says the target gains 15
+temporary Stamina and that each time the triggered action is used the amount
+decreases by 3 (to a minimum of 0). Reading A: the first use grants 15, the
+second 12, the third 9. Reading B: the first use is itself "a time this
+triggered action is used", so the first use grants 12, then 9, then 6, and the
+printed 15 is never received by anyone. The same verdict would govern the
+three sibling carriers that use the same phrasing (the marble stone giant's
+escalating damage weakness, the lich's and the manticore's Malice features).
+
+**Ruling:** The first use of the ability delivers exactly the printed amount; the "each
+time this … is used" adjustment is applied to the stored value after each use,
+so it changes what the next use delivers. Quick Shield grants 15 temporary
+Stamina on use 1, 12 on use 2, 9 on use 3, down to the printed minimum of 0.
+The same reading governs the sibling carriers: Break Armor's damage weakness
+is 3 on the first use, 6 on the second, 9 on the third; Cloud of Deceit's
+distance is 20 squares on the first use, 15 on the second (floor 5) with
+potency rising by 1 per prior use; Uncanny Mimicry's potency is 4 on the first
+use against a given target and 2 on the second use against that same target.
+
+**Evidence (verbatim):** "Each time this triggered action is used, the amount of temporary"
+[mcdm.monsters.v1/monster.valok.statblock/multivok-chief] · "received
+decreases by 3 (to a minimum of 0)"
+[mcdm.monsters.v1/monster.valok.statblock/multivok-chief] · "has damage
+weakness 3 and a +3 bonus to speed until the end of the encounter. The damage
+weakness increases by 3 each time the marble stone giant uses this ability in
+the same encounter." [mcdm.monsters.v1/monster.giant.statblock/marble-stone-
+giant] · "Each time this feature is used during an encounter, the distance of
+the effect decreases by 5 squares (to a minimum of 5 squares) and the"
+[mcdm.monsters.v1/monster.lich/lich-malice] · "If the target has R < 4, they
+take a bane on power rolls against the manticore (save ends). Each time this
+feature is used against the same target during the encounter, its"
+[mcdm.monsters.v1/monster.manticore/manticore-malice]
+
+**Engine consequence:** delivered value on use n = printed base + (n − 1) × printed step, clamped to
+any printed minimum, where n is the count of prior uses in the printed window
+(the existing per-ability "encounter" use counter) plus one. No Director
+prompt. The Manticore's per-target counter needs a per-target key the current
+per-ability counter lacks.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-03`
+(docKey d81d9a63c309e0ab, cardHash 847a6dbac167 verified), 2026-09-03. Basis
+`derived`; sources mcdm.monsters.v1/monster.valok.statblock/multivok-chief,
+mcdm.monsters.v1/monster.giant.statblock/marble-stone-giant,
+mcdm.monsters.v1/monster.lich/lich-malice,
+mcdm.monsters.v1/monster.manticore/manticore-malice.
