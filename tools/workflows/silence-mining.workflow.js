@@ -215,9 +215,17 @@ Rules:
 - Collapse questions that are the SAME decision into one card (oneRuling=true) listing every
   original question as a subQuestion and the union of source artifact ids.
 - Keep genuinely different decisions on different cards, even in the same family.
-- Drop a question — with proof — if the pin answers it (quote), a ruling exists
-  (${REPO}/docs/canon-rulings.md, ruling id), or it is purely a table fact under DEC-0011.
-  Spot-check by reading the artifacts under ${REPO}/.artifacts/canon/bundles/ when in doubt.
+- You are the first skeptic, not a clerk. For EVERY question, before keeping it, check and record:
+  (a) does the pinned text answer it — read the cited artifacts under ${REPO}/.artifacts/canon/bundles/
+      and grep neighbouring rule artifacts; (b) does ${REPO}/docs/canon-rulings.md already settle it
+      (name the R-id); (c) does ${REPO}/packages/engine/src already implement or deterministically
+      derive it (name file:function); (d) is it an engine-design or data-model choice rather than a
+      question about what the rules MEAN — those belong to the Lead (CONV-0007), not to the user;
+      (e) is it purely a table fact under DEC-0011. Any yes → drop it, with the proof.
+  In the first run of this loop a merge that dropped nothing sent 18 cards forward and the
+  skeptics refuted 15 of them on exactly these grounds. Expect to drop most candidates.
+- A kept card must be a book SILENCE or a two-reading AMBIGUITY whose different readings produce
+  different table outcomes. Label kind honestly; do not keep engine-design as 'ambiguity'.
 - Order cards so that the ones a playable session needs first come first.
 - Write every card question for a judge who did none of the work: the decision first, terms defined.
 ${PRIME}`
