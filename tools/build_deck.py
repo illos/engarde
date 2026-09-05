@@ -130,16 +130,34 @@ def ingest(deck_dir, workflow_output):
     return payload
 
 
-def assemble(out_dir, deck_dirs, title):
-    """Gather every card the skeptics did NOT refute from several built decks into one deck for the user."""
+PROPOSAL_FIELDS = ("proposedAnswer", "basis", "evidence", "reasoning", "confidence", "consequenceIfWrong",
+                   "alternatives", "collapsedSubQuestions", "existingRulings", "refuted", "findings", "refutation")
+
+
+def assemble(out_dir, deck_dirs, title, question_only=()):
+    """Gather every card the skeptics did NOT refute from several built decks into one deck for the user.
+
+    question_only: qids of refuted cards whose QUESTION the skeptic explicitly upheld while killing the
+    proposal (Lead judgment, recorded in provenance). They are included with the proposal stripped so the
+    user rules in their own words; the skeptic's objections stay on the card.
+    """
     review, sources, provenance = [], {}, []
     seen = set()
+    question_only = set(question_only)
     for deck_dir in deck_dirs:
         deck = os.path.abspath(deck_dir)
         rows = load_json(os.path.join(deck, "review-set.json"))
         deck_sources = {src["id"]: src for src in load_json(os.path.join(deck, "sources.json"))}
         for row in rows:
-            if row.get("refuted") or row.get("unanswered") or row.get("fabricatedQuote"):
+            if row["qid"] in question_only and row.get("refuted") and not row.get("fabricatedQuote"):
+                stripped = {k: v for k, v in row.items() if k not in PROPOSAL_FIELDS}
+                stripped["proposalWithdrawn"] = True
+                stripped["basis"] = "needs-user"
+                stripped["verdictFromCorpus"] = "proposal withdrawn — rule in your words"
+                stripped["findings"] = row.get("findings", [])
+                stripped["refuted"] = True
+                row = stripped
+            elif row.get("refuted") or row.get("unanswered") or row.get("fabricatedQuote"):
                 continue
             if row["qid"] in seen:
                 raise ValueError(f"card {row['qid']} appears in more than one deck")
@@ -149,7 +167,8 @@ def assemble(out_dir, deck_dirs, title):
             review.append(row)
             for sid in row.get("sourceArtifactIds", []):
                 sources.setdefault(sid, deck_sources[sid])
-            provenance.append({"qid": row["qid"], "deck": os.path.basename(deck), "group": row.get("group")})
+            provenance.append({"qid": row["qid"], "deck": os.path.basename(deck), "group": row.get("group"),
+                               "questionOnly": bool(row.get("proposalWithdrawn"))})
     if not review:
         raise ValueError("no unrefuted cards to assemble")
     out = os.path.abspath(out_dir)
@@ -302,6 +321,7 @@ def main(argv=None):
     p_fr = sub.add_parser("from-recut"); p_fr.add_argument("deck_dir"); p_fr.add_argument("from_deck"); p_fr.add_argument("workflow_output")
     p_ix = sub.add_parser("index"); p_ix.add_argument("decks_root")
     p_asm = sub.add_parser("assemble"); p_asm.add_argument("out_dir"); p_asm.add_argument("deck_dirs", nargs="+"); p_asm.add_argument("--title", default="Canon rulings")
+    p_asm.add_argument("--question-only", action="append", default=[], help="qid of a refuted card to include with its proposal withdrawn (question upheld by the skeptic)")
     p_build = sub.add_parser("build"); p_build.add_argument("deck_dir"); p_build.add_argument("--title", default="Canon rulings")
     for sp in (p_build, p_fm, p_fr):
         sp.add_argument("--manifest", default=os.path.join(TOOLS, "..", ".artifacts/canon/campaign/accepted/final-campaign-manifest.json"))
@@ -327,7 +347,7 @@ def main(argv=None):
             print(f"indexed {index(args.decks_root)} decks")
             return 0
         if args.command == "assemble":
-            rc, count = assemble(args.out_dir, args.deck_dirs, args.title)
+            rc, count = assemble(args.out_dir, args.deck_dirs, args.title, args.question_only)
             print(f"assembled {count} unrefuted cards into {args.out_dir}")
             return rc
         return build(args.deck_dir, args.title, args.manifest)

@@ -260,6 +260,10 @@ class AssembleTests(Fixture):
         build_deck.build(str(deck), "t")
         rc, count = build_deck.assemble(str(self.root / "final"), [str(deck)], "Final")
         self.assertEqual((rc, count), (0, 1))
+        rc, count = build_deck.assemble(str(self.root / "final2"), [str(deck)], "Final", question_only=[qid2])
+        self.assertEqual((rc, count), (0, 2))
+        qo = [r for r in json.loads((self.root / "final2" / "review-set.json").read_text()) if r["qid"] == qid2][0]
+        self.assertTrue(qo["proposalWithdrawn"]); self.assertNotIn("proposedAnswer", qo); self.assertTrue(qo["findings"])
         final = json.loads((self.root / "final" / "review-set.json").read_text())
         self.assertEqual(final[0]["qid"], qid1)
         self.assertEqual(final[0]["fromDeck"], "deck")
