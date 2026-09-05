@@ -276,7 +276,7 @@ const escape_ = s => (s||'').replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>
 const LEADS = /^((?:DECISION|RULING(?: \(proposed\))?|Ruling|Terms|Term|Reading [A-Z]|Alternative(?:s)?|Candidate default|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Why this is a two-reading ambiguity|Both readings|Corollary|Bookkeeping note(?: for the judge)?|Existing rulings|Scope|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?|Part \d+|Reading [A-Z] \([^)]*\))\s*[:—-])\s*/;
 function fmtPara(t) {
   let h = escape_(t.trim());
-  h = h.replace(/^DECISION:\s*/, '');
+  h = h.replace(/^DECISION:\s*/i, '');
   const m = h.match(LEADS);
   if (m) h = '<b class="lead">' + m[1].replace(/\s*[:—-]$/, '') + '</b> ' + h.slice(m[0].length);
   // inline (1) (2) (3) runs → line breaks
@@ -285,7 +285,7 @@ function fmtPara(t) {
 }
 // Labels the agents often run on mid-paragraph; break before them so each starts a paragraph.
 const INLINE_LEADS = /\s+(?=(?:Terms|Reading [A-Z](?: \([^)]*\))?|Candidate default|Alternative|Engine consequence|Engine posture|Not decided here|What the book says|What this changes at the table|Why (?:this|it) matters|Corollary|Bookkeeping note(?: for the judge)?|Inference \d+(?: \([^)]*\))?|Step \d+(?: \([^)]*\))?)\s*[:—-]\s)/g;
-const splitLeads = t => (t || '').replace(/^DECISION:\s*/, '').replace(INLINE_LEADS, '\n\n');
+const splitLeads = t => (t || '').replace(/^DECISION:\s*/i, '').replace(INLINE_LEADS, '\n\n');
 const cap = h => h.replace(/^(<[^>]+>)*([a-z])/, (m, tag, ch) => (tag || '') + ch.toUpperCase());
 function fmt(text, cls) {
   const wrap = document.createElement('div'); if (cls) wrap.className = cls;

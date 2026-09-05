@@ -90,6 +90,9 @@ def settle(blob, review_set, sources, deck, next_id):
             problems.append(f"qid {qid} overrides the proposal without saying what the ruling is")
             continue
         proposed = card.get("proposedAnswer") or None
+        if proposed is None and verdict in {"accept", "override"} and not note:
+            problems.append(f"qid {qid} is a question-only card; the ruling must be written in the note")
+            continue
         ruling_text = note if verdict == "override" else (note or proposed)
         settled.append(
             {

@@ -227,6 +227,13 @@ class DeckAndSettleTests(Fixture):
         with self.assertRaises(ValueError) as caught:
             settle_rulings.settle({"schema": "engarde-batch-rulings-v1", "docKey": key, "rulings": [{"qid": qid, "verdict": "no", "note": ""}]}, review, sources, "d", "R-0001")
         self.assertIn("without saying what the ruling is", str(caught.exception))
+        qo = [dict(r) for r in review]; qo[0].pop("proposedAnswer", None)
+        key_qo = settle_rulings.doc_key(ruling_surface.prepare(qo, sources))
+        with self.assertRaises(ValueError) as caught:
+            settle_rulings.settle({"schema": "engarde-batch-rulings-v1", "docKey": key_qo, "rulings": [{"qid": qid, "verdict": "yes"}]}, qo, sources, "d", "R-0001")
+        self.assertIn("question-only", str(caught.exception))
+        result, _ = settle_rulings.settle({"schema": "engarde-batch-rulings-v1", "docKey": key_qo, "exportedAt": "2026-09-05T00:00:00Z", "rulings": [{"qid": qid, "verdict": "yes", "note": "Own turn only."}]}, qo, sources, "d", "R-0001")
+        self.assertEqual(result["userRuled"][0]["ruling"], "Own turn only.")
 
     def test_quote_verifier_flags_fabricated_fragment(self):
         deck, question = self.make_deck()
