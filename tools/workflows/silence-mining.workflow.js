@@ -20,10 +20,14 @@ export const meta = {
 //   cards: [{qid, group, cardPath, question?}],  (verify mode; question may be omitted — agents read the card file)
 //   batches: [{batch, artifactIds, sourcesPath, mapHints}],                          (mine mode)
 //   refuters: number of independent skeptics per card (default 1),
+//   model: optional model override for all agents in this run ('opus' | 'sonnet' | ...),
 // }
 const REPO = args.repoRoot
 const DECK = args.deckDir
 const REFUTERS = args.refuters || 1
+// Optional model override for every agent in this run (e.g. 'opus' when the session model is capped).
+// Only added to opts when set, so cache keys of earlier runs are untouched.
+const MODEL_OPTS = args.model ? { model: args.model } : {}
 
 const PRIME = `
 HARD RULES (this project was once killed by hallucinated rules):
@@ -288,7 +292,7 @@ if (args.mode === 'mine') {
   const batches = args.batches || []
   log(`mining ${batches.length} batches`)
   const results = await parallel(batches.map(b => () =>
-    agent(minePrompt(b), { label: `mine:${b.batch}`, phase: 'Mine', schema: SILENCES_SCHEMA })))
+    agent(minePrompt(b), { ...MODEL_OPTS, label: `mine:${b.batch}`, phase: 'Mine', schema: SILENCES_SCHEMA })))
   const flat = results.filter(Boolean).flatMap((r, i) =>
     r.silences.map(s => Object.assign({ batch: batches[i].batch }, s)))
   const examined = results.filter(Boolean).flatMap(r => r.examined)
@@ -298,7 +302,7 @@ if (args.mode === 'mine') {
 
   phase('Merge')
   const merged = flat.length
-    ? await agent(mergePrompt(flat), { label: 'merge', phase: 'Merge', schema: MERGE_SCHEMA })
+    ? await agent(mergePrompt(flat), { ...MODEL_OPTS, label: 'merge', phase: 'Merge', schema: MERGE_SCHEMA })
     : { cards: [], dropped: [] }
   mined = { raw: flat, examined, merged, deadBatches: dead }
   log(`merged into ${merged.cards.length} cards, dropped ${merged.dropped.length}`)
@@ -313,7 +317,7 @@ if (args.mode === 'recut') {
   const items = args.recut || []
   log(`recutting ${items.length} refuted cards`)
   const results = await parallel(items.map(it => () =>
-    agent(recutPrompt(it), { label: `recut:${it.qid}`, phase: 'Recut', schema: RECUT_SCHEMA })))
+    agent(recutPrompt(it), { ...MODEL_OPTS, label: `recut:${it.qid}`, phase: 'Recut', schema: RECUT_SCHEMA })))
   const residue = results.filter(Boolean).flatMap((r, i) =>
     r.residue.map(q => Object.assign({ fromCard: items[i].qid }, q)))
   const settled = results.filter(Boolean).flatMap((r, i) =>
@@ -326,7 +330,7 @@ if (args.mode === 'recut') {
   let finalResidue = residue, mergeDropped = []
   if (residue.length > 1) {
     phase('Merge')
-    const merged = await agent(mergePrompt(residue), { label: 'merge:residue', phase: 'Merge', schema: MERGE_SCHEMA })
+    const merged = await agent(mergePrompt(residue), { ...MODEL_OPTS, label: 'merge:residue', phase: 'Merge', schema: MERGE_SCHEMA })
     if (merged) {
       finalResidue = merged.cards.map(c => Object.assign({}, c, {
         fromCard: (residue.find(r => c.subQuestions.includes(r.question) || r.question === c.question) || {}).fromCard,
@@ -342,11 +346,11 @@ phase('Answer')
 log(`answering ${cards.length} cards, ${REFUTERS} skeptic(s) each`)
 const results = await pipeline(
   cards,
-  card => agent(answerPrompt(card), { label: `answer:${card.qid}`, phase: 'Answer', schema: ANSWER_SCHEMA }),
+  card => agent(answerPrompt(card), { ...MODEL_OPTS, label: `answer:${card.qid}`, phase: 'Answer', schema: ANSWER_SCHEMA }),
   async (answer, card) => {
     if (!answer) return { card, answer: null, refutations: [] }
     const votes = await parallel(Array.from({ length: REFUTERS }, (_, i) => () =>
-      agent(refutePrompt(card, answer, i + 1), { label: `refute:${card.qid}#${i + 1}`, phase: 'Refute', schema: REFUTE_SCHEMA })))
+      agent(refutePrompt(card, answer, i + 1), { ...MODEL_OPTS, label: `refute:${card.qid}#${i + 1}`, phase: 'Refute', schema: REFUTE_SCHEMA })))
     return { card, answer, refutations: votes.filter(Boolean) }
   },
 )
