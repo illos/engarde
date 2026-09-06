@@ -1957,3 +1957,93 @@ mcdm.monsters.v1/monster.undead.2nd-echelon/undead-malice-level-4-malice-
 features, mcdm.monsters.v1/monster.undead.3rd-echelon/undead-malice-
 level-7-malice-features, mcdm.monsters.v1/monster.undead.4th-echelon/undead-
 malice-level-10-malice-features.
+
+<!-- R-0059..R-0060: question-only cards from deck rule-these-2026-09-05; the user ruled in chat 2026-09-06. Quotes are the card's own verbatim fragments. -->
+
+## R-0059 — The hero-token "one benefit per turn" cap is keyed to the turn in progress, whoever is acting (approved 2026-09-06)
+
+**Question:** a hero may spend hero tokens during another creature's turn, and the book caps
+hero-token use at one benefit 'per turn' without saying whose turn. For such
+an off-turn spend, is the unit the turn currently in progress (any
+creature's), or the spending hero's own turn?
+
+**Ruling:** For a hero-token spend made during another creature's turn, the "per turn"
+unit is the turn currently in progress, not the spending hero's own turn. Each
+creature's turn is a fresh window for each hero: a hero hit on enemy A's turn
+and again on enemy B's turn may pay 2 tokens to regain Stamina both times in
+one round; a hero hit twice during enemy A's single turn may spend only once.
+The user's words: "One benefit per turn." The proposal agents' drafts were
+refuted twice on their reasoning; the question stood and the user ruled it
+directly.
+
+**Evidence (verbatim):** "Hero tokens are a group resource that is tracked by the players and kept in a
+pool accessible to all their characters." [mcdm.heroes.v1/rule.resource/hero-
+token] · "You can spend 2 hero tokens on your turn or when you take damage (no
+action required) to regain Stamina equal to your recovery value before taking
+the damage." [mcdm.heroes.v1/rule.resource/hero-token] · "You can use only one
+hero token benefit per turn or per test." [mcdm.heroes.v1/rule.resource/hero-
+token] · "You can use one triggered action per round, either on your turn or
+another creature's turn" [mcdm.heroes.v1/rule.combat/triggered-action]
+
+**Engine consequence:** no hero-token machinery exists yet. When built, the benefit counter is keyed
+(hero, turn-in-progress id) and resets at every start-turn boundary, the same
+boundary R-0052's `any-turn` tick uses; a second benefit in the same turn
+warns and applies (R-0030).
+
+**Gate 3:** question-only card on the ruling-deck surface `rule-
+these-2026-09-05` (docKey ce07e04df8589331, cardHash d03af677816c verified);
+Yes + written confirmation in chat, 2026-09-06. Basis `needs-user` → user-
+ruled; sources mcdm.heroes.v1/rule.resource/hero-token,
+mcdm.heroes.v1/rule.combat/turn, mcdm.heroes.v1/rule.combat/triggered-action.
+
+## R-0060 — "Regain Stamina equal to the damage dealt" uses the attacker-side number, before the target's immunity, weakness, or halving (approved 2026-09-06)
+
+**Question:** when an ability lets its user regain Stamina 'equal to the damage dealt' and
+the target's own defences changed the damage, which number is 'the damage
+dealt' — the attacker-side number (the ability's tier result against that
+target, before the target's damage weakness, damage immunity, or an ally's
+halving triggered action), or the damage the target actually takes (the amount
+left after those modifiers, by which the target's Stamina is reduced)?
+
+**Ruling:** When an ability lets its user regain Stamina "equal to the damage dealt", the
+number is the ability's damage result against that target before the target's
+damage immunity, damage weakness, or an ally's halving triggered action
+changes what the target takes. A troll butcher whose Savoring Bite obtains 14
+against a hero with damage immunity 5 regains 14 while the hero takes 9;
+against a hero with weakness 5 the butcher still regains 14 while the hero
+takes 19; against a fully immune target the butcher regains 14 and the target
+takes 0. The user's words: "heal via damage is attacker side number." One
+decision covers all eleven pinned carriers of the phrase. Which target's
+instance counts on a multi-target ability is printed ("one instance of the
+damage, not the total") and was not part of this card.
+
+**Evidence (verbatim):** "Some creatures have abilities that deal damage and allow the creautre using
+the ability to regain Stamina equal to the damage dealt."
+[mcdm.monsters.v1/chapter/monster-basics#creatures-who-heal-via-damage] · "14
+damage; M < 2 bleeding (save ends)"
+[mcdm.monsters.v1/monster.troll.statblock/troll-butcher] · "if a creature has
+fire weakness 5 and is dealt 10 fire damage, they take 15 fire damage instead"
+[mcdm.heroes.v1/rule.damage/damage-weakness] · "If the weatherwise targets
+their mentor, the mentor ignores the damage and instead gains temporary
+Stamina equal to the damage dealt."
+[mcdm.monsters.v1/monster.retainer.statblock/high-elf-weatherwise] · "Whenever
+a creature takes damage, they reduce their Stamina (see below) by an amount
+equal to the damage taken." [mcdm.heroes.v1/rule.damage/damage] · "if your
+hero has fire immunity 5 and takes 8 fire damage, they take 3 damage"
+[mcdm.heroes.v1/rule.damage/damage-immunity]
+
+**Engine consequence:** the damage pipeline already records the pre-modifier per-target amount
+(`inputAmount` in damage.ts) alongside the post-modifier amount; a heal-via-
+damage home reads the pre-modifier number and shows both on the receipt.
+R-0042's modifier order (halve → weakness → immunity) is unchanged; R-0040's
+dealt/taken event record carries both figures.
+
+**Gate 3:** question-only card on the ruling-deck surface `rule-
+these-2026-09-05` (docKey ce07e04df8589331, cardHash 4480e4ec7462 verified);
+Yes + written confirmation in chat, 2026-09-06. Basis `needs-user` → user-
+ruled; sources mcdm.monsters.v1/chapter/monster-basics#creatures-who-heal-via-
+damage, mcdm.monsters.v1/monster.troll.statblock/troll-butcher,
+mcdm.heroes.v1/rule.damage/damage-weakness, mcdm.heroes.v1/rule.damage/damage-
+immunity, mcdm.heroes.v1/rule.damage/damage,
+mcdm.heroes.v1/rule.health/stamina,
+mcdm.monsters.v1/monster.retainer.statblock/high-elf-weatherwise.
