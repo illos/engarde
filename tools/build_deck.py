@@ -119,13 +119,22 @@ def ingest(deck_dir, workflow_output):
         if finding.get("fabricatedQuote"):
             row["fabricatedQuote"] = True
         findings.append(row)
+    expected_votes = int(workflow_output.get("refuters") or 1)
+    votes = {s["qid"]: int(s.get("votes", 0)) for s in workflow_output.get("skepticSummaries", [])}
+    under_voted = sorted(qid for qid in (a["qid"] for a in answers) if votes.get(qid, 0) < expected_votes)
     payload = {
         "schema": "engarde-deck-answers-v1",
+        "expectedVotes": expected_votes,
+        "votes": votes,
+        "underVoted": under_voted,
         "answers": answers,
         "findings": findings,
         "skepticSummaries": workflow_output.get("skepticSummaries", []),
         "unanswered": workflow_output.get("unanswered", []),
     }
+    if under_voted:
+        print(f"WARNING: {len(under_voted)} card(s) received fewer skeptic votes than requested "
+              f"({expected_votes}); they are excluded from assemble until re-verified: {', '.join(under_voted)}")
     write_json_atomic(os.path.join(deck_dir, "answers.json"), payload)
     return payload
 
@@ -148,7 +157,12 @@ def assemble(out_dir, deck_dirs, title, question_only=()):
         deck = os.path.abspath(deck_dir)
         rows = load_json(os.path.join(deck, "review-set.json"))
         deck_sources = {src["id"]: src for src in load_json(os.path.join(deck, "sources.json"))}
+        answers_path = os.path.join(deck, "answers.json")
+        under_voted = set(load_json(answers_path).get("underVoted", [])) if os.path.exists(answers_path) else set()
         for row in rows:
+            if row["qid"] in under_voted and row["qid"] not in question_only:
+                provenance.append({"qid": row["qid"], "deck": os.path.basename(deck), "group": row.get("group"), "excluded": "under-voted"})
+                continue
             if row["qid"] in question_only and row.get("refuted") and not row.get("fabricatedQuote"):
                 stripped = {k: v for k, v in row.items() if k not in PROPOSAL_FIELDS}
                 stripped["proposalWithdrawn"] = True

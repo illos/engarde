@@ -41,7 +41,8 @@ HARD RULES (this project was once killed by hallucinated rules):
   appear byte-for-byte (after whitespace/emphasis normalization) in the pinned text.
 - Draw Steel terms only: Director (not DM/GM), Stamina (not HP), power roll (not attack roll),
   characteristic (not ability score), triggered action (not reaction).
-- Existing Gate-3 rulings live in ${REPO}/docs/canon-rulings.md (R-0001..R-0045). Cite them by id
+- Existing Gate-3 rulings live in ${REPO}/docs/canon-rulings.md (every `## R-NNNN` heading; read the
+  whole ledger, it grows). Cite them by id
   when one already settles a point; never re-rule what is already ruled.
 - The engine lives in ${REPO}/packages/engine/src. "The engine already knows this" is a legitimate
   answer — grep before you propose a Director prompt or new machinery (CONV-0004).
@@ -388,4 +389,4 @@ const skepticSummaries = out.map(r => ({
 const unanswered = cards.filter(c => !out.find(r => r.card.qid === c.qid && r.answer)).map(c => c.qid)
 if (unanswered.length) log(`WARNING: ${unanswered.length} card(s) got no answer: ${unanswered.join(', ')}`)
 log(`answers=${answers.length} findings=${findings.length}`)
-return { mode: 'verify', answers, findings, skepticSummaries, unanswered }
+return { mode: 'verify', refuters: REFUTERS, answers, findings, skepticSummaries, unanswered }

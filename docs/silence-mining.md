@@ -68,6 +68,34 @@ never rendering.
 - Note for settling: the engine reserves **R-0046** for the Summoner Eidos
   residue (`packages/engine/src/schemas.ts`); decks number from R-0047.
 
+## Completeness checks before a deck reaches the user
+
+- **Every requested skeptic vote arrived.** `ingest` records `expectedVotes` /
+  `votes` / `underVoted`; `assemble` excludes an under-voted card unless the
+  Lead passes it `--question-only`. Re-run the verify workflow (resume by run
+  id) rather than hand-waving a missing vote.
+- **No dead batches.** A mine run's `deadBatches` (in `mine/dropped.json`)
+  must be empty; resume the run until it is.
+- **Examination coverage.** `mine/dropped.json → examined` must cover every
+  artifact id in the work list's batches; a batch whose agent skipped
+  artifacts is re-run.
+- **Question-only cards** (skeptic upheld the question, killed every
+  proposal, twice): `assemble --question-only <qid>`; the card shows the
+  objections and no proposal; `settle` refuses a Yes/No on such a card
+  without the user's written ruling in the note.
+
+## Launching a run (Lead)
+
+The agent stages run through the Claude Code `Workflow` tool with
+`scriptPath: tools/workflows/silence-mining.workflow.js`. Modes and args:
+`{mode:'mine', repoRoot, deckDir, batches:[{batch, artifactIds, sourcesPath, mapHints}]}`
+(from `mine/worklist.json`, absolute `sourcesPath`) →
+`{mode:'verify', refuters, repoRoot, deckDir, cards:[{qid, group, cardPath}]}`
+(from `cards.json`) → `{mode:'recut', repoRoot, deckDir,
+recut:[{qid, group, cardPath, answersPath}]}`. Optional `model` overrides the
+agent model when the session model is capped. Resume any interrupted run with
+`resumeFromRunId`; identical args replay finished agents from cache.
+
 ## Invariants
 
 - **Verbatim or absent.** Evidence is `artifact-id: "exact words"` fragments;

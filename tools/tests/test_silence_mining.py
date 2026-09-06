@@ -304,3 +304,22 @@ class FromWorkflowTests(Fixture):
         self.assertEqual((n, m), (0, 0))
         self.assertTrue((deck / "settled-elsewhere.json").exists())
         self.assertFalse((deck / "silences.json").exists())
+
+
+class VoteCoverageTests(Fixture):
+    def test_under_voted_card_is_flagged_and_excluded_from_assemble(self):
+        deck = self.root / "deck"
+        q = "Under-voted question?"
+        self.write_json("deck/silences.json", [{"group": "G", "question": q, "sourceArtifactIds": ["mcdm.heroes.v1/condition/alpha"]}])
+        self.write_json("deck/sources.json", extract_sources.extract(str(self.manifest), ["mcdm.heroes.v1/condition/alpha"]))
+        build_deck.prep(str(deck))
+        qid = build_deck.stable_qid(q)
+        out = {"mode": "verify", "refuters": 1,
+               "answers": [{"qid": qid, "question": q, "answer": "A.", "basis": "derived", "evidence": "", "reasoning": "r", "confidence": "low", "consequenceIfWrong": "c", "alternatives": []}],
+               "findings": [], "skepticSummaries": [{"qid": qid, "refutedVotes": 0, "votes": 0, "summaries": []}]}
+        payload = build_deck.ingest(str(deck), out)
+        self.assertEqual(payload["underVoted"], [qid])
+        build_deck.build(str(deck), "t")
+        with self.assertRaises(ValueError) as caught:
+            build_deck.assemble(str(self.root / "final"), [str(deck)], "Final")
+        self.assertIn("no unrefuted cards", str(caught.exception))
