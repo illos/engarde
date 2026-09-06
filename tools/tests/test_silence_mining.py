@@ -262,8 +262,10 @@ class AssembleTests(Fixture):
         build_deck.prep(str(deck))
         qid1, qid2 = build_deck.stable_qid(q1), build_deck.stable_qid(q2)
         answer = lambda qid, q: {"qid": qid, "question": q, "answer": "A.", "basis": "derived", "evidence": "", "reasoning": "r", "confidence": "low", "consequenceIfWrong": "c", "alternatives": []}
-        build_deck.ingest(str(deck), {"mode": "verify", "answers": [answer(qid1, q1), answer(qid2, q2)],
-                                      "findings": [{"qid": qid2, "kind": "pin-answers-it", "skeptic": 1, "problem": "printed", "correctedBasis": "printed"}]})
+        build_deck.ingest(str(deck), {"mode": "verify", "refuters": 1, "answers": [answer(qid1, q1), answer(qid2, q2)],
+                                      "findings": [{"qid": qid2, "kind": "pin-answers-it", "skeptic": 1, "problem": "printed", "correctedBasis": "printed"}],
+                                      "skepticSummaries": [{"qid": qid1, "refutedVotes": 0, "votes": 1, "summaries": ["ok"]},
+                                                           {"qid": qid2, "refutedVotes": 1, "votes": 1, "summaries": ["printed"]}]})
         build_deck.build(str(deck), "t")
         rc, count = build_deck.assemble(str(self.root / "final"), [str(deck)], "Final")
         self.assertEqual((rc, count), (0, 1))
