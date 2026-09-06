@@ -1726,3 +1726,234 @@ per-ability counter lacks.
 mcdm.monsters.v1/monster.giant.statblock/marble-stone-giant,
 mcdm.monsters.v1/monster.lich/lich-malice,
 mcdm.monsters.v1/monster.manticore/manticore-malice.
+
+
+<!-- R-0055..R-0058: settled from deck rule-these-2026-09-05 (Mine, DEC-0021; the-basics / introduction / monster-basics chapters). Evidence copied from the quote-verified card payloads. -->
+
+## R-0055 — Starting Malice from the Victories average rounds DOWN (approved 2026-09-05)
+
+**Question:** When the Director's starting Malice is computed as the average Victories per
+hero and that average is not a whole number, how is the fraction rounded —
+down (the only rounding direction the books ever print), or some other way?
+
+**Ruling:** When the Director's starting Malice is computed from the heroes' Victories,
+take the whole-number part of the average: add up the Victories of every hero
+in the battle, divide by the number of heroes, discard any fraction. Heroes
+with 3, 3 and 2 Victories average 2.67, so the Director starts with 2 Malice
+from Victories, before the per-round grant of hero count plus round number.
+Every Malice amount the book prints, grants and costs alike, is a whole
+number; the book's only printed rounding direction is down.
+
+**Evidence (verbatim):** "At the start of combat, you gain Malice equal to the average number of"
+[mcdm.monsters.v1/rule.monster/malice] · "you begin that combat with 9
+Malice-3 for the average number of Victories, 5 for the number of heroes, and
+1 for the first round of combat" [mcdm.monsters.v1/rule.monster/malice] ·
+"Sometimes the rules tell you to divide a number in half. Whenever you divide
+an odd number in half and it results in a decimal, round the result down to
+the nearest whole number." [mcdm.heroes.v1/rule.general/always-round-down] ·
+"A hero also has a recovery value that equals one-third of their"
+[mcdm.heroes.v1/rule.health/recoveries] · "maximum, rounded down."
+[mcdm.heroes.v1/rule.health/recoveries] · "you gain only half the guide's
+knowledge value (rounded down)" [mcdm.heroes.v1/rule.downtime/guide]
+
+**Engine consequence:** a fixed engine default, no Director prompt. The start-of-combat receipt shows
+each hero's Victories, the unrounded average, and the rounded result so the
+Director can adjust.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-05`
+(docKey ce07e04df8589331, cardHash bd9a90f0abb9 verified), 2026-09-05. Basis
+`derived`; sources mcdm.monsters.v1/rule.monster/malice,
+mcdm.heroes.v1/rule.general/always-round-down.
+
+## R-0056 — The 3-surge extra-damage cap is PER USE of the ability, landing on one target (approved 2026-09-05)
+
+**Question:** Is the 3-surge limit on extra damage a limit PER USE of the ability (at most 3
+surges in total, all on one creature or object) or PER TARGET (up to 3 surges
+on each creature or object the ability damages)?
+
+**Ruling:** When a hero deals rolled damage with an ability, they may spend at most 3
+surges in total for that use, and all of them add extra damage to a single
+creature or object among the ability's targets. An area ability that damages
+three creatures does not let the hero spend 3 surges on each; the ceiling is 3
+for the whole use, on one chosen target. Each surge adds extra damage equal to
+the hero's highest characteristic score (printed). The potency use of surges
+is separate and printed as such: 2 surges raise a potency by 1 for one target,
+no target's potency may be raised by more than 1, and additional surges may
+raise the potency for other targets. Surge damage is available only on rolled
+damage (printed).
+
+**Evidence (verbatim):** "you can spend up to 3 surges to deal extra damage to one creature or object
+targeted by the ability" [mcdm.heroes.v1/rule.resource/surge] · "Each surge
+you spend deals extra damage equal to your highest
+[characteristic](scc.v1:mcdm.heroes.v1/rule.character/characteristic) score."
+[mcdm.heroes.v1/rule.resource/surge] · "you can spend 2 surges to increase the
+[potency](scc.v1:mcdm.heroes.v1/rule.character/potency) by 1 for one target."
+[mcdm.heroes.v1/rule.resource/surge] · "though you can spend additional surges
+to increase the [potency](scc.v1:mcdm.heroes.v1/rule.character/potency) for
+multiple targets." [mcdm.heroes.v1/rule.resource/surge] · "You lose surges as
+you spend them. At the end of combat, you lose any surges you have remaining."
+[mcdm.heroes.v1/rule.resource/surge] · "If an ability or effect deals damage
+without requiring a [power roll](scc.v1:mcdm.heroes.v1/rule.dice/power-roll),
+that is not rolled damage, and effects that add to or are triggered by rolled
+damage don't apply." [mcdm.heroes.v1/rule.damage/rolled-damage] · "You can
+spend a [hero token](scc.v1:mcdm.heroes.v1/rule.resource/hero-token) to gain 2
+[surges](scc.v1:mcdm.heroes.v1/rule.resource/surge), allowing you to increase
+the [damage](scc.v1:mcdm.heroes.v1/rule.damage/damage) or
+[potency](scc.v1:mcdm.heroes.v1/rule.character/potency) of an ability."
+[mcdm.heroes.v1/rule.resource/hero-token]
+
+**Engine consequence:** the surge damage spend is keyed to the ability use (one resolution entry,
+R-0032), capped at 3, attributed to exactly one target. Spending more than 3
+on one use, or splitting surges across targets, warns and applies (R-0030),
+never refuses.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-05`
+(docKey ce07e04df8589331, cardHash 338915902f00 verified), 2026-09-05. Basis
+`derived`; sources mcdm.heroes.v1/rule.resource/surge.
+
+## R-0057 — A potency-only resource spend on a multi-target ability is spent if at least one target is affected; waived only when every target resists (approved 2026-09-05)
+
+**Question:** When a Malice or Heroic Resource spend buys an effect that depends ENTIRELY on
+a potency, and the ability has two or more targets of which some resist the
+potency and some do not, is the resource spent?
+
+**Ruling:** When a Malice or Heroic Resource spend buys an effect that depends entirely on
+a potency and the ability has two or more targets, the resource is spent if at
+least one target is affected, and is not spent only when every target resists
+the potency. A flat printed cost such as "2 Malice" is one indivisible spend
+covering every target of that use; there is no per-target refund or pro-
+rating. Spends that carry any other automatic effect (extra damage, terrain, a
+widened area) are always spent regardless of potency results; that part is
+printed and not touched by this ruling.
+
+**Evidence (verbatim):** "If an ability or feature allows you to spend your Heroic Resource on an
+effect that is entirely dependent on a potency and the target is unaffected
+because their characteristic is high enough to resist the potency, then you
+don't spend the Heroic Resource." [mcdm.heroes.v1/rule.character/potency] ·
+"Since spending focus this way has no other effect, if the tactician targets a
+creature whose high Reason leaves them unaffected, the tactician doesn't waste
+any focus." [mcdm.heroes.v1/rule.character/potency] · "However, if spending
+this focus had another automatic effect such as dealing extra damage to the
+target, the 1 focus would be spent even though the potency was resisted."
+[mcdm.heroes.v1/rule.character/potency] · "This rule also applies to Director-
+controlled creatures who spend Malice on abilities and features that affect a
+target using a potency and have no other automatic effects."
+[mcdm.heroes.v1/rule.character/potency] · "Two creatures or objects"
+[mcdm.monsters.v1/monster.rival.2nd-echelon.statblock/rival-fury] · "Each
+target who has M < 2 is slowed (save ends)."
+[mcdm.monsters.v1/monster.rival.2nd-echelon.statblock/rival-fury] · "Each
+target who has M < 1 is bleeding (save ends)."
+[mcdm.monsters.v1/monster.ogre.statblock/ogre-juggernaut] · "Two creatures or
+objects" [mcdm.monsters.v1/monster.draconian.statblock/dorzinuuth-the-base] ·
+"If the target has M < 4, they are also bleeding (save ends)."
+[mcdm.monsters.v1/monster.draconian.statblock/dorzinuuth-the-base] · "Get
+Them, You Dolts! (1 Malice per target)" [mcdm.monsters.v1/monster.war-dog.2nd-
+echelon.statblock/war-dog-tetrarch] · "you can spend 2 surges to increase the
+potency by 1 for one target" [mcdm.heroes.v1/rule.resource/surge] · "you can
+spend additional surges to increase the potency for multiple targets."
+[mcdm.heroes.v1/rule.resource/surge] · "You can always affect fewer targets
+than the number indicated by this entry." [mcdm.heroes.v1/rule.combat/target]
+
+**Engine consequence:** the receipt names each target's potency-gate result (affected / resisted) and
+then the single debit decision (spent / waived) with the reason. If a target's
+potency gate cannot be resolved (no tracked characteristics), the waiver is
+not proven: the engine applies no effect to that target (existing behavior)
+and routes the debit decision to the Director on a table-directive receipt
+rather than silently waiving or charging.
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-05`
+(docKey ce07e04df8589331, cardHash 17770c793775 verified), 2026-09-05. Basis
+`derived`; sources mcdm.heroes.v1/rule.character/potency,
+mcdm.monsters.v1/monster.rival.2nd-echelon.statblock/rival-fury,
+mcdm.monsters.v1/monster.ogre.statblock/ogre-juggernaut.
+
+## R-0058 — Malice activations at one monster's turn start: ONE Basic-list feature plus ONE creature-side feature; level-banded lists share the creature pick (approved 2026-09-05)
+
+**Question:** at the start of one monster's turn, how many Malice-feature activations may
+the Director make, and from which printed lists?
+
+**Ruling:** At the start of one monster's turn the Director may make at most two Malice-
+feature activations, one from each of two separate allowances, each paid at
+the feature's printed cost: (1) one feature from the Basic Malice list printed
+inside the general Malice rule, open to every monster; and (2) one feature
+from the creature side, meaning one feature in total from all "[Creature]
+Malice" lists the monster qualifies for, however many such lists it satisfies.
+A monster type's level-banded lists (undead, demon, war dog at level 1, 4, 7,
+10) and any related-type list (a hobgoblin's or bugbear's access to goblin
+features) do not each grant an extra pick. The printed "Prior Malice Features"
+and "Goblin Malice Features" pointer entries are how the single creature-side
+pick reaches a lower or related list, and they charge the reached feature's
+own printed price (each pointer's price range is exactly the lower list's
+spread). Two features from the same allowance at one turn start breach the
+cap. Stat-block Malice riders on individual abilities are a separate spending
+channel and are not counted. Malicious Strike's own "can't be used two rounds
+in a row, even by different monsters" restriction applies on top.
+
+**Evidence (verbatim):** "All monsters have access to the following Malice features, in addition to
+any" [mcdm.monsters.v1/rule.monster/malice] · "At the start of any monster's
+turn, you can spend Malice to activate one of the following features:"
+[mcdm.monsters.v1/rule.monster/malice] · "Specific types of monsters sometimes
+have other ways they can spend Malice once per turn"
+[mcdm.monsters.v1/rule.monster/malice] · "Monsters can spend Malice the way
+heroes spend their Heroic Resource, activating and enhancing their abilities."
+[mcdm.monsters.v1/rule.monster/malice] · "At the start of any goblin's turn,
+you can spend Malice to activate one of the following features."
+[mcdm.monsters.v1/monster.goblin/goblin-malice] · "Goblin Mode (3 Malice)"
+[mcdm.monsters.v1/monster.goblin/goblin-malice] · "Swamp Stink (7 Malice)"
+[mcdm.monsters.v1/monster.goblin/goblin-malice] · "At the start of any
+undead's turn, you can spend Malice to activate one of the following
+features." [mcdm.monsters.v1/monster.undead.1st-echelon/undead-malice-
+level-1-malice-features] · "Ravenous Horde (2 Malice)"
+[mcdm.monsters.v1/monster.undead.1st-echelon/undead-malice-level-1-malice-
+features] · "Dread March (7+ Malice)" [mcdm.monsters.v1/monster.undead.1st-
+echelon/undead-malice-level-1-malice-features] · "At the start of any level 4
+or higher undead's turn, you can spend Malice to activate one of the following
+features." [mcdm.monsters.v1/monster.undead.2nd-echelon/undead-malice-
+level-4-malice-features] · "Prior Malice Features (2-7+ Malice)"
+[mcdm.monsters.v1/monster.undead.2nd-echelon/undead-malice-level-4-malice-
+features] · "The undead activates a Malice feature available to undead of
+level 3 or lower." [mcdm.monsters.v1/monster.undead.2nd-echelon/undead-malice-
+level-4-malice-features] · "The undead activates a Malice feature available to
+undead of level 9 or lower." [mcdm.monsters.v1/monster.undead.4th-
+echelon/undead-malice-level-10-malice-features] · "Prior Malice Features (3-7
+Malice)" [mcdm.monsters.v1/monster.war-dog.2nd-echelon/war-dog-malice-
+level-4-malice-features] · "The war dog activates a Malice feature available
+to war dogs of level 3 or lower." [mcdm.monsters.v1/monster.war-dog.2nd-
+echelon/war-dog-malice-level-4-malice-features] · "Reconstitute (3 Malice)"
+[mcdm.monsters.v1/monster.war-dog.1st-echelon/war-dog-malice-level-1-malice-
+features] · "Fodder Run (7 Malice)" [mcdm.monsters.v1/monster.war-dog.1st-
+echelon/war-dog-malice-level-1-malice-features] · "The demon activates a
+Malice feature available to demons of level 6 or lower."
+[mcdm.monsters.v1/monster.demon.3rd-echelon/demon-malice-level-7-malice-
+features] · "Soulburn (3 Malice)" [mcdm.monsters.v1/monster.demon.1st-
+echelon/demon-malice-level-1-malice-features] · "Abyssal Rift (7 Malice)"
+[mcdm.monsters.v1/monster.demon.1st-echelon/demon-malice-level-1-malice-
+features] · "At the start of any hobgoblin's turn, you can spend Malice to
+activate one of the following features."
+[mcdm.monsters.v1/monster.hobgoblin/hobgoblin-malice] · "Goblin Malice
+Features (3-7 Malice)" [mcdm.monsters.v1/monster.hobgoblin/hobgoblin-malice] ·
+"The hobgoblin activates a Malice Feature available to goblins."
+[mcdm.monsters.v1/monster.hobgoblin/hobgoblin-malice] · "The bugbear activates
+a Malice Feature available to goblins."
+[mcdm.monsters.v1/monster.bugbear/bugbear-malice] · "Goblin, Hobgoblin,
+Humanoid, Infernal" [mcdm.monsters.v1/monster.hobgoblin.statblock/hobgoblin-
+bloodlord] · "a creature with the Goblin keyword benefits from and can
+contribute to goblin Malice features" [mcdm.monsters.v1/rule.monster/keyword]
+
+**Engine consequence:** when the malice family is built, a per-monster-turn-start counter with two
+slots, `basic` and `creature`. A pointer entry resolves to the pointed feature
+at that feature's printed cost and consumes the `creature` slot. A third
+activation, or a second in an already-used slot, emits a rule-violation
+receipt quoting the breached list's one-pick sentence and is applied anyway
+(R-0030).
+
+**Gate 3:** accepted via the ruling-deck surface `rule-these-2026-09-05`
+(docKey ce07e04df8589331, cardHash 8542a712d1b0 verified), 2026-09-05. Basis
+`derived`; sources mcdm.monsters.v1/rule.monster/malice,
+mcdm.monsters.v1/monster.goblin/goblin-malice,
+mcdm.monsters.v1/rule.monster/keyword, mcdm.monsters.v1/monster.undead.1st-
+echelon/undead-malice-level-1-malice-features,
+mcdm.monsters.v1/monster.undead.2nd-echelon/undead-malice-level-4-malice-
+features, mcdm.monsters.v1/monster.undead.3rd-echelon/undead-malice-
+level-7-malice-features, mcdm.monsters.v1/monster.undead.4th-echelon/undead-
+malice-level-10-malice-features.
